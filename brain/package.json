@@ -1,0 +1,4 @@
+{
+  "//": "the brain shell is CommonJS; the bridge beside it is a module. See the comment in bash.",
+  "type": "commonjs"
+}

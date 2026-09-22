@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+// The shell a brain in the complex uses, so every Bash command it runs executes on a client.
+//
+// Claude Code is started with CLAUDE_CODE_SHELL pointing here, and keeps ALL of its own tools:
+// background commands and the notice when they finish, their output, killing them, subagents,
+// hooks. Only the place a command runs changes. The file is named `bash` because Claude Code
+// accepts a custom shell only when its path contains "bash" or "zsh" (learned from
+// torarnv/claude-remote-shell, the prior art this copies; see README.md).
+//
+// Measured on Claude Code 2.1.251, it calls the shell three ways:
+//   bash -c env                       reads the environment once
+//   bash -c -l <script>               builds a snapshot of the shell's functions and options
+//   bash -c "source <snapshot> ... && eval '<cmd>' < /dev/null && pwd -P >| /tmp/claude-XXXX-cwd"
+// The last one writes the working directory into a LOCAL file that Claude reads after the
+// command, which is how `cd` persists between calls. Run remotely, that file lands on the
+// client, so it is asked back and written here, or every `cd` would silently be forgotten.
+//
+// Environment:
+//   PAC_BRIDGE        http://pac-bridge:8790
+//   PAC_BRAIN_TOKEN   the brain token
+//   PAC_CLIENT        which connected client runs the commands
+//   PAC_PATH_MAP      optional "local=remote;local2=remote2", for when the brain sees the
+//                     client's files under different paths than the client does
+
+// CommonJS on purpose: this file has no extension, and module syntax detection on an
+// extensionless file is exactly the kind of thing that changes between Node versions.
+const http = require('node:http')
+const fs = require('node:fs')
+const { constants } = require('node:os')
+
+const args = process.argv.slice(2)
+const login = args.includes('-l')
+const command = args[args.length - 1] ?? ''
+const BRIDGE = process.env.PAC_BRIDGE || 'http://pac-bridge:8790'
+const CLIENT = process.env.PAC_CLIENT
+const TOKEN = process.env.PAC_BRAIN_TOKEN
+
+if (!CLIENT || !TOKEN) {
+  process.stderr.write('pac-bridge shell: PAC_CLIENT and PAC_BRAIN_TOKEN must be set\n')
+  process.exit(126)
+}
+
+const pairs = (process.env.PAC_PATH_MAP || '').split(';').filter(Boolean).map((p) => p.split('='))
+// Claude Code writes a snapshot of the shell into ~/.claude/shell-snapshots and sources it before
+// every command. Run remotely, that landed in the CLIENT's home: in production, inside the
+// .claude directory of the agent who lives there. It goes to the client's /tmp instead.
+const SNAP_LOCAL = `${process.env.HOME || '/root'}/.claude/shell-snapshots`
+const SNAP_REMOTE = '/tmp/pac-bridge-snapshots'
+pairs.push([SNAP_LOCAL, SNAP_REMOTE])
+// ⛔ A PATH IS REPLACED ONLY WHOLE. The first version swapped the substring, so with the map
+// "/srv/x=/repo" every "/reports" and "/repository" in a command's output came back
+// mangled into "/srv/xrts". Caught on the first live session, by reading its screen.
+// A prefix counts only where the next character ends a path segment, or at the end.
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const swap = (s, from, to) => s.replace(new RegExp(esc(from) + '(?=[/\\s\'"`:;,)\\]}>|]|$)', 'g'), to)
+const toRemote = (s) => pairs.reduce((a, [l, r]) => swap(a, l, r), s)
+const toLocal = (s) => pairs.reduce((a, [l, r]) => swap(a, r, l), s)
+
+const remoteCommand = (command.includes(SNAP_LOCAL) ? `mkdir -p ${SNAP_REMOTE}; ` : '') + toRemote(command)
+const cwdFile = /pwd -P >\| (\S+)\s*$/.exec(remoteCommand)?.[1]
+
+// Line-buffered only when paths are rewritten, so a path split across two chunks is not missed.
+const outs = { 1: process.stdout, 2: process.stderr }
+const pending = { 1: '', 2: '' }
+function write(fd, buf) {
+  if (!pairs.length) return outs[fd].write(buf)
+  pending[fd] += buf.toString('utf8')
+  const cut = pending[fd].lastIndexOf('\n')
+  if (cut < 0) return
+  outs[fd].write(toLocal(pending[fd].slice(0, cut + 1)))
+  pending[fd] = pending[fd].slice(cut + 1)
+}
+function flush() {
+  for (const fd of [1, 2]) if (pending[fd]) { outs[fd].write(toLocal(pending[fd])); pending[fd] = '' }
+}
+
+const u = new URL('/exec', BRIDGE)
+const req = http.request(u, {
+  method: 'POST',
+  headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+})
+
+let exitCode = 255
+let line = ''
+req.on('response', (res) => {
+  if (res.statusCode !== 200) {
+    let s = ''
+    res.on('data', (d) => (s += d))
+    res.on('end', () => {
+      process.stderr.write(`pac-bridge shell: ${res.statusCode} ${s}\n`)
+      process.exit(126)
+    })
+    return
+  }
+  res.setEncoding('utf8')
+  res.on('data', (d) => {
+    line += d
+    let i
+    while ((i = line.indexOf('\n')) >= 0) {
+      const m = JSON.parse(line.slice(0, i))
+      line = line.slice(i + 1)
+      if (m.t === 'out') write(m.fd, Buffer.from(m.data, 'base64'))
+      else if (m.t === 'exit') {
+        flush()
+        if (m.error) process.stderr.write(`pac-bridge shell: ${m.error}\n`)
+        for (const [f, content] of Object.entries(m.files || {})) {
+          try { fs.writeFileSync(toLocal(f), toLocal(content)) } catch (e) {
+            process.stderr.write(`pac-bridge shell: could not write back ${f}: ${e}\n`)
+          }
+        }
+        exitCode = m.code ?? 255
+      }
+    }
+  })
+  res.on('end', () => {
+    flush()
+    process.stdout.write('', () => process.exit(exitCode))
+  })
+})
+req.on('error', (e) => {
+  process.stderr.write(`pac-bridge shell: cannot reach the bridge at ${BRIDGE}: ${e.message}\n`)
+  process.exit(126)
+})
+
+// Killed here means killed there: dropping the request makes the bridge kill the command on
+// the client. SIGKILL cannot be caught, but it closes the socket, and the bridge acts on that.
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+  process.on(sig, () => { req.destroy(); process.exit(128 + constants.signals[sig]) })
+}
+
+req.end(JSON.stringify({
+  client: CLIENT,
+  command: remoteCommand,
+  cwd: toRemote(process.cwd()),
+  login,
+  returnFiles: cwdFile ? [cwdFile] : [],
+}))

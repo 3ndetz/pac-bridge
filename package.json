@@ -1,0 +1,7 @@
+{
+  "name": "pac-bridge",
+  "private": true,
+  "type": "module",
+  "description": "Brains here, hands there: see README.md",
+  "dependencies": { "ws": "^8.18.0" }
+}

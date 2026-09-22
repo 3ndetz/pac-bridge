@@ -1,0 +1,90 @@
+#!/bin/sh
+# Run one bridged brain: Claude Code in the controller, its hands on a client. The one place that
+# knows how to start such a brain; whatever wakes a brain (a project's loop, the door) calls this.
+#
+#   PAC_CLIENT=my-agent PAC_ROOT=/srv/my-project PAC_ROOT_AS=/repo \
+#   PAC_CWD=/repo/agent/my-agent PAC_RW="/repo/agent/my-agent /repo/agent/shared" \
+#     run -p --continue --model sonnet --output-format stream-json --verbose "<prompt>"
+#
+#   PAC_CLIENT   the bridge client whose hands this brain uses
+#   PAC_ROOT     the client's files as the controller sees them
+#   PAC_ROOT_AS  the same files as the client sees them; the brain sees them THERE too
+#   PAC_CWD      where the brain stands, in the client's paths
+#   PAC_RW       the client paths the brain may write; everything else under PAC_ROOT_AS is read-only,
+#                mirroring what the client itself may write
+#   PAC_MASK     "dst=src ..." in client paths: files the client sees REPLACED by a masked copy
+#   PAC_HIDE     client paths the brain must not see at all (an empty tmpfs goes over them)
+#
+# ⛔ MIRROR THE CLIENT'S MASKS, OR THE BRAIN SEES MORE THAN THE CLIENT DOES. A game agent's
+# container overlays /repo/.env and /repo/secrets with masked copies and /repo/.git with a volume.
+# Binding the plain repository here would have handed the brain the real secrets its own body is
+# deliberately kept from. Found by comparing the two mount tables before the loop was switched.
+#   PAC_RUN_NAME optional: runs sharing a name replace each other (default: the client). A loop's
+#                sessions share one; a session raised by hand for the same client takes another.
+# Everything after is passed to `claude` unchanged.
+#
+# Where the bridge is and where the tokens live is this installation's business, not the code's:
+# ../bridge.env (or $PAC_BRIDGE_CONF) sets PAC_BRIDGE and PAC_SECRETS. The brain token used is
+# $PAC_SECRETS/brain-<client>.token, scoped by the bridge to that one client, so a brain working
+# for one client cannot reach another's hands.
+#
+# ⛔ SAME PATHS ON BOTH SIDES. The client's instructions name /repo/... everywhere, and the brain's
+# Read and Edit run HERE. So the brain gets its own mount namespace (bwrap, as the complex's rooms
+# do) with the client's tree bound at the client's own path: no path is translated, no instruction
+# is wrong, and the controller's own files, the login aside, are simply not there to be read.
+#
+# ⛔ ONE RUN PER CLIENT. A caller that dies (a restarted loop, a dropped `docker exec`) does not
+# kill what it started inside this container, so the previous run is killed here first, by pid.
+set -eu
+: "${PAC_CLIENT:?}" "${PAC_ROOT:?}" "${PAC_ROOT_AS:?}" "${PAC_CWD:?}"
+HERE=$(cd "$(dirname "$0")" && pwd)
+BRIDGE_DIR=$(cd "$HERE/.." && pwd)
+CONF=${PAC_BRIDGE_CONF:-$BRIDGE_DIR/bridge.env}
+# shellcheck disable=SC1090
+[ -f "$CONF" ] && . "$CONF"
+TOKEN_FILE=${PAC_BRAIN_TOKEN_FILE:-${PAC_SECRETS:-/nonexistent}/brain-$PAC_CLIENT.token}
+[ -r "$TOKEN_FILE" ] || { echo "pac run: no brain token for $PAC_CLIENT at $TOKEN_FILE" >&2; exit 126; }
+PIDF="/tmp/pac-brain-${PAC_RUN_NAME:-$PAC_CLIENT}.pid"
+
+# The pid written is this shell's, which `exec` below turns into bwrap itself. Killing bwrap is
+# enough: the brain runs in bwrap's own pid namespace with --die-with-parent, so everything in it
+# dies with it. (Not `setsid`: when the caller is already a group leader, setsid forks and returns
+# at once, and a caller reading the brain's output would read nothing.)
+if [ -f "$PIDF" ] && old=$(cat "$PIDF") && kill -0 "$old" 2>/dev/null; then
+  kill -TERM "$old" 2>/dev/null || true
+  sleep 2
+  kill -KILL "$old" 2>/dev/null || true
+fi
+echo $$ > "$PIDF"
+
+rw=""
+for p in ${PAC_RW:-}; do
+  rw="$rw --bind $PAC_ROOT${p#"$PAC_ROOT_AS"} $p"
+done
+
+for m in ${PAC_MASK:-}; do
+  d=${m%%=*} s=${m#*=}
+  rw="$rw --ro-bind $PAC_ROOT${s#"$PAC_ROOT_AS"} $d"
+done
+for h in ${PAC_HIDE:-}; do
+  rw="$rw --tmpfs $h"
+done
+
+# The mount point for the client's root must exist in THIS container's filesystem for bwrap to
+# bind onto it; it stays an empty directory outside every sandbox.
+[ -d "$PAC_ROOT_AS" ] || mkdir -p "$PAC_ROOT_AS"
+
+# shellcheck disable=SC2086
+exec bwrap --unshare-all --share-net --die-with-parent \
+  --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin \
+  --ro-bind /etc /etc \
+  --bind /root/.claude /root/.claude --bind /root/.claude.json /root/.claude.json \
+  --proc /proc --dev /dev --tmpfs /tmp \
+  --ro-bind "$HERE" /bridge \
+  --ro-bind "$PAC_ROOT" "$PAC_ROOT_AS" $rw \
+  --setenv HOME /root --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv IS_SANDBOX 1 \
+  --setenv CLAUDE_CODE_SHELL /bridge/bash \
+  --setenv PAC_BRIDGE "${PAC_BRIDGE:-http://pac-bridge:8790}" --setenv PAC_CLIENT "$PAC_CLIENT" \
+  --setenv PAC_BRAIN_TOKEN "$(cat "$TOKEN_FILE")" \
+  --chdir "$PAC_CWD" \
+  -- claude --disallowedTools 'Read(~/.claude/.credentials.json)' 'Edit(~/.claude/.credentials.json)' "$@"

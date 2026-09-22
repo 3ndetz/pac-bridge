@@ -1,0 +1,20 @@
+# pac-bridge: brains here, hands there. README.md.
+#   docker compose up -d --build
+# Run it WITHOUT -f, so compose.override.yml (this installation's networks) is merged in.
+services:
+  bridge:
+    build: .
+    container_name: pac-bridge
+    restart: unless-stopped
+    environment:
+      TOKENS: /secrets/tokens.json
+    volumes:
+      # Only hashes of tokens live here (tokens.json), and the file is re-read on every check, so
+      # a client is added by editing it rather than by restarting the bridge. Where the directory
+      # is belongs to the installation: PAC_TOKENS_DIR in .env beside this file.
+      - ${PAC_TOKENS_DIR:-./secrets}:/secrets:ro
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+# Clients and the controller must reach it: put it on the network they share (an override file
+# is the place for that), or publish 8790 behind TLS for clients on other machines.

@@ -1,0 +1,59 @@
+#!/bin/sh
+# Raise a LIVE bridged brain by hand: an interactive Claude Code session in a tmux window, started
+# through brain/run (the one place a bridged brain is started), and filmed as it works.
+#
+#   PAC_CLIENT=... PAC_ROOT=... PAC_ROOT_AS=... PAC_CWD=... [PAC_RW=... PAC_MASK=... PAC_HIDE=...] \
+#     launch <window> <prompt-file> [model]
+#
+# The PAC_* variables mean what they mean for brain/run. The window lives in the `bridge` tmux
+# server, session `brains`, and its runs are named after the window, so a session raised by hand
+# never replaces the one a project's loop is running for the same client.
+#
+# Interactive on purpose: channel events reach a live session and never a `claude -p` run
+# (measured, README.md). The start-up questions Claude asks in a new directory are answered
+# here by reading the screen, because a session nobody answers waits forever.
+#
+# The terminal is recorded (brain/record) into data/footage/<window>-<time> under the brain's
+# working directory, which the client sees too: VIDEO-001 says a video shows the event, and for a
+# bridged brain the event is its terminal.
+set -eu
+WIN=$1 PROMPT=$2 MODEL=${3:-sonnet}
+: "${PAC_CLIENT:?}" "${PAC_ROOT:?}" "${PAC_ROOT_AS:?}" "${PAC_CWD:?}"
+HERE=$(cd "$(dirname "$0")" && pwd)
+SOCK=bridge
+LOCAL_CWD=$PAC_ROOT${PAC_CWD#"$PAC_ROOT_AS"}
+REC="$LOCAL_CWD/data/footage/$WIN-$(date +%Y%m%d-%H%M)"
+RUN=/tmp/bridge-launch-$WIN.sh
+
+{
+  echo '#!/bin/sh'
+  for v in PAC_CLIENT PAC_ROOT PAC_ROOT_AS PAC_CWD PAC_RW PAC_MASK PAC_HIDE PAC_BRIDGE_CONF; do
+    eval "val=\${$v:-}"
+    [ -n "$val" ] && printf "export %s='%s'\n" "$v" "$val"
+  done
+  printf "export PAC_RUN_NAME='%s'\n" "$WIN"
+  printf "exec '%s/run' --model '%s' --dangerously-skip-permissions -- \"\$(cat '%s')\"\n" "$HERE" "$MODEL" "$PROMPT"
+} > "$RUN"
+chmod +x "$RUN"
+
+tmux -L $SOCK has-session -t brains 2>/dev/null || tmux -L $SOCK new-session -d -s brains -x 130 -y 40 -n idle
+tmux -L $SOCK kill-window -t "brains:$WIN" 2>/dev/null || true
+tmux -L $SOCK new-window -d -t brains -n "$WIN" "$RUN"
+tmux -L $SOCK set-option -t "brains:$WIN" remain-on-exit on >/dev/null
+
+# Answer the start-up questions: trust this folder, allow the persona's imported files, accept
+# skipping permissions. Each is recognised by its own words and answered once.
+i=0
+while [ $i -lt 40 ]; do
+  s=$(tmux -L $SOCK capture-pane -p -t "brains:$WIN" 2>/dev/null || true)
+  case "$s" in
+    *"Yes, I trust this folder"*)          tmux -L $SOCK send-keys -t "brains:$WIN" Down Enter ;;
+    *"Yes, allow external imports"*)       tmux -L $SOCK send-keys -t "brains:$WIN" Down Enter ;;
+    *"Yes, I accept"*)                     tmux -L $SOCK send-keys -t "brains:$WIN" Down Enter ;;
+    *"esc to interrupt"*|*"Esc to interrupt"*) break ;;
+  esac
+  i=$((i + 1)); sleep 2
+done
+
+nohup "$HERE/record" $SOCK "brains:$WIN" "$REC" > /dev/null 2>&1 &
+echo "session brains:$WIN on client $PAC_CLIENT, recording to $REC"

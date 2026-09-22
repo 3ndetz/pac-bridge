@@ -1,0 +1,26 @@
+#!/bin/sh
+# Record a tmux pane as footage: one ANSI text frame each time the screen changes.
+#
+#   record <tmux-socket> <target-pane> <out-dir> [interval-seconds]
+#
+# Frames are named by milliseconds since the recording began (000001234.ansi), so the real timing
+# is kept and a renderer can hold each frame for exactly as long as it was on screen. A frame is
+# written only when the pane changed, so an idle session costs nothing.
+#
+# Why this exists: VIDEO-001 says a video shows the event itself, and for a brain working
+# through the bridge the event IS its terminal. Nothing else records it; the transcript holds the
+# words and not what the screen looked like.
+set -eu
+SOCK=$1 PANE=$2 OUT=$3 EVERY=${4:-0.5}
+mkdir -p "$OUT"
+start=$(date +%s%3N)
+last=""
+while tmux -L "$SOCK" has-session -t "${PANE%%:*}" 2>/dev/null; do
+  frame=$(tmux -L "$SOCK" capture-pane -p -e -t "$PANE" 2>/dev/null) || break
+  if [ "$frame" != "$last" ]; then
+    now=$(date +%s%3N)
+    printf '%s\n' "$frame" > "$OUT/$(printf '%09d' $((now - start))).ansi"
+    last=$frame
+  fi
+  sleep "$EVERY"
+done
