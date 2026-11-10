@@ -59,6 +59,13 @@ test('obtains OMP RPC state, changes models and registers a host tool without in
     assert.equal(tools.command, 'set_host_tools')
     assert.equal(tools.success, true)
     assert.ok(tools.data?.toolNames?.includes('pac_probe_echo'))
+    const commands = await request({ id: 'probe-commands', type: 'get_commands' })
+    assert.equal(commands.type, 'response')
+    assert.equal(commands.command, 'get_commands')
+    assert.equal(commands.success, false)
+    const available = await request({ id: 'probe-available-commands', type: 'get_available_commands' })
+    assert.equal(available.success, true)
+    assert.ok(Array.isArray(available.data?.commands))
   } finally {
     const exited = child.exitCode === null ? once(child, 'close') : Promise.resolve()
     lines.close()
