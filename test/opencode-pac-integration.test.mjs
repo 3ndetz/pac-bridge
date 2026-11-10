@@ -84,6 +84,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   try {
     const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1'
     const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
+    const bashTest = process.env.PAC_LIVE_BASH_TEST === '1'
     const writeTest = process.env.PAC_LIVE_WRITE_TEST === '1' || denyTest
     const fixture = join(root, 'source-fixture.txt')
     if (toolTest) await writeFile(fixture, 'PAC_READ_FIXTURE_CONTENT')
@@ -99,12 +100,14 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
       PAC_CONTROLLER_CWD: process.env.PAC_LIVE_CONTROLLER_CWD }
     if (denyTest) env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'deny' } })
-    const prompt = writeTest
+    const prompt = bashTest
+      ? 'Use Bash to run exactly: printf PAC_BASH_FIXTURE_CONTENT > bash-fixture.txt. Then say PAC_BASH_VERIFIED.'
+      : writeTest
       ? `Use Write to create the local file ${fixture} containing exactly PAC_WRITE_FIXTURE_CONTENT. Then say PAC_WRITE_VERIFIED.`
       : toolTest
       ? `Read the local file ${fixture}. If it contains PAC_READ_FIXTURE_CONTENT, finish your response with PAC_READ_VERIFIED.`
       : 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'
-    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(writeTest ? ['--auto'] : []), prompt],
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(writeTest || bashTest ? ['--auto'] : []), prompt],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
     const deadline = setTimeout(() => stopContained(child), 150000)
@@ -114,8 +117,12 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     clearTimeout(deadline)
     const categories = errors.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
     assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
-    if (!denyTest) assert.match(output, writeTest ? /PAC_WRITE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
-    if (toolTest || writeTest) assert.match(output, /PAC tool event/)
+    if (!denyTest) assert.match(output, bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
+    if (toolTest || writeTest || bashTest) assert.match(output, /PAC tool event/)
+    if (bashTest) {
+      assert.match(output, /pac_approval/)
+      assert.equal((await readFile(join(root, 'bash-fixture.txt'), 'utf8')).trim(), 'PAC_BASH_FIXTURE_CONTENT')
+    }
     if (writeTest) {
       let content
       try { content = await readFile(fixture, 'utf8') } catch {}
