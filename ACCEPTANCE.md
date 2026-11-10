@@ -67,6 +67,8 @@ Aborting an active OpenCode server session delivered ACP cancellation to a synth
 
 Another test killed OpenCode and its launcher during a synthetic PAC turn, restarted them and attempted to continue the same session. The user-facing response reported an unknown prior outcome and the synthetic PAC observed only one turn start. This does not prove reconciliation of a real side effect or recovery of background work.
 
+An installed OpenCode server represented a synthetic PAC `agent_thought_chunk` as a reasoning part while also preserving the final response. Real-runtime reasoning, mixed content and multi-step streaming remain unverified.
+
 Two simultaneous sessions in the installed OpenCode server each received only its own distinct prompt marker from separate synthetic PAC sessions. A separate simultaneous-question test returned distinct answers only to their owning synthetic sessions. Real-controller concurrency, permissions and cross-machine isolation remain to be verified.
 
 In a separate installed OpenCode server test, two concurrent sessions selected different models on two named synthetic PAC processes and received their respective controller markers. This is routing evidence only; it does not establish two independently authenticated Claude accounts or cross-machine operation.

@@ -200,6 +200,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
           write({ content: `\n[PAC tool event]\n${description}\n` })
           continue
         }
+        if (method === 'session/update' && update?.sessionUpdate === 'agent_thought_chunk' && update.content?.type === 'text') {
+          write({ reasoning_content: update.content.text })
+          continue
+        }
         if (method !== 'session/update' || update?.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') throw new Error('Unsupported PAC event; turn cannot be represented')
         write({ content: update.content.text })
       }

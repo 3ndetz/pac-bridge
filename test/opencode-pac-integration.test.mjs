@@ -227,7 +227,8 @@ test('keeps the same PAC conversation across OpenCode messages', {
       env: { ...process.env, PAC_TEST_QUESTION_CANCEL_FILE: join(root, 'question-cancelled'),
         PAC_TEST_TURN_STARTED_FILE: join(root, 'turn-started'), PAC_TEST_TURN_CANCEL_FILE: join(root, 'turn-cancelled'),
         PAC_TEST_TURN_COUNT_FILE: join(root, 'turn-count'),
-        ...(process.env.PAC_TEST_RESUME === '1' ? { PAC_TEST_CONVERSATION_FILE: join(root, 'conversation') } : {}), PAC_TEST_IDENTITY: 'controller-one' } })
+        ...(process.env.PAC_TEST_RESUME === '1' ? { PAC_TEST_CONVERSATION_FILE: join(root, 'conversation') } : {}),
+        PAC_TEST_THOUGHT: process.env.PAC_TEST_THOUGHT, PAC_TEST_IDENTITY: 'controller-one' } })
     const tokenFile = live ? process.env.PAC_LIVE_SOURCE_TOKEN_FILE : join(root, 'token')
     if (!live) await writeFile(tokenFile, 'test-token')
     let endpointsFile
@@ -395,6 +396,10 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const first = await message(live ? 'Remember code PAC_CONTEXT_6184. Reply STORED.' : 'FIRST_PAC_CONTEXT')
     assert.match(JSON.stringify(first.parts), live ? /STORED/i : /remembered:FIRST_PAC_CONTEXT/)
+    if (process.env.PAC_TEST_THOUGHT === '1') {
+      assert.ok(first.parts.some((part) => part.type === 'reasoning' && part.text.includes('SYNTHETIC_THOUGHT_MARKER')), 'OpenCode did not display the PAC reasoning event')
+      return
+    }
     await new Promise((resolve) => setTimeout(resolve, 300))
     if ((live && process.env.PAC_LIVE_RESUME_TEST === '1') || (!live && process.env.PAC_TEST_RESUME === '1')) {
       const ended = once(child, 'close')

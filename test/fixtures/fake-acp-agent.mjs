@@ -55,6 +55,8 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       if (process.argv.includes('--conversation')) {
         firstPrompt ??= params.prompt?.find((part) => part.type === 'text')?.text || ''
         if (process.env.PAC_TEST_CONVERSATION_FILE) await writeFile(process.env.PAC_TEST_CONVERSATION_FILE, firstPrompt)
+        if (process.env.PAC_TEST_THOUGHT === '1') peer.notify('session/update', { sessionId: params.sessionId,
+          update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'SYNTHETIC_THOUGHT_MARKER' } } })
         const imageCount = params.prompt?.filter((part) => part.type === 'image' && part.mimeType === 'image/png').length || 0
         peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `remembered:${firstPrompt} model:${selected} images:${imageCount} identity:${process.env.PAC_TEST_IDENTITY || 'default'}` } } })
         setTimeout(() => { try { peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'session_info_update' } }) } catch {} }, 30)

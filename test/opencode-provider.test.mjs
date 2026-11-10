@@ -13,6 +13,7 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
       update({ method: 'session/update', params: { update: { sessionUpdate: 'usage_update' } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'available_commands_update' } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'tool_call', toolCallId: 'call-1', title: 'Read', rawInput: { path: 'a.txt' }, _meta: { secret: 'must-not-be-forwarded' } } } })
+      update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'synthetic thought' } } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'remote reply' } } } })
       return { stopReason: 'end_turn' }
     }, async cancel() {}
@@ -35,6 +36,7 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
     assert.equal(response.status, 200)
     const stream = await response.text()
     assert.match(stream, /remote reply/)
+    assert.match(stream, /"reasoning_content":"synthetic thought"/)
     assert.match(stream, /usage metrics are not yet displayed/)
     assert.match(stream, /remote slash commands are not yet available/)
     assert.match(stream, /call-1/)
