@@ -40,6 +40,13 @@ export default async function pacBridgePlugin() {
         config.permission = { ...(current || {}), pac_bridge: current?.pac_bridge ?? (current?.['*'] === 'deny' ? 'deny' : 'ask') }
       }
     },
+    'chat.message': async (input, output) => {
+      if ((input.model?.providerID ?? output.message?.model?.providerID) === 'pacbridge' && process.env.PAC_EXPERIMENTAL_IMAGE_INPUT !== '1' &&
+          output.parts?.some((part) => part.type === 'file' && typeof part.mime === 'string' && part.mime.startsWith('image/'))) {
+        process.stderr.write('PAC image capability is unknown; the attachment cannot be sent safely.\n')
+        throw new Error('PAC image capability is unknown; the attachment cannot be sent safely')
+      }
+    },
     tool: {
       pac_approval: {
         description: 'Ask the user to approve or reject a pending PAC operation.',

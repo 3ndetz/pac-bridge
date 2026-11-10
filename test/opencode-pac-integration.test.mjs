@@ -169,6 +169,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
+      PAC_EXPERIMENTAL_IMAGE_INPUT: process.env.PAC_TEST_IMAGE === '1' && process.env.PAC_TEST_IMAGE_DISABLED !== '1' ? '1' : undefined,
       PAC_SOURCE_BASH: process.platform === 'win32' ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : '/bin/bash',
       PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root }
     if (denyTest) {
@@ -176,7 +177,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
       await writeFile(join(root, 'config', 'opencode', 'opencode.json'), JSON.stringify({ permission: { pac_bridge: 'deny' } }))
     }
     const imageFile = join(root, 'fixture.png')
-    if (imageTest) await writeFile(imageFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lP0AAAAASUVORK5CYII=', 'base64'))
+    if (imageTest) await writeFile(imageFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAMSURBVBhXY0ADDAwAABIAAaMn47oAAAAASUVORK5CYII=', 'base64'))
     child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(permissionTest ? ['--auto'] : []), ...(imageTest ? ['--file', imageFile, '--'] : []), 'Hello PAC'],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
@@ -186,6 +187,11 @@ test('experimental launcher opens OpenCode against a fake PAC', {
     const [code] = await once(child, 'close')
     clearTimeout(deadline)
     if (process.env.PAC_TEST_TIMING === '1') process.stderr.write((errors.match(/PAC discovery time: \d+ms/) || ['PAC discovery time unavailable'])[0] + '\n')
+    if (imageTest && process.env.PAC_TEST_IMAGE_DISABLED === '1') {
+      assert.notEqual(code, 0)
+      assert.match(`${errors}\n${output}`, /PAC image capability is unknown/)
+      return
+    }
     assert.equal(code, 0, `${errors.slice(-2000)}\n${output.slice(-2000)}`)
     assert.match(output, imageTest ? /images:1/ : permissionTest ? (denyTest ? /fake PAC permission deny/ : /fake PAC permission allow/) : /fake PAC sonnet response/)
   } finally {
@@ -228,6 +234,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
+      PAC_EXPERIMENTAL_IMAGE_INPUT: process.env.PAC_TEST_IMAGE === '1' ? '1' : undefined,
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS,
       PAC_SOURCE_BASH: process.platform === 'win32' ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : '/bin/bash',
       PAC_SESSION_DIR: join(root, 'pac-sessions'),
@@ -257,7 +264,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
     if (process.env.PAC_TEST_IMAGE === '1') {
       const imageFile = join(root, 'fixture.png')
-      await writeFile(imageFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lP0AAAAASUVORK5CYII=', 'base64'))
+      await writeFile(imageFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAMSURBVBhXY0ADDAwAABIAAaMn47oAAAAASUVORK5CYII=', 'base64'))
       const response = await request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [
         { type: 'text', text: 'Describe image' },
         { type: 'file', mime: 'image/png', filename: 'fixture.png', url: pathToFileURL(imageFile).href },

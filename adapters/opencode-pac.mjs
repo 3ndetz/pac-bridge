@@ -72,7 +72,8 @@ try {
   config = { ...config, plugin: [...(config.plugin || []), pluginUrl], provider: { ...(config.provider || {}), pacbridge: {
     npm: '@ai-sdk/openai-compatible', name: 'PAC Bridge (experimental)',
     options: { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: token },
-    models: Object.fromEntries(catalog.models.map((entry) => [entry.id, { name: entry.name }])),
+    models: Object.fromEntries(catalog.models.map((entry) => [entry.id, { name: entry.name,
+      ...(process.env.PAC_EXPERIMENTAL_IMAGE_INPUT === '1' ? { modalities: { input: ['text', 'image'], output: ['text'] } } : {}) }])),
   } } }
   const args = process.argv.slice(2)
   child = spawnContained(binary, args[0] === 'serve' ? args : ['--model', `pacbridge/${model}`, ...args], {
