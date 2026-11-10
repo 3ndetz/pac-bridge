@@ -3,6 +3,30 @@ import { once } from 'node:events'
 import test from 'node:test'
 import { createOpencodeProvider } from '../src/opencode-provider.mjs'
 
+test('routes a stop command once without prompting the model', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  const stops = []
+  let prompts = 0
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    hasSession: (id) => id === 'session-1',
+    async prompt() { prompts++; return { stopReason: 'end_turn' } },
+    async stopTask(binding, id) { stops.push({ binding, id }); return { status: 'stop_requested' } },
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 'session-1', 'x-pac-message-id': 'stop-1' }
+    const body = JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'PAC_BRIDGE_STOP_TASK pac:task' }] })
+    const response = await fetch(url, { method: 'POST', headers, body })
+    assert.equal(response.status, 200)
+    assert.match(await response.text(), /stop request accepted/)
+    assert.equal((await fetch(url, { method: 'POST', headers, body })).status, 400)
+    assert.deepEqual(stops, [{ binding: { sessionId: 'session-1', model: 'PAC_work/sonnet', cwd: '/source' }, id: 'pac:task' }])
+    assert.equal(prompts, 0)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
 test('routes a distinct user turn to its selected PAC and refuses replay', async () => {
   const calls = []
   const token = 'local-test-token-with-at-least-32-characters'

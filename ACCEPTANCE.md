@@ -174,4 +174,6 @@ An isolated HAPI run then loaded the same file-scoped rule independently for the
 
 An authenticated OpenCode CLI run started a background Claude subagent, received subagent and background task events and returned the source-file result. Events are rendered as text; updates received between turns are buffered until the next turn. Native task cards, controls and complete idle-event and recovery behavior remain unverified or unsupported.
 
+The installed OpenCode CLI also expanded `/pac-stop` in an existing session and delivered it without a model call; an independent ACP relay test routed the task identity to a synthetic controller, while rejecting a different task identity. Live Claude cancellation through this OpenCode command, native task cards and complete lifecycle handling remain unverified.
+
 An authenticated cross-host OpenCode test read a file using a relative workspace path. Local tests also verified relative writes and rejection of an attempted parent-directory escape.

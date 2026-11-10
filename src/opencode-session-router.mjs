@@ -93,6 +93,14 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
       await state.session.cancel()
       return true
     },
+    async stopTask(binding, taskId) {
+      identity(binding.sessionId, 'OpenCode session identity')
+      identity(taskId, 'task identity')
+      if (/\s/.test(taskId)) throw new Error('Invalid task identity')
+      const state = sessions.get(binding.sessionId)
+      if (closed || !state || state.lost || !state.session || !samePac(state.model, binding.model) || state.cwd !== binding.cwd || typeof state.session.stopTask !== 'function') throw new Error('Live PAC session is unavailable')
+      return state.session.stopTask(taskId)
+    },
     close() {
       if (closed) return
       closed = true

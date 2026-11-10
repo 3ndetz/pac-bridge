@@ -36,6 +36,10 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/prompt') {
+      if (process.argv.includes('--background-task')) {
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'subagent_spawned', subagentSessionId: 'child-1', name: 'fixture', _meta: { pacBridge: { background: true } } } })
+        return { stopReason: 'end_turn' }
+      }
       if (process.argv.includes('--workspace-operations')) {
         if (!workspace) throw new Error('Source workspace was not provided')
         const path = join(workspace, 'remote-fixture.txt')
@@ -116,6 +120,7 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       }
       return { selected }
     }
+    if (method === 'pac/tasks/stop_native' && process.argv.includes('--background-task') && params.taskId === 'child-1') return { status: 'stop_requested', taskId: params.taskId }
     throw new Error('Unsupported fake request')
   },
 })

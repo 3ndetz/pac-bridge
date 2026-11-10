@@ -50,7 +50,7 @@ test('routes an actual OpenCode CLI text turn to a fake PAC', {
     })
     provider.listen(0, '127.0.0.1')
     await once(provider, 'listening')
-    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ plugin: [plugin], provider: { pacbridge: { npm: '@ai-sdk/openai-compatible', name: 'PAC',
+    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ command: { 'pac-stop': { description: 'Stop PAC task', template: 'PAC_BRIDGE_STOP_TASK $ARGUMENTS' } }, plugin: [plugin], provider: { pacbridge: { npm: '@ai-sdk/openai-compatible', name: 'PAC',
       options: { baseURL: `http://127.0.0.1:${provider.address().port}/v1`, apiKey: token },
       models: { 'PAC_testpac/sonnet': { name: 'testpac Sonnet' } } } } })
     child = spawnContained(process.env.PAC_OPENCODE_BINARY, ['run', '--format', 'json', '-m', 'pacbridge/PAC_testpac/sonnet', 'Hello PAC'],
@@ -63,6 +63,22 @@ test('routes an actual OpenCode CLI text turn to a fake PAC', {
     clearTimeout(deadline)
     assert.equal(code, 0, `${stages.join(',')}\n${errors.slice(-2000)}\n${output.slice(-2000)}`)
     assert.match(output, /fake PAC sonnet response/)
+    const sessionId = output.split(/\r?\n/).filter(Boolean).map((line) => { try { return JSON.parse(line).sessionID } catch { return null } }).find(Boolean)
+    assert.ok(sessionId, 'OpenCode did not report its session identity')
+    let stopped
+    router.stopTask = async (binding, id) => { stopped = { binding, id }; return { status: 'stop_requested' } }
+    child = spawnContained(process.env.PAC_OPENCODE_BINARY, ['run', '--format', 'json', '-m', 'pacbridge/PAC_testpac/sonnet', '--session', sessionId, '--command', 'pac-stop', 'pac:task'],
+      { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    let commandOutput = '', commandErrors = ''
+    const commandDeadline = setTimeout(() => stopContained(child), 50000)
+    child.stdout.on('data', (chunk) => { commandOutput += chunk })
+    child.stderr.on('data', (chunk) => { commandErrors += chunk })
+    const [commandCode] = await once(child, 'close')
+    clearTimeout(commandDeadline)
+    assert.equal(commandCode, 0, `${commandErrors.slice(-2000)}\n${commandOutput.slice(-2000)}`)
+    assert.match(commandOutput, /stop request accepted/)
+    assert.equal(stopped?.binding.sessionId, sessionId)
+    assert.equal(stopped?.id, 'pac:task')
   } finally {
     if (child && child.exitCode === null) stopContained(child)
     router?.close()

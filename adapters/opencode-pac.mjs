@@ -68,8 +68,8 @@ let child
 try {
   let config = {}
   if (process.env.OPENCODE_CONFIG_CONTENT) config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT)
-  if (!config || typeof config !== 'object' || Array.isArray(config) || config.provider?.pacbridge || (config.plugin && !Array.isArray(config.plugin))) throw new Error('PAC provider conflicts with existing OpenCode configuration')
-  config = { ...config, plugin: [...(config.plugin || []), pluginUrl], provider: { ...(config.provider || {}), pacbridge: {
+  if (!config || typeof config !== 'object' || Array.isArray(config) || config.provider?.pacbridge || config.command?.['pac-stop'] || (config.plugin && !Array.isArray(config.plugin))) throw new Error('PAC provider conflicts with existing OpenCode configuration')
+  config = { ...config, command: { ...(config.command || {}), 'pac-stop': { description: 'Stop a PAC background task by ID', template: 'PAC_BRIDGE_STOP_TASK $ARGUMENTS' } }, plugin: [...(config.plugin || []), pluginUrl], provider: { ...(config.provider || {}), pacbridge: {
     npm: '@ai-sdk/openai-compatible', name: 'PAC Bridge (experimental)',
     options: { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: token },
     models: Object.fromEntries(catalog.models.map((entry) => [entry.id, { name: entry.name,

@@ -44,7 +44,7 @@ test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 },
     const url = `ws://127.0.0.1:${server.address().port}`
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const router = fileURLToPath(new URL('../adapters/pac-opencode-router.mjs', import.meta.url))
-    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake] })
+    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--background-task'] })
     const tokenFile = join(root, 'token')
     await writeFile(tokenFile, 'test-token')
     await mkdir(join(root, 'workspace'))
@@ -67,7 +67,12 @@ test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 },
       env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url,
         PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },
       model: 'PAC_testpac/sonnet', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
-    assert.deepEqual(await session.prompt([], () => {}), { selected: 'sonnet' })
+    const events = []
+    assert.deepEqual(await session.prompt([], (event) => events.push(event)), { stopReason: 'end_turn' })
+    const taskId = events.find((event) => event.method === 'pac/background_tasks_changed')?.params.tasks[0]?.task_id
+    assert.equal(taskId, 'testpac:child-1')
+    assert.equal((await session.stopTask(taskId)).status, 'stop_requested')
+    await assert.rejects(session.stopTask('other:child-1'), /Unknown or inactive/)
   } finally {
     session?.close()
     agent?.close()

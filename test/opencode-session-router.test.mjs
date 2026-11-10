@@ -9,6 +9,22 @@ function deferred() {
 }
 const binding = { sessionId: 'session-a', model: 'PAC_work/sonnet', cwd: '/workspace' }
 
+test('stops tasks only in their existing live bound session', async () => {
+  const stopped = []
+  const router = createOpencodeSessionRouter({ openSession: async ({ sessionId }) => ({
+    prompt: async () => ({ stopReason: 'end_turn' }), cancel() {}, close() {},
+    async stopTask(taskId) { stopped.push([sessionId, taskId]); return { status: 'stop_requested' } },
+  }) })
+  await assert.rejects(router.stopTask(binding, 'pac:task'), /unavailable/)
+  await router.prompt(binding, [], () => {})
+  await assert.rejects(router.stopTask({ ...binding, sessionId: 'session-b' }, 'pac:task'), /unavailable/)
+  await assert.rejects(router.stopTask({ ...binding, model: 'PAC_other/sonnet' }, 'pac:task'), /unavailable/)
+  await assert.rejects(router.stopTask(binding, 'bad id'), /Invalid/)
+  assert.equal((await router.stopTask(binding, 'pac:task')).status, 'stop_requested')
+  assert.deepEqual(stopped, [['session-a', 'pac:task']])
+  router.close()
+})
+
 test('binds each OpenCode session to its PAC and forwards updates', async () => {
   const opened = []
   const closed = []

@@ -120,6 +120,14 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         if (turn) return fail(400, 'A PAC turn is already active')
         if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
         messages.set(messageId, 'Duplicate turn; outcome may be unknown')
+        const stop = prompt.length === 1 && prompt[0].type === 'text' && /^PAC_BRIDGE_STOP_TASK ([^\s\x00-\x1f]{1,512})$/.exec(prompt[0].text)
+        if (stop) {
+          if (typeof router.stopTask !== 'function' || !router.hasSession?.(sessionId)) return fail(400, 'No live PAC session for this task')
+          await router.stopTask({ sessionId, model: body.model, cwd }, stop[1])
+          response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+          const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: messageId, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+          return response.end(chunk({ role: 'assistant', content: '[PAC stop request accepted]' }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
+        }
         const cancellation = new AbortController()
         const channel = createOpencodeTurnChannel({ sessionId })
         turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false, notices: new Set() }
