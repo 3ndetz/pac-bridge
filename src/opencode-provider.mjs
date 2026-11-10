@@ -4,11 +4,17 @@ import { createOpencodeTurnChannel } from './opencode-turn-channel.mjs'
 
 // Experimental text-only transport. Unsupported events and permissions must
 // terminate the turn, never be translated into a successful text answer.
-export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024 * 1024, onFailure = () => {} }) {
-  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd) throw new Error('Invalid provider configuration')
+export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {} }) {
+  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
   const turns = new Map()
+  function cancelTurn(sessionId, turn) {
+    clearTimeout(turn.timer)
+    turn.cancellation.abort()
+    turn.channel.close()
+    if (turns.get(sessionId) === turn) turns.delete(sessionId)
+  }
   const server = createServer(async (request, response) => {
     const fail = (status, message) => { if (!response.headersSent) response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { message } })); else response.destroy() }
     const auth = Buffer.from(request.headers.authorization || '')
@@ -69,12 +75,13 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], update, { signal: cancellation.signal }))
       } else {
         if (!turn || turn.messageId !== messageId || turn.model !== body.model || !turn.pending?.resolved || last.tool_call_id !== turn.pending.id) return fail(400, 'Invalid PAC continuation')
+        clearTimeout(turn.timer)
         turn.pending = null
       }
       if (turn.streaming) return fail(400, 'A PAC response segment is already active')
       turn.streaming = true
       let completed = false
-      response.on('close', () => { if (!completed) { turn.cancellation.abort(); turn.channel.close(); turns.delete(sessionId) } })
+      response.on('close', () => { if (!completed) cancelTurn(sessionId, turn) })
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
       const write = (delta, finish = null) => response.write(`data: ${JSON.stringify({ id: messageId, object: 'chat.completion.chunk', created: 0,
         model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`)
@@ -85,6 +92,8 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
           if (!body.tools.some((tool) => tool.function?.name === 'pac_approval') ||
               !event.options.some((option) => option.kind === 'allow_once') || !event.options.some((option) => option.kind === 'reject_once')) throw new Error('PAC permission cannot be represented')
           turn.pending = { ...event, resolved: false }
+          turn.timer = setTimeout(() => cancelTurn(sessionId, turn), permissionTimeoutMs)
+          turn.timer.unref()
           write({ tool_calls: [{ index: 0, id: event.id, type: 'function', function: { name: 'pac_approval', arguments: JSON.stringify({ id: event.id }) } }] })
           write({}, 'tool_calls')
           turn.streaming = false
@@ -146,6 +155,6 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
     if (!turn) throw new Error('No active PAC turn for permission')
     return turn.channel.requestPermission(params, turn.cancellation.signal)
   }
-  server.on('close', () => { for (const turn of turns.values()) { turn.cancellation.abort(); turn.channel.close() }; turns.clear() })
+  server.on('close', () => { for (const [sessionId, turn] of turns) cancelTurn(sessionId, turn) })
   return server
 }

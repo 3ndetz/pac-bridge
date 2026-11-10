@@ -98,3 +98,27 @@ test('keeps the same PAC turn across a session-bound approval and continuation',
     assert.equal(calls, 1)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
+
+test('expires an abandoned approval and cancels its remote turn', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let server, aborted = false
+  server = createOpencodeProvider({ token, cwd: '/source', permissionTimeoutMs: 20, router: {
+    async prompt(binding, _prompt, _update, { signal }) {
+      signal.addEventListener('abort', () => { aborted = true }, { once: true })
+      await server.requestPermission(binding.sessionId, { toolCall: { title: 'Write' }, options: [
+        { optionId: 'allow', kind: 'allow_once' }, { optionId: 'deny', kind: 'reject_once' }
+      ] })
+      return { stopReason: 'end_turn' }
+    }
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{ function: { name: 'pac_approval' } }], messages: [{ role: 'user', content: 'write' }] }) })
+    assert.match(await response.text(), /tool_calls/)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(aborted, true)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
