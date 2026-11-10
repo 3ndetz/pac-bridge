@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
@@ -21,6 +21,10 @@ test('reads instructions and workspace imports, preserving boundaries and code e
     assert.deepEqual((await readSourceInstructions({ root: workspace, stopAt: root })).map((entry) => entry.content),
       ['Parent instruction', 'See @docs/policy.md', 'Policy @extra.md', 'Extra'])
     await writeFile(join(workspace, 'README'), 'Readme')
+    await writeFile(join(workspace, 'CLAUDE.local.md'), 'Personal @README')
+    const personal = await readSourceInstructions({ root: workspace, stopAt: root })
+    assert.deepEqual(personal.slice(-2).map((entry) => entry.content), ['Personal @README', 'Readme'])
+    await unlink(join(workspace, 'CLAUDE.local.md'))
     await writeFile(join(workspace, 'CLAUDE.md'), 'See @README for project details')
     assert.equal((await readSourceInstructions({ root: workspace, stopAt: root })).at(-1).content, 'Readme')
     await writeFile(join(workspace, 'docs', 'team rules.md'), 'Team rules')

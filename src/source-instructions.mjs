@@ -59,7 +59,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
   }
   const entries = []
   let total = 0
-  async function readInstruction(path, scope, depth, active) {
+  async function readInstruction(path, scope, depth, active, allowImports) {
     let actual
     try { actual = await realpath(path) } catch (error) {
       if (error.code === 'ENOENT' && depth === 0) return
@@ -83,7 +83,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
       text = new TextDecoder('utf8', { fatal: true }).decode(buffer.subarray(0, offset))
     } finally { await file.close() }
     entries.push({ path, content: text })
-    if (!scope || depth === 0 && !path.endsWith('CLAUDE.md')) return
+    if (!allowImports) return
     const imports = instructionImports(text)
     if (imports.length && depth >= 4) throw new Error('Instruction import exceeds the maximum depth')
     active.add(actual)
@@ -97,14 +97,14 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
         if (inWorkspace === '..' || inWorkspace.startsWith(`..${sep}`) || isAbsolute(inWorkspace)) {
           throw new Error('External instruction imports require approval and are not supported')
         }
-        await readInstruction(target, workspace, depth + 1, active)
+        await readInstruction(target, workspace, depth + 1, active, true)
       }
     } finally { active.delete(actual) }
   }
   for (const directory of ancestors.reverse()) {
-    for (const name of ['AGENTS.md', 'CLAUDE.md', join('.claude', 'CLAUDE.md')]) {
+    for (const name of ['AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', join('.claude', 'CLAUDE.md')]) {
       const path = join(directory, name)
-      await readInstruction(path, directory, 0, new Set())
+      await readInstruction(path, directory, 0, new Set(), name !== 'AGENTS.md')
     }
   }
   return entries
