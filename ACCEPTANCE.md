@@ -75,6 +75,8 @@ On Windows, a pseudo-terminal run of the standard OpenCode TUI displayed the exp
 
 The launcher probes registered endpoints before startup, displays unavailable endpoints separately, and requires an explicit model choice if `PAC_MODEL` is not supplied. An isolated pseudo-terminal test selected a model from the discovered fake PAC catalog and continued into OpenCode. Model availability can still change after this initial probe; the session-opening path checks the selected PAC again.
 
+A Windows pseudo-terminal run with the actual remote Claude displayed an interactive write approval; after selecting allow, the local fixture contained the expected text. The TUI exit interrupted the test supervisor before its normal cleanup and returned a nonzero status; remote test directories were subsequently checked and cleaned separately. Terminal shutdown and cleanup remain unresolved.
+
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Session creation and models | Real HAPI runners on two Windows source hosts offered and selected a named PAC model before session creation. Browser tests on both hosts selected OpenCode and the PAC model in HAPI's new-session form, created a session, sent a message and stopped the resulting task; component tests also cover selection and form submission. A separate live session switched from Sonnet to Opus and back; Claude usage events confirmed the actual model family after each switch. | Persistent deployment, live discovery and authorization; independently authenticated PAC identities, all model variants and broader source platforms. |
