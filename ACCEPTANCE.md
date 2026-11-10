@@ -92,4 +92,6 @@ Another browser scenario substituted an unavailable catalog response inside the 
 
 After fixing Windows process-tree shutdown for HAPI's model-variant catalog server, that browser scenario and the subagent cancellation check completed with exit code zero, including test workspace cleanup. This verifies the exercised Windows cleanup path; other lifecycle and platform cases remain open.
 
+A relay test closes a PAC registration while keeping both established channel peers open and verifies that the relay closes those peers without disrupting a different PAC. Registration handling is installed before the handshake completes, and reconnect tests exercise startup and recovery; this does not establish recovery of interrupted in-flight work or complete authorization guarantees.
+
 The [OpenCode V1 server API](https://opencode.ai/v1/docs/server/) exposes an experimental tool catalog with schemas. Catalog discovery alone does not prove that arbitrary configured tools can be invoked through the same OpenCode session, or that their permissions and lifecycle can be preserved. The synthetic dynamic MCP proof above does not establish integration with OpenCode-configured MCP servers or plugin tools; these remain separate acceptance requirements.
