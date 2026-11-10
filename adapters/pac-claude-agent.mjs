@@ -243,7 +243,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     if (options.mcpServers && Object.hasOwn(options.mcpServers, 'pac')) throw new Error('The pac MCP server name is reserved by the bridge')
     if (process.env.PAC_TEST_SOURCE_MCP === '1' && options.mcpServers && Object.hasOwn(options.mcpServers, 'source_tools')) throw new Error('The source_tools MCP server name is reserved by the bridge')
     if (sourcePrompt && options.systemPrompt !== undefined) throw new Error('Source instructions with an SDK-level custom system prompt are not yet supported')
-    const aliases = process.env.PAC_USE_ALIASES === '1'
+    const aliases = process.env.PAC_USE_ALIASES !== '0'
     const projectHook = async (input) => {
       if (!hooksEnabled) return {}
       const toolName = typeof input.tool_name === 'string' ? input.tool_name.replace(/^mcp__pac__/, '') : input.tool_name

@@ -6,6 +6,8 @@ The source machine needs Node.js, this checkout with its npm dependencies instal
 
 The experimental controller adapter and its pinned SDK dependencies are included in this checkout; install them with `npm ci` on the controller. The adapter can be started by `adapters/pac-acp-agent.mjs` using `node` and the path to `adapters/pac-claude-agent.mjs` as its executable and argument. An isolated authenticated run with these dependencies has exercised text, source-file reads and writes, and denied writes; complete production provisioning and acceptance remain outstanding. The lockfile overrides the ACP package's older Zod patch to address a published vulnerability, so compatibility must be rechecked when upgrading.
 
+The controller uses source tool aliases by default. For the experimental question, project-hook and shell-streaming paths, set `PAC_ENABLE_QUESTIONS=1`, `PAC_ENABLE_PROJECT_HOOKS=1` and `PAC_ENABLE_SHELL_STREAMING=1` in the controller process environment. `PAC_ENABLE_BACKGROUND=1` additionally enables the incomplete background and subagent path. Set `PAC_AGENT_RECONNECT=1` on the agent process to retry registration after disconnection; this does not replay interrupted work.
+
 From the source workspace, set the following environment variables to the paths and values appropriate to that machine:
 
 ```text

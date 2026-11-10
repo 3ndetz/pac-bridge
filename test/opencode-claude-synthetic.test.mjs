@@ -53,7 +53,7 @@ test('installed OpenCode reaches the installed Claude SDK and source workspace t
     agent = await startAgent({ url, name: 'synthetic', token: 'synthetic-token', command: process.execPath, args: [adapter], cwd: join(root, 'controller'), onError: (error) => agentErrors.push(error.message), env: {
       PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC, TEMP: root, TMP: root, HOME: join(root, 'controller'), USERPROFILE: join(root, 'controller'), CLAUDE_CONFIG_DIR: join(root, 'controller', 'claude'),
       ANTHROPIC_API_KEY: 'synthetic-test-key', ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: `http://127.0.0.1:${modelServer.address().port}`,
-      NO_PROXY: '127.0.0.1,localhost', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1',
+      NO_PROXY: '127.0.0.1,localhost', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     } })
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD', SystemRoot: process.env.SystemRoot,
