@@ -39,6 +39,7 @@ export function createOpencodeSessionRouter({ openSession }) {
   }
 
   return {
+    hasSession(sessionId) { return sessions.has(sessionId) },
     async prompt(binding, prompt, onUpdate, { signal } = {}) {
       if (!Array.isArray(prompt) || typeof onUpdate !== 'function') throw new Error('Invalid PAC prompt')
       if (signal?.aborted) throw new Error('PAC turn was cancelled before it started')

@@ -27,6 +27,10 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
     assert.equal(unauthorized.status, 401)
     const auxiliary = await fetch(url, { method: 'POST', headers: { authorization: headers.authorization, 'content-type': headers['content-type'] }, body })
     assert.equal(auxiliary.status, 400)
+    const resumed = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}],
+      messages: [{ role: 'user', content: 'previous' }, { role: 'assistant', content: 'previous answer' }, { role: 'user', content: 'continue' }] }) })
+    assert.equal(resumed.status, 400)
+    assert.match(await resumed.text(), /binding is unavailable/)
     const response = await fetch(url, { method: 'POST', headers, body })
     assert.equal(response.status, 200)
     const stream = await response.text()

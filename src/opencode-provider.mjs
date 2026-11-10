@@ -64,6 +64,8 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       let turn = turns.get(sessionId)
       if (last.role === 'user') {
         if (typeof last.content !== 'string' || !last.content) return fail(400, 'Unsupported user message')
+        const hasPriorConversation = body.messages.some((entry) => entry.role === 'assistant' || entry.role === 'tool') || body.messages.filter((entry) => entry.role === 'user').length > 1
+        if (hasPriorConversation && !router.hasSession?.(sessionId)) return fail(400, 'PAC session binding is unavailable; refusing to start a different conversation')
         if (messages.has(messageId)) return fail(400, 'Duplicate turn; outcome may be unknown')
         if (turn) return fail(400, 'A PAC turn is already active')
         if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
