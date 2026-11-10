@@ -188,11 +188,16 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       const phase = ['initialize', 'session-new', 'select-model', 'prompt'].includes(error?.pacPhase) ? error.pacPhase : 'unknown'
       const hint = ['rate limit', 'quota', 'authentication', 'system prompt', 'cancelled', 'timed out', 'connection lost', 'overloaded']
         .find((term) => error?.message?.toLowerCase().includes(term))
-      const safeMessage = error?.message === 'PAC interactive questions are not supported by this OpenCode adapter'
-        ? 'PAC interactive questions are not supported by this OpenCode adapter; the turn was not retried.'
-        : hint === 'authentication'
+      const known = new Map([
+        ['PAC interactive questions are not supported by this OpenCode adapter', 'PAC interactive questions are not supported by this OpenCode adapter; the turn was not retried.'],
+        ['Previous PAC turn outcome is unknown; reconciliation is required', 'Previous PAC turn outcome is unknown; reconcile it before continuing this session.'],
+        ['PAC model or workspace changed; start a new session', 'The PAC model or workspace changed; start a new session.'],
+        ['PAC session state is uncertain; start a new session', 'PAC session state is uncertain; start a new session.'],
+        ['Unsupported PAC event; turn cannot be represented', 'This PAC event cannot be represented in OpenCode; the turn was interrupted and its outcome may be unknown.'],
+      ])
+      const safeMessage = known.get(error?.message) || (hint === 'authentication'
         ? 'PAC authentication failed on the controller; sign in there. The turn was not retried.'
-        : 'PAC turn failed; its outcome may be unknown. The turn was not retried.'
+        : 'PAC turn failed; its outcome may be unknown. The turn was not retried.')
       if (messages?.has(messageId)) messages.set(messageId, safeMessage)
       try { onFailure(`${category} (${phase})${hint ? ` ${hint}` : ''}`) } catch {}
       fail(400, safeMessage)

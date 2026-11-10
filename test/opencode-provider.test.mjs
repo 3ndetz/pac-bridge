@@ -149,6 +149,25 @@ test('reports a controller authentication failure on a retry without replaying t
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
+test('reports an uncertain earlier turn without replaying it', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let calls = 0
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async canResume() { throw new Error('Previous PAC turn outcome is unknown; reconciliation is required') },
+    async prompt() { calls++; return { stopReason: 'end_turn' } },
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'before' }, { role: 'assistant', content: 'before' }, { role: 'user', content: 'continue' }] }) })
+    assert.equal(response.status, 400)
+    assert.match(await response.text(), /outcome is unknown; reconcile/)
+    assert.equal(calls, 0)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
 test('never turns an interactive question into an approval', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   let server
