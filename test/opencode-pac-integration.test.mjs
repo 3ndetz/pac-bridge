@@ -172,6 +172,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
       PAC_EXPERIMENTAL_IMAGE_INPUT: process.env.PAC_TEST_IMAGE === '1' && process.env.PAC_TEST_IMAGE_DISABLED !== '1' ? '1' : undefined,
       PAC_SOURCE_BASH: process.platform === 'win32' ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : '/bin/bash',
       PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root }
+    if (process.env.PAC_TEST_AUTOPATH === '1') delete env.PAC_OPENCODE_BINARY
     if (denyTest) {
       await mkdir(join(root, 'config', 'opencode'), { recursive: true })
       await writeFile(join(root, 'config', 'opencode', 'opencode.json'), JSON.stringify({ permission: { pac_bridge: 'deny' } }))

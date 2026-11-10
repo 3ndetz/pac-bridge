@@ -8,7 +8,7 @@ From the source workspace, set the following environment variables to the paths 
 
 ```text
 PAC_EXPERIMENTAL=1
-PAC_OPENCODE_BINARY=<absolute path to the OpenCode executable>
+PAC_OPENCODE_BINARY=<absolute path to OpenCode, only if it is not on PATH>
 PAC_NAME=<registered PAC name>
 PAC_RELAY_URL=wss://<relay host>
 PAC_SOURCE_TOKEN_FILE=<absolute path to this source's relay credential file>

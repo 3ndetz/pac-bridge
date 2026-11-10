@@ -14,10 +14,10 @@ import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 
 // Experimental launcher: text only, unsupported tools/events fail closed.
-const binary = process.env.PAC_OPENCODE_BINARY
+const binary = process.env.PAC_OPENCODE_BINARY || (process.platform === 'win32' ? 'opencode.exe' : 'opencode')
 let model = process.env.PAC_MODEL
-if (process.env.PAC_EXPERIMENTAL !== '1' || !binary || (model && !/^PAC_[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(model))) {
-  throw new Error('Experimental PAC launcher requires PAC_EXPERIMENTAL=1, PAC_OPENCODE_BINARY and a valid PAC_MODEL if specified')
+if (process.env.PAC_EXPERIMENTAL !== '1' || (model && !/^PAC_[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(model))) {
+  throw new Error('Experimental PAC launcher requires PAC_EXPERIMENTAL=1 and a valid PAC_MODEL if specified')
 }
 const cwd = process.cwd()
 const startedAt = Date.now()
@@ -34,7 +34,7 @@ for (const candidate of shellCandidates.filter(Boolean)) {
   try { await access(candidate); sourceBash = candidate; break } catch {}
 }
 if (!sourceBash) throw new Error('A local Bash executable is required for source project hooks and commands')
-const routerEnv = { ...process.env, PAC_SOURCE_BASH: sourceBash, PAC_EXPERIMENTAL_HOOKS: '1', PAC_EXPERIMENTAL_SKILLS: '1', PAC_EXPERIMENTAL_INSTRUCTIONS: '1' }
+const routerEnv = { ...process.env, PAC_OPENCODE_BINARY: binary, PAC_SOURCE_BASH: sourceBash, PAC_EXPERIMENTAL_HOOKS: '1', PAC_EXPERIMENTAL_SKILLS: '1', PAC_EXPERIMENTAL_INSTRUCTIONS: '1' }
 const catalog = process.env.PAC_DISCOVERY_ACP === '1'
   ? await discoverOpencodePacs({ command: process.execPath, args: [routerPath, 'acp'], cwd, env: routerEnv })
   : await discoverPacsDirect({ cwd, env: routerEnv })
