@@ -32,7 +32,6 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
   let stopped = false
   const registration = connect(url, 'register', name, token)
   registration.on('error', onError)
-  await once(registration, 'open')
 
   registration.on('message', async (data) => {
     let request
@@ -83,6 +82,10 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
     stopSessions()
     if (unexpected) onDisconnect()
   })
+
+  // Install the open-request handler before registration becomes visible to
+  // sources; the relay may send a request immediately after the handshake.
+  await once(registration, 'open')
 
   return {
     close() {

@@ -17,13 +17,14 @@ async function setup(options = {}, port = 0) {
   const server = createServer()
   const relay = attachAcpRelay(server, { ...options, authorize: options.authorize || (({ role, token }) => token === (role === 'source' ? 'source-secret' : 'agent-secret')) })
   let registrationSocket
-  server.on('upgrade', (request, socket) => { if (request.url === '/acp-relay/register') registrationSocket = socket })
+  let registrationCount = 0
+  server.on('upgrade', (request, socket) => { if (request.url === '/acp-relay/register') { registrationSocket = socket; registrationCount++ } })
   server.listen(port, '127.0.0.1')
   await once(server, 'listening')
   const base = `ws://127.0.0.1:${server.address().port}/acp-relay/`
   const connect = (role, name = 'pac-one', channel, token = role === 'source' ? 'source-secret' : 'agent-secret') =>
     new WebSocket(base + role, { headers: { authorization: `Bearer ${token}`, 'x-pac-name': name, ...(channel ? { 'x-pac-channel': channel } : {}) } })
-  return { connect, url: base.replace(/\/acp-relay\/$/, ''), closeRegistration: () => registrationSocket?.destroy(), close: () => { relay.close(); server.close() } }
+  return { connect, url: base.replace(/\/acp-relay\/$/, ''), registrationCount: () => registrationCount, closeRegistration: () => registrationSocket?.destroy(), close: () => { relay.close(); server.close() } }
 }
 
 test('relays MCP tool results and dynamic catalog notifications without rewriting', { timeout: 30000 }, async () => {
@@ -225,6 +226,8 @@ test('supervisor reconnects registration without replaying the interrupted sessi
     hub.closeRegistration()
     await ended
     const deadline = Date.now() + 5000
+    while (hub.registrationCount() < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.ok(hub.registrationCount() >= 2, 'PAC did not reconnect')
     while (!replacement && Date.now() < deadline) {
       try { replacement = await connectSource({ url: hub.url, name: 'pac-one', token: 'source-secret' }) }
       catch { await new Promise((resolve) => setTimeout(resolve, 50)) }
