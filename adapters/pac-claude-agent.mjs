@@ -1,12 +1,35 @@
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { prototypeToolDecision } from '../src/tool-policy.mjs'
 import { mapQuestionAnswers } from '../src/question-answers.mjs'
 import { startTerminalOutputPump } from '../src/terminal-stream.mjs'
 import { waitForTerminal } from '../src/terminal-wait.mjs'
 import { stopNativeTask } from '../src/native-task-stop.mjs'
+
+// Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
+// notification arrives with the long path. Preserve the target, including a
+// not-yet-created suffix, while expanding any existing ancestor.
+function expandWindowsPath(value) {
+  if (process.platform !== 'win32' || typeof value !== 'string' || !isAbsolute(value)) return value
+  let ancestor = value
+  const suffix = []
+  while (true) {
+    try { return join(realpathSync.native(ancestor), ...suffix) } catch {
+      const parent = dirname(ancestor)
+      if (parent === ancestor) return value
+      suffix.unshift(ancestor.slice(parent.length).replace(/^[\\/]+/, ''))
+      ancestor = parent
+    }
+  }
+}
+if (process.platform === 'win32') {
+  for (const name of ['CLAUDE_CONFIG_DIR', 'HOME', 'USERPROFILE', 'TEMP', 'TMP']) {
+    if (process.env[name]) process.env[name] = expandWindowsPath(process.env[name])
+  }
+}
 
 const [sdkRoot] = process.argv.slice(2)
 const require = createRequire(sdkRoot ? join(sdkRoot, 'package.json') : fileURLToPath(new URL('../package.json', import.meta.url)))
@@ -42,6 +65,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
   const originalNew = agent.newSession.bind(agent)
   const originalLoad = agent.loadSession.bind(agent)
   async function prepareSession(params, loading) {
+    params = { ...params, cwd: expandWindowsPath(params.cwd) }
     let sessionId = loading ? params.sessionId : undefined
     async function writeSource(path, content, signal) {
       if (signal?.aborted) throw new Error('PAC write cancelled before it started')
