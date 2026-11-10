@@ -31,11 +31,11 @@ export function createPermissionBroker({ limit = 256 } = {}) {
       signal?.addEventListener('abort', item.abort, { once: true })
       return { id, result }
     },
-    resolve({ id, sessionId, optionId }) {
+    resolve({ id, sessionId, optionId, answers }) {
       if (!valid(id) || !valid(sessionId) || !valid(optionId)) throw new Error('Invalid permission reply')
       const item = pending.get(id)
       if (!item || item.sessionId !== sessionId || !item.options.some((option) => option.optionId === optionId)) throw new Error('Unknown or invalid permission reply')
-      remove(id).resolve({ outcome: { outcome: 'selected', optionId } })
+      remove(id).resolve({ outcome: { outcome: 'selected', optionId }, ...(answers ? { _meta: { pac: { answers } } } : {}) })
     },
     close() {
       if (closed) return

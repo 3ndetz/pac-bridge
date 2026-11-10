@@ -173,3 +173,65 @@ test('never turns an interactive question into an approval', async () => {
     assert.match(await retry.text(), /interactive questions are not supported/)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
+
+test('routes native question answers only to their owning PAC turn', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let server, received
+  server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt(binding, _prompt, update) {
+      received = await server.requestPermission(binding.sessionId, { _meta: { pac: { question: true } },
+        toolCall: { rawInput: { questions: [
+          { question: 'Name?', header: 'Name', options: [{ label: 'A', description: 'Option A' }], multiSelect: false },
+          { question: 'Colors?', header: 'Colors', options: [{ label: 'Red', description: 'Red' }, { label: 'Blue', description: 'Blue' }], multiSelect: true },
+        ] } }, options: [{ optionId: 'answer', kind: 'allow_once' }, { optionId: 'cancel', kind: 'reject_once' }] })
+      update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'answered' } } } })
+      return { stopReason: 'end_turn' }
+    }
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const base = `http://127.0.0.1:${server.address().port}`
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' }
+  const tools = [{ function: { name: 'question' } }]
+  const post = (url, body) => fetch(base + url, { method: 'POST', headers, body: JSON.stringify(body) })
+  try {
+    const response = await post('/v1/chat/completions', { model: 'PAC_work/sonnet', stream: true, tools, messages: [{ role: 'user', content: 'ask' }] })
+    const events = (await response.text()).split('\n').filter((line) => line.startsWith('data: {')).map((line) => JSON.parse(line.slice(6)))
+    const call = events.find((event) => event.choices[0].delta.tool_calls).choices[0].delta.tool_calls[0]
+    assert.equal(call.function.name, 'question')
+    assert.equal(JSON.parse(call.function.arguments).questions[1].multiple, true)
+    assert.equal((await post('/pac/approval', { action: 'resolve', id: call.id, sessionId: 'other', answers: [['Custom'], ['Red', 'Blue']] })).status, 400)
+    assert.equal((await post('/pac/approval', { action: 'resolve', id: call.id, sessionId: 's', answers: [['Custom', 'A'], ['Red']] })).status, 400)
+    assert.equal((await post('/pac/approval', { action: 'resolve', id: call.id, sessionId: 's', answers: [['Custom'], ['Red', 'Blue']] })).status, 200)
+    const next = await post('/v1/chat/completions', { model: 'PAC_work/sonnet', stream: true, tools, messages: [{ role: 'tool', tool_call_id: call.id, content: 'answered' }] })
+    assert.match(await next.text(), /answered/)
+    assert.deepEqual(received, { outcome: { outcome: 'selected', optionId: 'answer' }, _meta: { pac: { answers: { 0: ['Custom'], 1: ['Red', 'Blue'] } } } })
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('cancels a native question when OpenCode continues without an answer', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let server, received
+  server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt(binding) {
+      received = await server.requestPermission(binding.sessionId, { _meta: { pac: { question: true } },
+        toolCall: { rawInput: { questions: [{ question: 'Continue?', header: 'Continue', options: [{ label: 'Yes', description: 'Yes' }] }] } },
+        options: [{ optionId: 'answer', kind: 'allow_once' }, { optionId: 'cancel', kind: 'reject_once' }] })
+      return { stopReason: 'end_turn' }
+    }
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' }
+  const tools = [{ function: { name: 'question' } }]
+  const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+  const post = (body) => fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
+  try {
+    const response = await post({ model: 'PAC_work/sonnet', stream: true, tools, messages: [{ role: 'user', content: 'ask' }] })
+    const events = (await response.text()).split('\n').filter((line) => line.startsWith('data: {')).map((line) => JSON.parse(line.slice(6)))
+    const id = events.find((event) => event.choices[0].delta.tool_calls).choices[0].delta.tool_calls[0].id
+    const next = await post({ model: 'PAC_work/sonnet', stream: true, tools, messages: [{ role: 'tool', tool_call_id: id, content: 'rejected' }] })
+    assert.match(await next.text(), /\[DONE\]/)
+    assert.deepEqual(received, { outcome: { outcome: 'selected', optionId: 'cancel' } })
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})

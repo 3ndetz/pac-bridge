@@ -35,10 +35,10 @@ export function createOpencodeTurnChannel({ sessionId, maxQueued = 256 } = {}) {
     async requestPermission(params, signal) {
       if (closed || terminal) throw new Error('Turn is unavailable')
       const permission = broker.request({ sessionId, options: params.options, signal })
-      if (permission.id) enqueue({ type: 'permission', id: permission.id, toolCall: params.toolCall, options: params.options })
+      if (permission.id) enqueue({ type: 'permission', id: permission.id, toolCall: params.toolCall, options: params.options, question: params?._meta?.pac?.question === true })
       return permission.result
     },
-    resolvePermission(id, owner, optionId) { broker.resolve({ id, sessionId: owner, optionId }) },
+    resolvePermission(id, owner, optionId, answers) { broker.resolve({ id, sessionId: owner, optionId, answers }) },
     next() {
       if (queue.length) return Promise.resolve(queue.shift())
       if (terminal) return Promise.resolve(terminal)

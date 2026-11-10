@@ -48,5 +48,18 @@ export default async function pacBridgePlugin() {
       output.headers['x-pac-session-id'] = input.sessionID
       output.headers['x-pac-message-id'] = input.message.id
     },
+    'tool.execute.after': async (input, output) => {
+      if (input.tool !== 'question' || !Array.isArray(output.metadata?.answers)) return
+      const base = process.env.PAC_PROVIDER_URL
+      const token = process.env.PAC_PROVIDER_TOKEN
+      if (!base || !token) return
+      // The provider accepts only the pending question with the same session
+      // and call ID. An unrelated native question has no matching PAC turn.
+      try {
+        await fetch(`${base}/pac/approval`, { method: 'POST', signal: AbortSignal.timeout(5000),
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'resolve', id: input.callID, sessionId: input.sessionID, answers: output.metadata.answers }) })
+      } catch {}
+    },
   }
 }

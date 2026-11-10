@@ -210,7 +210,8 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const relayUrl = live ? process.env.PAC_LIVE_URL : `ws://127.0.0.1:${relayServer.address().port}`
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
-    if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--conversation'] })
+    const questionTest = process.env.PAC_TEST_QUESTIONS === '1'
+    if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, questionTest ? '--question-response' : '--conversation'] })
     const tokenFile = live ? process.env.PAC_LIVE_SOURCE_TOKEN_FILE : join(root, 'token')
     if (!live) await writeFile(tokenFile, 'test-token')
     const reservation = createServer().listen(0, '127.0.0.1')
@@ -250,6 +251,24 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const session = await request('/session', {})
     const message = (text) => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text }] })
+    if (questionTest) {
+      const pending = message('Ask the questions')
+      let question
+      const deadline = Date.now() + 35000
+      while (!question && Date.now() < deadline) {
+        const response = await fetch(`${base}/question`)
+        if (response.ok) question = (await response.json()).find((entry) => entry.sessionID === session.id)
+        if (!question) await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+      assert.ok(question, `Native question was not presented: ${diagnostics.slice(-1000)}`)
+      assert.equal(question.questions[1].multiple, true)
+      await request(`/question/${question.id}/reply`, { answers: [['Custom answer'], ['Red', 'Blue']] })
+      const result = await pending
+      assert.match(JSON.stringify(result.parts), /Custom answer/)
+      assert.match(JSON.stringify(result.parts), /Red/)
+      assert.match(JSON.stringify(result.parts), /Blue/)
+      return
+    }
     const first = await message(live ? 'Remember code PAC_CONTEXT_6184. Reply STORED.' : 'FIRST_PAC_CONTEXT')
     assert.match(JSON.stringify(first.parts), live ? /STORED/i : /remembered:FIRST_PAC_CONTEXT/)
     await new Promise((resolve) => setTimeout(resolve, 300))

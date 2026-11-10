@@ -22,6 +22,14 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/prompt') {
+      if (process.argv.includes('--question-response')) {
+        const result = await peer.call('pac/questions/ask', { sessionId: params.sessionId, ownerSessionId: params.sessionId, toolCallId: 'fake-question', questions: [
+          { question: 'Name?', header: 'Name', options: [{ label: 'A', description: 'Option A' }], multiSelect: false },
+          { question: 'Colors?', header: 'Colors', options: [{ label: 'Red', description: 'Red' }, { label: 'Blue', description: 'Blue' }], multiSelect: true },
+        ] }, 0)
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `fake PAC answers ${JSON.stringify(result.answers)}` } } })
+        return { stopReason: 'end_turn' }
+      }
       if (process.argv.includes('--conversation')) {
         firstPrompt ??= params.prompt?.find((part) => part.type === 'text')?.text || ''
         peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `remembered:${firstPrompt}` } } })

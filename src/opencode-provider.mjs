@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createOpencodeTurnChannel } from './opencode-turn-channel.mjs'
+import { mapQuestionAnswers } from './question-answers.mjs'
 
 // Experimental text-only transport. Unsupported events and permissions must
 // terminate the turn, never be translated into a successful text answer.
@@ -42,6 +43,16 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
           const title = typeof toolCall.title === 'string' ? toolCall.title.slice(0, 512) : 'PAC action'
           return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ title, toolCall }))
         }
+        if (permission.question && body.action === 'resolve') {
+          if (!Array.isArray(body.answers) || body.answers.length !== permission.questions.length) return fail(400, 'Invalid question answers')
+          const answers = Object.fromEntries(body.answers.map((answer, index) => [String(index), answer]))
+          try { mapQuestionAnswers(permission.questions, answers) } catch { return fail(400, 'Invalid question answers') }
+          const option = permission.options.find((entry) => entry.kind === 'allow_once')
+          if (!option) return fail(400, 'Answer is unsupported')
+          turn.channel.resolvePermission(permission.id, body.sessionId, option.optionId, answers)
+          permission.resolved = true
+          return response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+        }
         if (!['allow', 'deny'].includes(body.decision)) return fail(400, 'Invalid decision')
         const kind = body.decision === 'allow' ? 'allow_once' : 'reject_once'
         const option = permission.options.find((entry) => entry.kind === kind)
@@ -77,7 +88,14 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         turns.set(sessionId, turn)
         channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], update, { signal: cancellation.signal, mustResume: hasPriorConversation }))
       } else {
-        if (!turn || turn.messageId !== messageId || turn.model !== body.model || !turn.pending?.resolved || last.tool_call_id !== turn.pending.id) return fail(400, 'Invalid PAC continuation')
+        if (!turn || turn.messageId !== messageId || turn.model !== body.model || last.tool_call_id !== turn.pending?.id) return fail(400, 'Invalid PAC continuation')
+        if (!turn.pending.resolved && turn.pending.question) {
+          const option = turn.pending.options.find((entry) => entry.kind === 'reject_once')
+          if (!option) return fail(400, 'Question cancellation is unsupported')
+          turn.channel.resolvePermission(turn.pending.id, sessionId, option.optionId)
+          turn.pending.resolved = true
+        }
+        if (!turn.pending.resolved) return fail(400, 'Invalid PAC continuation')
         clearTimeout(turn.timer)
         turn.pending = null
       }
@@ -92,6 +110,21 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       while (true) {
         const event = await turn.channel.next()
         if (event.type === 'permission') {
+          if (event.question) {
+            const questions = event.toolCall?.rawInput?.questions
+            if (!body.tools.some((tool) => tool.function?.name === 'question') || !Array.isArray(questions) || !questions.length || questions.length > 4 ||
+                questions.some((q) => typeof q?.question !== 'string' || !q.question || q.question.length > 16384 || typeof q.header !== 'string' ||
+                  !Array.isArray(q.options) || !q.options.length || q.options.length > 20 || q.options.some((o) => typeof o?.label !== 'string' || !o.label || typeof o.description !== 'string'))) throw new Error('PAC interactive questions are not supported by this OpenCode adapter')
+            turn.pending = { ...event, questions, resolved: false }
+            turn.timer = setTimeout(() => cancelTurn(sessionId, turn), permissionTimeoutMs)
+            turn.timer.unref()
+            write({ tool_calls: [{ index: 0, id: event.id, type: 'function', function: { name: 'question', arguments: JSON.stringify({ questions: questions.map((q) => ({ question: q.question, header: q.header, options: q.options, multiple: q.multiSelect === true })) }) } }] })
+            write({}, 'tool_calls')
+            turn.streaming = false
+            completed = true
+            response.end('data: [DONE]\n\n')
+            return
+          }
           if (!body.tools.some((tool) => tool.function?.name === 'pac_approval') ||
               !event.options.some((option) => option.kind === 'allow_once') || !event.options.some((option) => option.kind === 'reject_once')) throw new Error('PAC permission cannot be represented')
           turn.pending = { ...event, resolved: false }
@@ -168,9 +201,6 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
   server.requestPermission = (sessionId, params) => {
     const turn = turns.get(sessionId)
     if (!turn) throw new Error('No active PAC turn for permission')
-    // A question needs structured answers, not an allow/deny response. Do not
-    // present it as an approval or send an answer the user never supplied.
-    if (params?._meta?.pac?.question === true) throw new Error('PAC interactive questions are not supported by this OpenCode adapter')
     return turn.channel.requestPermission(params, turn.cancellation.signal)
   }
   server.on('close', () => { for (const [sessionId, turn] of turns) cancelTurn(sessionId, turn) })
