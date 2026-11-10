@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Duplex, PassThrough } from 'node:stream'
+import { once } from 'node:events'
 import test from 'node:test'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 
@@ -99,6 +100,22 @@ test('closes an oversized unfinished message and reports an uncertain in-flight 
     secondStream.write('x'.repeat(129))
     await assert.rejects(pending, /outcome may be unknown/)
   } finally { first.close(); secondStream.destroy() }
+})
+
+test('rejects malformed responses instead of treating them as successful results', async () => {
+  for (const response of [{}, { result: null, error: { code: -1, message: 'error' } }, { error: { message: 'error' } }]) {
+    const [firstStream, secondStream] = streams()
+    secondStream.on('error', () => {})
+    const first = createAcpPeer(firstStream)
+    try {
+      const request = once(secondStream, 'data')
+      const pending = first.call('side-effect', {}, 1000)
+      const [line] = await request
+      const { id } = JSON.parse(line.toString())
+      secondStream.write(JSON.stringify({ jsonrpc: '2.0', id, ...response }) + '\n')
+      await assert.rejects(pending, /outcome may be unknown/)
+    } finally { first.close(); secondStream.destroy() }
+  }
 })
 
 test('does not dispatch requests after malformed messages in the same chunk', async () => {

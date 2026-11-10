@@ -26,8 +26,15 @@ export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 3
     if (Buffer.byteLength(line, 'utf8') > maxLineBytes) { failPending(); stream.destroy(new Error('ACP message exceeds size limit')); return }
     let message
     try { message = JSON.parse(line) } catch { failPending(); stream.destroy(new Error('Invalid ACP JSON')); return }
-    if (!message || message.jsonrpc !== '2.0') { failPending(); stream.destroy(new Error('Invalid ACP message')); return }
+    if (!message || typeof message !== 'object' || Array.isArray(message) || message.jsonrpc !== '2.0') { failPending(); stream.destroy(new Error('Invalid ACP message')); return }
     if (typeof message.method !== 'string') {
+      const hasResult = Object.hasOwn(message, 'result')
+      const hasError = Object.hasOwn(message, 'error')
+      if (Object.hasOwn(message, 'method') || !Object.hasOwn(message, 'id') || hasResult === hasError ||
+          (hasError && (!message.error || typeof message.error !== 'object' || Array.isArray(message.error) ||
+            !Number.isInteger(message.error.code) || typeof message.error.message !== 'string'))) {
+        failPending(); stream.destroy(new Error('Invalid ACP response')); return
+      }
       const entry = pending.get(message.id)
       if (!entry) return
       pending.delete(message.id)
