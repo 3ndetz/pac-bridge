@@ -235,12 +235,13 @@ test('keeps the same PAC conversation across OpenCode messages', {
     if (!live && !remoteFake) await writeFile(tokenFile, 'test-token')
     let endpointsFile
     if (process.env.PAC_TEST_TWO_PACS === '1') {
-      secondAgent = await startAgent({ url: relayUrl, name: 'testpac2', token: 'test-token', command: process.execPath,
+      if (!remoteFake) secondAgent = await startAgent({ url: relayUrl, name: 'testpac2', token: 'test-token', command: process.execPath,
         args: [fake, '--conversation'], env: { ...process.env, PAC_TEST_IDENTITY: 'controller-two' } })
       endpointsFile = join(root, 'endpoints.json')
+      const controllerCwd = remoteFake ? process.env.PAC_LIVE_CONTROLLER_CWD : root
       await writeFile(endpointsFile, JSON.stringify([
-        { id: 'first', name: 'testpac', url: relayUrl, tokenFile, cwd: root },
-        { id: 'second', name: 'testpac2', url: relayUrl, tokenFile, cwd: root },
+        { id: 'first', name: 'testpac', url: relayUrl, tokenFile, cwd: controllerCwd },
+        { id: 'second', name: 'testpac2', url: relayUrl, tokenFile, cwd: controllerCwd },
       ]))
     }
     const reservation = createServer().listen(0, '127.0.0.1')
