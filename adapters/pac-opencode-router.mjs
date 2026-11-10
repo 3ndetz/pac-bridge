@@ -23,14 +23,20 @@ const records = process.env.PAC_ENDPOINTS_FILE ? JSON.parse(await readFile(proce
 if (!Array.isArray(records) || !records.length) throw new Error('At least one PAC endpoint is required')
 const names = new Set()
 const ids = new Set()
-const endpoints = await Promise.all(records.map(async (entry) => {
+const endpointResults = await Promise.all(records.map(async (entry) => {
   if (!entry || typeof entry.id !== 'string' || !entry.id || typeof entry.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(entry.name) ||
       typeof entry.url !== 'string' || typeof entry.tokenFile !== 'string' || typeof entry.cwd !== 'string' || !entry.cwd ||
       names.has(entry.name.toLowerCase()) || ids.has(entry.id)) throw new Error('Invalid or duplicate PAC endpoint')
   names.add(entry.name.toLowerCase())
   ids.add(entry.id)
-  return { ...entry, token: (await readFile(entry.tokenFile, 'utf8')).trim() }
+  try {
+    const token = (await readFile(entry.tokenFile, 'utf8')).trim()
+    if (!token) throw new Error('Empty credential')
+    return { endpoint: { ...entry, token } }
+  } catch { return { warning: { name: entry.name, code: 'unavailable' } } }
 }))
+const endpoints = endpointResults.flatMap((result) => result.endpoint ? [result.endpoint] : [])
+const endpointWarnings = endpointResults.flatMap((result) => result.warning ? [result.warning] : [])
 const child = spawnContained(binary, process.argv.slice(2), { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
 child.on('error', (error) => { process.stderr.write(`${error.message}\n`); process.exitCode = 1 })
 const sessions = new Map()
@@ -88,7 +94,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       }
       const result = (await native.call(method, params)) || {}
       const session = { id: result.sessionId || params.sessionId, cwd: params.cwd, native: result, selected: binding?.pacId || null,
-        remotes: new Map(), discoveryWarnings: [], modelQueue: Promise.resolve(), modelError: null }
+        remotes: new Map(), discoveryWarnings: [...endpointWarnings], modelQueue: Promise.resolve(), modelError: null }
       sessions.set(session.id, session)
       const targets = binding ? endpoints.filter((endpoint) => endpoint.id === binding.pacId) : endpoints
       if (binding && targets.length !== 1) throw new Error('The original PAC is unavailable; refusing to switch controllers')

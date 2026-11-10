@@ -111,3 +111,40 @@ test('reports unavailable PACs without hiding native models or exposing configur
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-selection-')) await rm(actual, { recursive: true, force: true })
   }
 })
+
+test('an unreadable credential for one PAC does not hide another PAC', { timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-selection-'))
+  const server = createServer()
+  const relay = attachAcpRelay(server, { authorize: () => true })
+  let child, peer, agent
+  try {
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const url = `ws://127.0.0.1:${server.address().port}`
+    const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
+    const router = fileURLToPath(new URL('./fixtures/opencode-acp-router.mjs', import.meta.url))
+    agent = await startAgent({ url, name: 'online', token: 'test-token', command: process.execPath, args: [fake] })
+    const tokenFile = join(root, 'token'), endpointsFile = join(root, 'endpoints.json')
+    await writeFile(tokenFile, 'test-token')
+    await writeFile(endpointsFile, JSON.stringify([
+      { id: 'a', name: 'online', url, tokenFile, cwd: root },
+      { id: 'b', name: 'missing', url, tokenFile: join(root, 'private-missing-token'), cwd: root },
+    ]))
+    child = spawn(process.execPath, [router, fake, '--native'], { env: { ...process.env, PAC_EXPERIMENTAL: '1',
+      PAC_OPENCODE_BINARY: process.execPath, PAC_ENDPOINTS_FILE: endpointsFile }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    child.stderr.resume()
+    peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }))
+    await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
+    const opened = await peer.call('session/new', { cwd: root, mcpServers: [] })
+    assert.deepEqual(opened._meta.pacDiscoveryWarnings, [{ name: 'missing', code: 'unavailable' }])
+    assert.ok(opened.models.availableModels.some((model) => model.modelId === 'PAC_online/sonnet'))
+    assert.doesNotMatch(JSON.stringify(opened), /private-missing-token/)
+    await peer.call('session/set_config_option', { sessionId: opened.sessionId, configId: 'model', value: 'PAC_online/sonnet' })
+    assert.deepEqual(await peer.call('session/prompt', { sessionId: opened.sessionId, prompt: [] }), { selected: 'sonnet' })
+  } finally {
+    peer?.close(); child?.kill(); agent?.close(); relay.close(); server.close()
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-selection-')) await rm(actual, { recursive: true, force: true })
+  }
+})
