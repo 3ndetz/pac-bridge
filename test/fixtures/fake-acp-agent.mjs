@@ -54,6 +54,11 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
         const output = await peer.call('terminal/output', { sessionId: params.sessionId, terminalId: terminal.terminalId })
         await peer.call('terminal/release', { sessionId: params.sessionId, terminalId: terminal.terminalId })
         if (status.exitCode !== 0 || output.output !== 'SHELL_SOURCE_OK') throw new Error('Source shell output was incorrect')
+        const failing = await peer.call('pac/terminal/create', { sessionId: params.sessionId, operationId: randomUUID(), command: 'bash', args: ['-c', 'printf SHELL_SOURCE_FAILURE; exit 7'], cwd: workspace }, 0)
+        const failed = await peer.call('terminal/wait_for_exit', { sessionId: params.sessionId, terminalId: failing.terminalId }, 0)
+        const failedOutput = await peer.call('terminal/output', { sessionId: params.sessionId, terminalId: failing.terminalId })
+        await peer.call('terminal/release', { sessionId: params.sessionId, terminalId: failing.terminalId })
+        if (failed.exitCode !== 7 || failedOutput.output !== 'SHELL_SOURCE_FAILURE') throw new Error('Source shell failure was not preserved')
         peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'source workspace read and write completed; search and shell completed' } } })
         return { stopReason: 'end_turn' }
       }
