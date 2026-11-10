@@ -264,6 +264,17 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const session = await request('/session', {})
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
+    if (process.env.PAC_TEST_CONCURRENT === '1') {
+      const other = await request('/session', {})
+      const sendOther = (text) => request(`/session/${other.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text }] })
+      const [first, second] = await Promise.all([message('SESSION_ONE_SECRET_MARKER'), sendOther('SESSION_TWO_SECRET_MARKER')])
+      const firstText = JSON.stringify(first.parts), secondText = JSON.stringify(second.parts)
+      assert.match(firstText, /remembered:SESSION_ONE_SECRET_MARKER/)
+      assert.doesNotMatch(firstText, /SESSION_TWO_SECRET_MARKER/)
+      assert.match(secondText, /remembered:SESSION_TWO_SECRET_MARKER/)
+      assert.doesNotMatch(secondText, /SESSION_ONE_SECRET_MARKER/)
+      return
+    }
     if (abortTest) {
       const pending = message('Start long operation')
       async function waitFile(name) {
