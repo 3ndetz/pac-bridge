@@ -186,3 +186,68 @@ test('experimental launcher opens OpenCode against a fake PAC', {
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-opencode-launcher-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
 })
+
+test('keeps the same PAC conversation across OpenCode messages', {
+  skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-opencode-multiturn-'))
+  const relayServer = createServer()
+  const relay = attachAcpRelay(relayServer, { authorize: () => true })
+  let agent, child
+  try {
+    const live = process.env.PAC_LIVE_MULTITURN_TEST === '1'
+    relayServer.listen(0, '127.0.0.1')
+    await once(relayServer, 'listening')
+    const relayUrl = live ? process.env.PAC_LIVE_URL : `ws://127.0.0.1:${relayServer.address().port}`
+    const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
+    const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
+    if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--conversation'] })
+    const tokenFile = live ? process.env.PAC_LIVE_SOURCE_TOKEN_FILE : join(root, 'token')
+    if (!live) await writeFile(tokenFile, 'test-token')
+    const reservation = createServer().listen(0, '127.0.0.1')
+    await once(reservation, 'listening')
+    const port = reservation.address().port
+    await new Promise((resolve) => reservation.close(resolve))
+    const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
+      SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC, TEMP: root, TMP: root,
+      HOME: root, USERPROFILE: root, APPDATA: join(root, 'appdata'), LOCALAPPDATA: join(root, 'localappdata'),
+      XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
+      OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+      PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
+      NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS,
+      PAC_EXPERIMENTAL_HOOKS: live ? '1' : '0', PAC_SOURCE_BASH: live ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : undefined,
+      PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: live ? process.env.PAC_LIVE_CONTROLLER_CWD : root }
+    child = spawnContained(process.execPath, [launcher, 'serve', '--hostname', '127.0.0.1', '--port', String(port)],
+      { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    child.stdout.resume(); child.stderr.resume()
+    const base = `http://127.0.0.1:${port}`
+    const until = Date.now() + 60000
+    let ready = false
+    while (Date.now() < until && !ready) {
+      if (child.exitCode !== null) break
+      try { ready = (await fetch(`${base}/global/health`, { signal: AbortSignal.timeout(2000) })).ok } catch {}
+      if (!ready) await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    assert.ok(ready, 'OpenCode server did not start')
+    const request = async (path, body) => {
+      const response = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(45000) })
+      if (!response.ok) throw new Error(`OpenCode HTTP ${response.status}`)
+      return response.json()
+    }
+    const session = await request('/session', {})
+    const message = (text) => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text }] })
+    const first = await message(live ? 'Remember code PAC_CONTEXT_6184. Reply STORED.' : 'FIRST_PAC_CONTEXT')
+    assert.match(JSON.stringify(first.parts), live ? /STORED/i : /remembered:FIRST_PAC_CONTEXT/)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const second = await message(live ? 'What code did I ask you to remember? Reply with the exact code.' : 'What did I say first?')
+    assert.match(JSON.stringify(second.parts), live ? /PAC_CONTEXT_6184/ : /remembered:FIRST_PAC_CONTEXT/)
+  } finally {
+    if (child && child.exitCode === null) { const ended = once(child, 'close'); stopContained(child); await ended }
+    agent?.close()
+    relay.close()
+    relayServer.close()
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-opencode-multiturn-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+})
