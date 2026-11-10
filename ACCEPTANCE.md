@@ -96,6 +96,8 @@ An isolated Windows-source browser scenario also observed the scoped-rule discov
 
 Another browser scenario substituted an unavailable catalog response inside the test browser, verified that the selected PAC remained visible and Create was disabled, then restored the real catalog and created the session. This validates the interface response to a discovery change, not detection of an actual transport disconnect while the form is open.
 
+HAPI now rechecks a selected PAC against a fresh catalog immediately before launch. Component tests cover a successful launch, a missing PAC, a failed catalog response and a transport error; the selection is preserved and no session is spawned on failure. This reduces stale-form launches but does not eliminate a disconnect after the check or prove active-session recovery.
+
 After fixing Windows process-tree shutdown for HAPI's model-variant catalog server, that browser scenario and the subagent cancellation check completed with exit code zero, including test workspace cleanup. This verifies the exercised Windows cleanup path; other lifecycle and platform cases remain open.
 
 An expanded non-browser HAPI run also completed with exit code zero after the relay and ACP hardening changes. It exercised source file operations and search, imported instructions and an unscoped rule, one skill, project hook outcomes, foreground and background shell, subagent updates, approval and denial, two named PAC sessions and resumption with a subsequent source write and skill call. The two PAC names still shared one authenticated Claude account; this run does not establish independent controller identities or full feature parity.
