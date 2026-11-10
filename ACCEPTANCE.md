@@ -163,3 +163,5 @@ After reauthentication, isolated cross-host tests using the project-bundled cont
 An isolated authenticated Claude run also accepted a small PNG attachment through the OpenCode launcher with experimental image support enabled. This is a single attachment case; it does not verify automatic model capability discovery, larger payloads or the full range of image formats.
 
 An authenticated Claude session requested a two-part question through the OpenCode question interface. The test supplied a custom text answer and multiple selected options and verified those answers in Claude's response. Other question forms and cancellation with the authenticated runtime remain unverified.
+
+A standalone relay now accepts per-PAC SHA-256 token hashes, separates source and agent roles, reloads authorization for new handshakes and requires TLS for non-loopback listening. Local tests exercise role isolation, credential rotation and refusal of a plaintext public listener. A deployed relay, operational provisioning and rotation of existing active connections remain unverified.
