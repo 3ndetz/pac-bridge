@@ -97,6 +97,10 @@ export function attachAcpRelay(server, { authorize, openTimeoutMs = 15000, maxBu
         })
       } else {
         pending.get(channel).agent = ws
+        ws.once('close', () => {
+          const entry = pending.get(channel)
+          if (entry?.agent === ws) { cleanupPending(channel); disconnect(entry.source, 'PAC unavailable') }
+        })
         ws.once('message', (data, binary) => {
           if (binary || data.toString() !== 'ready') return disconnect(ws, 'invalid readiness')
           const entry = cleanupPending(channel)

@@ -87,6 +87,28 @@ test('closes established channels when their PAC registration disconnects', { ti
   } finally { hub.close() }
 })
 
+test('fails pending sources promptly when an agent disconnects before readiness', { timeout: 5000 }, async () => {
+  const hub = await setup({ maxPending: 1 })
+  try {
+    const registration = hub.connect('register')
+    await once(registration, 'open')
+    const request = once(registration, 'message')
+    const source = hub.connect('source')
+    await once(source, 'open')
+    const [message] = await request
+    const agent = hub.connect('agent', 'pac-one', JSON.parse(message.toString()).channel)
+    await once(agent, 'open')
+    const closed = once(source, 'close')
+    agent.close()
+    await closed
+    const nextRequest = once(registration, 'message')
+    const next = hub.connect('source')
+    await once(next, 'open')
+    await nextRequest
+    next.close()
+  } finally { hub.close() }
+})
+
 test('limits pending source connections and releases capacity on disconnect', { timeout: 10000 }, async () => {
   const hub = await setup({ maxPending: 1 })
   try {
