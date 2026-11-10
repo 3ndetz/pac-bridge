@@ -3,8 +3,20 @@ import { createServer } from 'node:http'
 import { createOpencodeTurnChannel } from './opencode-turn-channel.mjs'
 import { mapQuestionAnswers } from './question-answers.mjs'
 
-// Experimental text-only transport. Unsupported events and permissions must
-// terminate the turn, never be translated into a successful text answer.
+function userPrompt(content) {
+  if (typeof content === 'string' && content) return [{ type: 'text', text: content }]
+  if (!Array.isArray(content) || !content.length || content.length > 32) throw new Error('Unsupported user message')
+  return content.map((part) => {
+    if (part?.type === 'text' && typeof part.text === 'string') return { type: 'text', text: part.text }
+    const url = part?.type === 'image_url' && (typeof part.image_url === 'string' ? part.image_url : part.image_url?.url)
+    const match = typeof url === 'string' && /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(url)
+    if (!match || match[2].length % 4 !== 0 || Buffer.from(match[2], 'base64').toString('base64') !== match[2]) throw new Error('Unsupported user attachment')
+    return { type: 'image', mimeType: match[1], data: match[2] }
+  })
+}
+
+// Experimental transport. Unsupported events and permissions terminate the
+// turn rather than being translated into a successful text answer.
 export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {} }) {
   if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
@@ -84,7 +96,8 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       }
       let turn = turns.get(sessionId)
       if (last.role === 'user') {
-        if (typeof last.content !== 'string' || !last.content) return fail(400, 'Unsupported user message')
+        let prompt
+        try { prompt = userPrompt(last.content) } catch { return fail(400, 'Unsupported user message or attachment') }
         const hasPriorConversation = body.messages.some((entry) => entry.role === 'assistant' || entry.role === 'tool') || body.messages.filter((entry) => entry.role === 'user').length > 1
         if (hasPriorConversation && !router.hasSession?.(sessionId) && !await router.canResume?.(sessionId)) return fail(400, 'PAC session binding is unavailable; refusing to start a different conversation')
         if (messages.has(messageId)) return fail(400, messages.get(messageId))
@@ -95,7 +108,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         const channel = createOpencodeTurnChannel({ sessionId })
         turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false }
         turns.set(sessionId, turn)
-        channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], update, { signal: cancellation.signal, mustResume: hasPriorConversation }))
+        channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, prompt, update, { signal: cancellation.signal, mustResume: hasPriorConversation }))
       } else {
         if (!turn || turn.messageId !== messageId || turn.model !== body.model || last.tool_call_id !== turn.pending?.id) return fail(400, 'Invalid PAC continuation')
         if (!turn.pending.resolved && turn.pending.question) {

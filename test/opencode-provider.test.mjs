@@ -47,6 +47,26 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
+test('forwards inline images and rejects remote or malformed attachments', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let received
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt(_binding, prompt) { received = prompt; return { stopReason: 'end_turn' } },
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' }
+  const post = (content) => fetch(url, { method: 'POST', headers, body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content }] }) })
+  try {
+    assert.equal((await post([{ type: 'image_url', image_url: { url: 'https://example.test/image.png' } }])).status, 400)
+    assert.equal((await post([{ type: 'image_url', image_url: { url: 'data:image/png;base64,%%%%' } }])).status, 400)
+    const response = await post([{ type: 'text', text: 'Describe' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } }])
+    assert.match(await response.text(), /\[DONE\]/)
+    assert.deepEqual(received, [{ type: 'text', text: 'Describe' }, { type: 'image', mimeType: 'image/png', data: 'AQID' }])
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
 test('does not report an unsupported ACP event as a completed response', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   const server = createOpencodeProvider({ token, cwd: '/source', router: {

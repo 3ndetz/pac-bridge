@@ -38,7 +38,8 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       }
       if (process.argv.includes('--conversation')) {
         firstPrompt ??= params.prompt?.find((part) => part.type === 'text')?.text || ''
-        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `remembered:${firstPrompt} model:${selected}` } } })
+        const imageCount = params.prompt?.filter((part) => part.type === 'image' && part.mimeType === 'image/png').length || 0
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `remembered:${firstPrompt} model:${selected} images:${imageCount}` } } })
         setTimeout(() => { try { peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'session_info_update' } }) } catch {} }, 30)
         return { stopReason: 'end_turn' }
       }

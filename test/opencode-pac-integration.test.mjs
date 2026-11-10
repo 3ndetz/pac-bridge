@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { attachAcpRelay } from '../src/acp-relay.mjs'
 import { startAgent } from '../src/acp-transport.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
@@ -159,7 +159,8 @@ test('experimental launcher opens OpenCode against a fake PAC', {
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const permissionTest = process.env.PAC_TEST_PERMISSION === '1'
     const denyTest = process.env.PAC_TEST_DENY === '1'
-    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, permissionTest ? '--permission-response' : '--text-response'] })
+    const imageTest = process.env.PAC_TEST_IMAGE === '1'
+    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, imageTest ? '--conversation' : permissionTest ? '--permission-response' : '--text-response'] })
     const tokenFile = join(root, 'token')
     await writeFile(tokenFile, 'test-token')
     const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
@@ -174,7 +175,9 @@ test('experimental launcher opens OpenCode against a fake PAC', {
       await mkdir(join(root, 'config', 'opencode'), { recursive: true })
       await writeFile(join(root, 'config', 'opencode', 'opencode.json'), JSON.stringify({ permission: { pac_bridge: 'deny' } }))
     }
-    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(permissionTest ? ['--auto'] : []), 'Hello PAC'],
+    const imageFile = join(root, 'fixture.png')
+    if (imageTest) await writeFile(imageFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lP0AAAAASUVORK5CYII=', 'base64'))
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(permissionTest ? ['--auto'] : []), ...(imageTest ? ['--file', imageFile, '--'] : []), 'Hello PAC'],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
     const deadline = setTimeout(() => stopContained(child), 90000)
@@ -184,7 +187,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
     clearTimeout(deadline)
     if (process.env.PAC_TEST_TIMING === '1') process.stderr.write((errors.match(/PAC discovery time: \d+ms/) || ['PAC discovery time unavailable'])[0] + '\n')
     assert.equal(code, 0, `${errors.slice(-2000)}\n${output.slice(-2000)}`)
-    assert.match(output, permissionTest ? (denyTest ? /fake PAC permission deny/ : /fake PAC permission allow/) : /fake PAC sonnet response/)
+    assert.match(output, imageTest ? /images:1/ : permissionTest ? (denyTest ? /fake PAC permission deny/ : /fake PAC permission allow/) : /fake PAC sonnet response/)
   } finally {
     if (child && child.exitCode === null) stopContained(child)
     agent?.close()
@@ -252,6 +255,16 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const session = await request('/session', {})
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
+    if (process.env.PAC_TEST_IMAGE === '1') {
+      const imageFile = join(root, 'fixture.png')
+      await writeFile(imageFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lP0AAAAASUVORK5CYII=', 'base64'))
+      const response = await request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [
+        { type: 'text', text: 'Describe image' },
+        { type: 'file', mime: 'image/png', filename: 'fixture.png', url: pathToFileURL(imageFile).href },
+      ] })
+      assert.match(JSON.stringify(response.parts), /images:1/)
+      return
+    }
     if (questionTest) {
       const pending = message('Ask the questions')
       let question
