@@ -152,7 +152,8 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
               if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) return { instructions: [] }
               const matching = (state.instructions || []).filter((entry) => entry.paths && matchesProjectRule(workspace, actual, entry.paths))
               const nested = await readSourceInstructions({ root: workspace, stopAt: workspace, nestedTarget: actual, nestedOnly: true })
-              return { instructions: [...nested, ...matching].map(({ path, content }) => ({ path, content })) }
+              const nestedMatches = nested.filter((entry) => !entry.paths || matchesProjectRule(entry.base || workspace, actual, entry.paths))
+              return { instructions: [...nestedMatches, ...matching].map(({ path, content }) => ({ path, content })) }
             }
             if (remoteMethod === 'pac/fs/read_image') {
               const result = await state.workspace.readImageFile(remoteParams)

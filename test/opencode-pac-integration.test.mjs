@@ -84,7 +84,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   try {
     const scopedBash = process.env.PAC_LIVE_SCOPED_BASH_TEST === '1'
     const scopedTest = process.env.PAC_LIVE_SCOPED_TEST === '1' || scopedBash
-    const nestedTest = process.env.PAC_LIVE_NESTED_TEST === '1'
+    const nestedRuleTest = process.env.PAC_LIVE_NESTED_RULE_TEST === '1'
+    const nestedTest = process.env.PAC_LIVE_NESTED_TEST === '1' || nestedRuleTest
     const relativeTest = process.env.PAC_LIVE_RELATIVE_TEST === '1'
     const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1' || scopedTest || relativeTest || nestedTest
     const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
@@ -94,7 +95,10 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     const fixture = join(root, ...(nestedTest ? ['nested'] : []), 'source-fixture.txt')
     if (nestedTest) {
       await mkdir(join(root, 'nested'))
-      await writeFile(join(root, 'nested', 'CLAUDE.md'), 'When reporting this file, include the exact marker PAC_NESTED_RULE_VERIFIED.\n')
+      if (nestedRuleTest) {
+        await mkdir(join(root, 'nested', '.claude', 'rules'), { recursive: true })
+        await writeFile(join(root, 'nested', '.claude', 'rules', 'file.md'), '---\npaths: "source-fixture.txt"\n---\nWhen reporting this file, include the exact marker PAC_NESTED_RULE_VERIFIED.\n')
+      } else await writeFile(join(root, 'nested', 'CLAUDE.md'), 'When reporting this file, include the exact marker PAC_NESTED_RULE_VERIFIED.\n')
     }
     if (toolTest) await writeFile(fixture, 'PAC_READ_FIXTURE_CONTENT')
     if (scopedTest) {

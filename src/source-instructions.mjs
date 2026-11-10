@@ -61,7 +61,7 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
   }
   const entries = []
   let total = 0
-  async function readInstruction(path, scope, depth, active, allowImports, rule = false, inheritedPaths = []) {
+  async function readInstruction(path, scope, depth, active, allowImports, rule = false, inheritedPaths = [], ruleBase = workspace) {
     let actual
     try { actual = await realpath(path) } catch (error) {
       if (error.code === 'ENOENT' && depth === 0) return
@@ -87,7 +87,7 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
     } finally { await file.close() }
     const parsed = rule ? parseProjectRule(text) : { content: text, paths: inheritedPaths }
     text = parsed.content
-    entries.push({ path, content: text, ...(parsed.paths.length ? { paths: parsed.paths } : {}) })
+    entries.push({ path, content: text, ...(parsed.paths.length ? { paths: parsed.paths, ...(ruleBase !== workspace ? { base: ruleBase } : {}) } : {}) })
     if (!allowImports) return
     const imports = instructionImports(text)
     if (imports.length && depth >= 4) throw new Error('Instruction import exceeds the maximum depth')
@@ -102,7 +102,7 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
         if (inWorkspace === '..' || inWorkspace.startsWith(`..${sep}`) || isAbsolute(inWorkspace)) {
           throw new Error('External instruction imports require approval and are not supported')
         }
-        await readInstruction(target, workspace, depth + 1, active, true, false, parsed.paths)
+        await readInstruction(target, workspace, depth + 1, active, true, false, parsed.paths, ruleBase)
       }
     } finally { active.delete(actual) }
   }
@@ -114,11 +114,11 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
       }
     }
   }
+  let nestedDirectories = []
   if (nestedTarget) {
     const actual = await realpath(nestedTarget)
     const local = relative(workspace, actual)
     if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Nested instruction target is outside the workspace')
-    const nestedDirectories = []
     let directory = dirname(actual)
     while (directory !== workspace) {
       nestedDirectories.push(directory)
@@ -127,7 +127,8 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
       directory = parent
     }
     if (nestedDirectories.length > 256) throw new Error('Too many nested instruction directories')
-    for (const directory of nestedDirectories.reverse()) {
+    nestedDirectories.reverse()
+    for (const directory of nestedDirectories) {
       for (const name of ['AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', join('.claude', 'CLAUDE.md')]) {
         await readInstruction(join(directory, name), directory, 0, new Set(), name !== 'AGENTS.md')
       }
@@ -135,7 +136,7 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
   }
   // Links are rejected until external-import approval can be routed.
   let ruleDirectories = 0
-  async function readRules(directory) {
+  async function readRules(directory, ruleBase = workspace) {
     if (++ruleDirectories > 256) throw new Error('Too many source rule directories')
     let children
     try {
@@ -150,13 +151,14 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
     for (const child of children) {
       const path = join(directory, child.name)
       if (child.isSymbolicLink()) throw new Error('Symbolic rule paths are not yet supported')
-      if (child.isDirectory()) await readRules(path)
+      if (child.isDirectory()) await readRules(path, ruleBase)
       else if (child.isFile() && child.name.endsWith('.md')) {
-        await readInstruction(path, workspace, 0, new Set(), true, true)
+        await readInstruction(path, workspace, 0, new Set(), true, true, [], ruleBase)
       }
     }
   }
   if (!nestedOnly) await readRules(join(workspace, '.claude', 'rules'))
+  for (const directory of nestedDirectories) await readRules(join(directory, '.claude', 'rules'), directory)
   const scopedContext = entries.filter((entry) => nestedOnly || entry.paths).map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
   if (scopedContext.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
   return entries
