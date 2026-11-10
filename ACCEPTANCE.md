@@ -73,6 +73,8 @@ The launcher now records an exclusive pending-turn marker before sending a promp
 
 On Windows, a pseudo-terminal run of the standard OpenCode TUI displayed the experimental PAC model and a permission prompt, and separate manual interactions selected allow and reject against a fake PAC. A request summary is shown in the conversation before the prompt. The test does not establish a real-Claude TUI approval, cross-platform terminal behavior, or complete rendering of lengthy approval details.
 
+The launcher probes registered endpoints before startup, displays unavailable endpoints separately, and requires an explicit model choice if `PAC_MODEL` is not supplied. An isolated pseudo-terminal test selected a model from the discovered fake PAC catalog and continued into OpenCode. Model availability can still change after this initial probe; the session-opening path checks the selected PAC again.
+
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Session creation and models | Real HAPI runners on two Windows source hosts offered and selected a named PAC model before session creation. Browser tests on both hosts selected OpenCode and the PAC model in HAPI's new-session form, created a session, sent a message and stopped the resulting task; component tests also cover selection and form submission. A separate live session switched from Sonnet to Opus and back; Claude usage events confirmed the actual model family after each switch. | Persistent deployment, live discovery and authorization; independently authenticated PAC identities, all model variants and broader source platforms. |

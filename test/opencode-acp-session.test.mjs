@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { attachAcpRelay } from '../src/acp-relay.mjs'
 import { startAgent } from '../src/acp-transport.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
+import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 
 test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-acp-'))
@@ -25,6 +26,18 @@ test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 },
     const tokenFile = join(root, 'token')
     await writeFile(tokenFile, 'test-token')
     await mkdir(join(root, 'workspace'))
+    const discovered = await discoverOpencodePacs({ command: process.execPath, args: [router, fake, '--native'], cwd: join(root, 'workspace'),
+      env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url,
+        PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root } })
+    assert.ok(discovered.models.some((model) => model.id === 'PAC_testpac/sonnet'))
+    assert.deepEqual(discovered.warnings, [])
+    const endpoints = join(root, 'endpoints.json')
+    await writeFile(endpoints, JSON.stringify(['testpac', 'offline'].map((name) => ({ id: name, name, url, tokenFile, cwd: root }))))
+    const partial = await discoverOpencodePacs({ command: process.execPath, args: [router, fake, '--native'], cwd: join(root, 'workspace'),
+      env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_ENDPOINTS_FILE: endpoints } })
+    assert.ok(partial.models.some((model) => model.id === 'PAC_testpac/sonnet'))
+    assert.ok(!partial.models.some((model) => model.id.startsWith('PAC_offline/')))
+    assert.deepEqual(partial.warnings, [{ name: 'offline', code: 'unavailable' }])
     session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native'], cwd: join(root, 'workspace'),
       env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url,
         PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },

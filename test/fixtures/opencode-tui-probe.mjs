@@ -29,8 +29,10 @@ try {
     OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
     PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root }
+  if (process.env.PAC_TEST_CHOOSE === '1') delete env.PAC_MODEL
   child = spawnContained(process.execPath, [launcher, '--prompt', 'Request the test permission'], { cwd: root, env, stdio: 'inherit', windowsHide: false, interactive: true })
-  const [code] = await once(child, 'close')
+  const [code, signal] = await once(child, 'close')
+  process.stderr.write(`TUI probe exit: ${code ?? 'none'} ${signal ?? 'none'}\n`)
   process.exitCode = code ?? 1
 } finally {
   if (child && child.exitCode === null) stopContained(child)
