@@ -8,7 +8,7 @@ const host = process.env.PAC_RELAY_HOST || '127.0.0.1'
 const port = Number(process.env.PAC_RELAY_PORT || '8791')
 const keyPath = process.env.PAC_RELAY_TLS_KEY
 const certPath = process.env.PAC_RELAY_TLS_CERT
-if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || Boolean(keyPath) !== Boolean(certPath) ||
+if (!Number.isSafeInteger(port) || port < 0 || port > 65535 || Boolean(keyPath) !== Boolean(certPath) ||
     (!keyPath && !['127.0.0.1', '::1', 'localhost'].includes(host))) throw new Error('Invalid relay listener configuration')
 const authorize = createRelayAuthorizer(process.env.PAC_RELAY_AUTH_FILE)
 const handler = (request, response) => {
@@ -17,5 +17,5 @@ const handler = (request, response) => {
 }
 const server = keyPath ? createHttpsServer({ key: readFileSync(keyPath), cert: readFileSync(certPath) }, handler) : createHttpServer(handler)
 const relay = attachAcpRelay(server, { authorize })
-server.listen(port, host, () => process.stderr.write('PAC relay listening\n'))
+server.listen(port, host, () => process.stdout.write(`PAC relay listening ${server.address().port} ${process.pid}\n`))
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { relay.close(); server.close() })

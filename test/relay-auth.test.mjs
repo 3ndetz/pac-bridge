@@ -53,8 +53,8 @@ test('standalone relay enforces role credentials and refuses an insecure public 
     const port = reservation.address().port
     await new Promise((resolve) => reservation.close(resolve))
     child = spawn(process.execPath, [adapter], { env: { ...process.env, PAC_RELAY_HOST: '127.0.0.1', PAC_RELAY_PORT: String(port), PAC_RELAY_AUTH_FILE: path,
-      PAC_RELAY_TLS_CERT: '', PAC_RELAY_TLS_KEY: '' }, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
-    await once(child.stderr, 'data')
+      PAC_RELAY_TLS_CERT: '', PAC_RELAY_TLS_KEY: '' }, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    await once(child.stdout, 'data')
     const connect = (role, token) => new WebSocket(`ws://127.0.0.1:${port}/acp-relay/${role}`, { headers: { authorization: `Bearer ${token}`, 'x-pac-name': 'sample' } })
     const invalid = connect('register', 'source-secret')
     invalid.on('error', () => {})
