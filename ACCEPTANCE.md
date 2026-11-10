@@ -65,7 +65,7 @@ An installed OpenCode server switched from one synthetic model to another on the
 
 Aborting an active OpenCode server session delivered ACP cancellation to a synthetic PAC while its turn was pending. This does not establish that a real controller's in-progress side effects or descendant processes have stopped; those require separate verification and an interrupted outcome can remain unknown.
 
-Two simultaneous sessions in the installed OpenCode server each received only its own distinct prompt marker from separate synthetic PAC sessions. Real-controller concurrency, permissions and cross-machine isolation remain to be verified.
+Two simultaneous sessions in the installed OpenCode server each received only its own distinct prompt marker from separate synthetic PAC sessions. A separate simultaneous-question test returned distinct answers only to their owning synthetic sessions. Real-controller concurrency, permissions and cross-machine isolation remain to be verified.
 
 The provider can translate a bounded inline PNG, JPEG, GIF or WebP input to an ACP image block in a unit test. With explicit experimental image capability enabled, an installed OpenCode server and `run --file` each forwarded a valid PNG to a synthetic PAC. An earlier `BadRequest` was traced to an invalid test PNG; a valid PNG was initially omitted because the synthetic model was advertised as text-only. A further CLI test checks that the plugin rejects this attachment when image capability is unknown. Automatic capability discovery, authenticated Claude image input, the terminal UI and realistic size limits remain unverified; the explicit test flag does not establish that every remote model accepts images.
 

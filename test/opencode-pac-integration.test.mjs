@@ -264,6 +264,29 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const session = await request('/session', {})
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
+    if (questionTest && process.env.PAC_TEST_CONCURRENT_QUESTIONS === '1') {
+      const other = await request('/session', {})
+      const first = message('Ask first')
+      const second = request(`/session/${other.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text: 'Ask second' }] })
+      let questions = []
+      const deadline = Date.now() + 35000
+      while (questions.length < 2 && Date.now() < deadline) {
+        const response = await fetch(`${base}/question`)
+        if (response.ok) questions = (await response.json()).filter((entry) => [session.id, other.id].includes(entry.sessionID))
+        if (questions.length < 2) await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+      assert.equal(questions.length, 2, 'Both questions must be available')
+      const bySession = new Map(questions.map((question) => [question.sessionID, question.id]))
+      await Promise.all([
+        request(`/question/${bySession.get(session.id)}/reply`, { answers: [['FIRST_ANSWER'], ['Red']] }),
+        request(`/question/${bySession.get(other.id)}/reply`, { answers: [['SECOND_ANSWER'], ['Blue']] }),
+      ])
+      const [firstResult, secondResult] = await Promise.all([first, second])
+      const firstText = JSON.stringify(firstResult.parts), secondText = JSON.stringify(secondResult.parts)
+      assert.match(firstText, /FIRST_ANSWER/); assert.doesNotMatch(firstText, /SECOND_ANSWER/)
+      assert.match(secondText, /SECOND_ANSWER/); assert.doesNotMatch(secondText, /FIRST_ANSWER/)
+      return
+    }
     if (process.env.PAC_TEST_CONCURRENT === '1') {
       const other = await request('/session', {})
       const sendOther = (text) => request(`/session/${other.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text }] })
