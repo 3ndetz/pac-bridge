@@ -174,7 +174,7 @@ try {
           pacDiscoveryWarnings: [{ name: 'testpac', code: 'unavailable' }],
         } }))
         const offlineResponse = page.waitForResponse((item) => item.url().includes('/opencode-models?cwd=') && item.request().method() === 'GET', { timeout: 30000 })
-        await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+        await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
         await offlineResponse
         await page.getByTestId('pac-discovery-warnings').waitFor({ state: 'visible', timeout: 30000 })
         if (await model.inputValue() !== 'PAC_testpac/sonnet') throw new Error('Unavailable PAC selection was silently replaced')
