@@ -57,6 +57,10 @@ const env = { ...process.env, CLI_API_TOKEN: accessToken, HAPI_HOME: join(root, 
 const children = []
 let diagnosticOutput = ''
 let stage = 'starting HAPI hub'
+const stageTimer = process.env.PAC_TEST_STAGE_FILE ? setInterval(() => {
+  void writeFile(process.env.PAC_TEST_STAGE_FILE, stage, 'utf8').catch(() => {})
+}, 2000) : null
+stageTimer?.unref()
 let jwt
 let runnerSessionId
 let runnerMachineId
@@ -86,7 +90,7 @@ function launch(args, cwd, executable = hapi) {
 }
 async function request(path, options = {}) {
   const response = await fetch(url + path, { ...options, headers: { ...(jwt ? { authorization: `Bearer ${jwt}` } : {}),
-    ...(options.body ? { 'content-type': 'application/json' } : {}) }, signal: AbortSignal.timeout(/\/(spawn|resume|archive|opencode-models)(\?|$)/.test(path) ? 150000 : 30000) })
+    ...(options.body ? { 'content-type': 'application/json' } : {}) }, signal: options.signal ?? AbortSignal.timeout(/\/(spawn|resume|archive|opencode-models)(\?|$)/.test(path) ? 150000 : 30000) })
   if (!response.ok) {
     const body = await response.text()
     const reason = body.includes('Session process is still running and could not be stopped') ? 'session process not confirmed stopped' : 'details unavailable'
@@ -127,15 +131,29 @@ try {
     stage = 'discovering PAC model before creating a session'
     await until(async () => JSON.stringify(await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(workspace)}`)).includes('PAC_testpac/sonnet'), 180000)
     machineModelOffered = true
-    if (process.env.PAC_HAPI_INSTRUCTIONS === '1') {
+    if (process.env.PAC_HAPI_INSTRUCTIONS === '1' || process.env.PAC_HAPI_BROWSER === '1') {
       stage = 'checking PAC discovery warnings through HAPI'
       const warningCwd = join(workspace, 'warning-case')
       await mkdir(warningCwd)
-      await writeFile(join(warningCwd, 'CLAUDE.md'), 'External instruction: @../rules/marker.md\n')
+      await mkdir(join(warningCwd, '.claude', 'rules'), { recursive: true })
+      await writeFile(join(warningCwd, '.claude', 'rules', 'scoped.md'), '---\npaths: "src/**"\n---\nScoped instructions\n')
       const discovered = await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(warningCwd)}`)
       if (!discovered.success || !Array.isArray(discovered.availableModels) ||
-          !discovered.pacDiscoveryWarnings?.some((warning) => warning.name === 'testpac' && warning.code === 'external_import_unsupported')) {
+          !discovered.pacDiscoveryWarnings?.some((warning) => warning.name === 'testpac' && warning.code === 'rule_frontmatter_unsupported')) {
         throw new Error('HAPI did not expose the expected PAC discovery warning')
+      }
+      if (process.env.PAC_HAPI_BROWSER === '1') {
+        const page = await openBrowser()
+        await page.goto(`${url}/sessions/new?directory=${encodeURIComponent(warningCwd)}&machineId=${encodeURIComponent(machine.id)}`)
+        await page.locator('input[name="agent"][value="opencode"]').check({ timeout: 45000 })
+        const warnings = page.getByTestId('pac-discovery-warnings')
+        await warnings.waitFor({ state: 'visible', timeout: 90000 })
+        if (!(await warnings.innerText()).includes('frontmatter')) throw new Error('HAPI did not display the PAC project rule warning')
+        if (discovered.availableModels.length && !(await page.getByTestId('opencode-model-list').isVisible())) {
+          throw new Error('Native models were hidden by a PAC discovery warning')
+        }
+        await warnings.getByRole('button').click()
+        await warnings.waitFor({ state: 'visible', timeout: 90000 })
       }
       pacWarningsVerified = true
     }
@@ -945,19 +963,28 @@ try {
   }
   process.exitCode = 1
 } finally {
+  stage = 'closing the isolated test browser'
   if (browser) await browser.close().catch(() => {})
+  stage = 'archiving isolated test sessions'
   if (jwt) {
     const sessionIds = new Set([approvalSessionId, runnerSessionId].filter(Boolean))
     try {
-      for (const session of (await request('/api/sessions')).sessions || []) if (session.id) sessionIds.add(session.id)
+      for (const session of (await request('/api/sessions', { signal: AbortSignal.timeout(10000) })).sessions || []) if (session.id) sessionIds.add(session.id)
     } catch {}
     for (const sessionId of sessionIds) {
-      try { await request(`/api/sessions/${sessionId}/archive`, { method: 'POST' }) } catch {}
+      try { await request(`/api/sessions/${sessionId}/archive`, { method: 'POST', signal: AbortSignal.timeout(10000) }) } catch {}
     }
   }
-  for (const child of children.reverse()) if (child.pid && child.exitCode === null) spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+  stage = 'stopping isolated test processes'
+  for (const child of children.reverse()) if (child.pid && child.exitCode === null) {
+    const result = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 10000 })
+    if (result.error) process.stderr.write(`Could not confirm isolated process cleanup: ${result.error.message}\n`)
+  }
+  stage = 'removing the isolated test workspace'
   const realTemp = await realpath(tmpdir())
   const realRoot = await realpath(root)
   const local = relative(realTemp, realRoot)
   if (local && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local) && local.startsWith('pac-hapi-proof-')) await rm(realRoot, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 })
+  stage = 'isolated test cleanup finished'
+  if (stageTimer) clearInterval(stageTimer)
 }
