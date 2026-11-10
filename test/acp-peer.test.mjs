@@ -74,6 +74,22 @@ test('bounds queued notifications and reports an uncertain in-flight call', asyn
   } finally { release(); first.close(); second.close() }
 })
 
+test('bounds in-flight request data without dispatching requests over the limit', async () => {
+  const [firstStream, secondStream] = streams()
+  let calls = 0
+  let release
+  const blocked = new Promise((resolve) => { release = resolve })
+  const first = createAcpPeer(firstStream, { maxInFlightRequestBytes: 220, onRequest: () => { calls++; return blocked } })
+  const second = createAcpPeer(secondStream)
+  try {
+    const firstCall = second.call('write', { text: 'x'.repeat(50) }, 1000)
+    const secondCall = second.call('write', { text: 'x'.repeat(50) }, 1000)
+    const outcomes = await Promise.allSettled([firstCall, secondCall])
+    assert.ok(outcomes.every((result) => result.status === 'rejected' && /outcome may be unknown/.test(result.reason.message)))
+    assert.equal(calls, 1)
+  } finally { release(); first.close(); second.close() }
+})
+
 test('closes an oversized unfinished message and reports an uncertain in-flight call', async () => {
   const [firstStream, secondStream] = streams()
   secondStream.on('error', () => {})
