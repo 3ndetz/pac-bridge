@@ -26,6 +26,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       const last = Array.isArray(body.messages) ? body.messages.at(-1) : undefined
       if (body.stream !== true || typeof body.model !== 'string' || !body.model.startsWith('PAC_') || last?.role !== 'user' || typeof last.content !== 'string' || !last.content) return fail(400, 'Unsupported provider request')
+      // OpenCode also sends auxiliary requests with the same message id and
+      // no tools (for example title generation). Never send those to Claude.
+      // A real turn with tools disabled is intentionally unsupported for now.
+      if (!Array.isArray(body.tools) || !body.tools.length) return fail(400, 'PAC requests without tools are unsupported')
       let messages = seen.get(sessionId)
       if (!messages) {
         if (seen.size >= 1024) return fail(503, 'Session capacity reached')

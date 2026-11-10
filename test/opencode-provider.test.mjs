@@ -17,7 +17,7 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
   await once(server, 'listening')
   const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
   const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 'session-1', 'x-pac-message-id': 'turn-1' }
-  const body = JSON.stringify({ model: 'PAC_work/sonnet', stream: true, messages: [{ role: 'user', content: 'hello' }] })
+  const body = JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'hello' }] })
   try {
     const unauthorized = await fetch(url, { method: 'POST', headers: { ...headers, authorization: 'Bearer wrong' }, body })
     assert.equal(unauthorized.status, 401)
@@ -49,7 +49,7 @@ test('does not report an unsupported ACP event as a completed response', async (
     await assert.rejects(async () => {
       const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' },
-        body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, messages: [{ role: 'user', content: 'hello' }] }) })
+        body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'hello' }] }) })
       await response.text()
     })
   } finally { await new Promise((resolve) => server.close(resolve)) }

@@ -20,7 +20,13 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       selected = params.value
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
-    if (method === 'session/prompt') return { selected }
+    if (method === 'session/prompt') {
+      if (process.argv.includes('--text-response')) {
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `fake PAC ${selected} response` } } })
+        return { stopReason: 'end_turn' }
+      }
+      return { selected }
+    }
     throw new Error('Unsupported fake request')
   },
 })
