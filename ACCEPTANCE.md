@@ -71,6 +71,8 @@ The same test was repeated after stopping and restarting the isolated OpenCode s
 
 The launcher now records an exclusive pending-turn marker before sending a prompt and clears it only after a confirmed normal completion. Unit tests verify that a failed turn leaves the marker and a new router refuses to repeat it; the completed-conversation restart scenario also passed with the marker enabled. This is fail-closed detection, not automatic reconciliation or a cross-host crash test of every side-effect timing.
 
+On Windows, a pseudo-terminal run of the standard OpenCode TUI displayed the experimental PAC model and a permission prompt, and separate manual interactions selected allow and reject against a fake PAC. A request summary is shown in the conversation before the prompt. The test does not establish a real-Claude TUI approval, cross-platform terminal behavior, or complete rendering of lengthy approval details.
+
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Session creation and models | Real HAPI runners on two Windows source hosts offered and selected a named PAC model before session creation. Browser tests on both hosts selected OpenCode and the PAC model in HAPI's new-session form, created a session, sent a message and stopped the resulting task; component tests also cover selection and form submission. A separate live session switched from Sonnet to Opus and back; Claude usage events confirmed the actual model family after each switch. | Persistent deployment, live discovery and authorization; independently authenticated PAC identities, all model variants and broader source platforms. |

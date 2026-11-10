@@ -71,7 +71,7 @@ public static class PacWindowsJob {
         return result.ToString();
     }
 
-    public static int Run(string executable, string[] arguments, string directory) {
+    public static int Run(string executable, string[] arguments, string directory, bool interactive) {
         IntPtr job = IntPtr.Zero, limits = IntPtr.Zero, attributes = IntPtr.Zero, jobs = IntPtr.Zero;
         bool initialized = false;
         ProcessInfo process = new ProcessInfo();
@@ -105,7 +105,7 @@ public static class PacWindowsJob {
             startup.AttributeList = attributes;
             var command = new StringBuilder(Quote(executable));
             foreach (string argument in arguments) command.Append(' ').Append(Quote(argument));
-            Require(CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x00080004 | 0x08000000, IntPtr.Zero, directory, ref startup, out process));
+            Require(CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x00080004 | (interactive ? 0u : 0x08000000u), IntPtr.Zero, directory, ref startup, out process));
             if (ResumeThread(process.Thread) == uint.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
             if (WaitForSingleObject(process.Process, uint.MaxValue) != 0) throw new Win32Exception(Marshal.GetLastWin32Error());
             uint exitCode;
@@ -132,5 +132,5 @@ if (Test-Path -LiteralPath $requested -PathType Leaf) {
     $executable = (Get-Command -Name $requested -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 }
 if ([IO.Path]::GetExtension($executable) -ine '.exe' -and [IO.Path]::GetExtension($executable) -ine '.com') { throw 'Unsupported Windows executable type' }
-$result = [PacWindowsJob]::Run($executable, [string[]]@($spec.args), [string]$spec.cwd)
+$result = [PacWindowsJob]::Run($executable, [string[]]@($spec.args), [string]$spec.cwd, ($spec.interactive -eq $true))
 exit $result

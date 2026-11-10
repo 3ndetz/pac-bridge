@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
@@ -99,7 +99,10 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
       PAC_CONTROLLER_CWD: process.env.PAC_LIVE_CONTROLLER_CWD }
-    if (denyTest) env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'deny' } })
+    if (denyTest) {
+      await mkdir(join(root, 'config', 'opencode'), { recursive: true })
+      await writeFile(join(root, 'config', 'opencode', 'opencode.json'), JSON.stringify({ permission: { pac_bridge: 'deny' } }))
+    }
     const prompt = bashTest
       ? 'Use Bash to run exactly: printf PAC_BASH_FIXTURE_CONTENT > bash-fixture.txt. Then say PAC_BASH_VERIFIED.'
       : writeTest
@@ -165,7 +168,10 @@ test('experimental launcher opens OpenCode against a fake PAC', {
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root }
-    if (denyTest) env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'deny' } })
+    if (denyTest) {
+      await mkdir(join(root, 'config', 'opencode'), { recursive: true })
+      await writeFile(join(root, 'config', 'opencode', 'opencode.json'), JSON.stringify({ permission: { pac_bridge: 'deny' } }))
+    }
     child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(permissionTest ? ['--auto'] : []), 'Hello PAC'],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''

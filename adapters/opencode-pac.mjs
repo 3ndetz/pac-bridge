@@ -46,6 +46,7 @@ try {
   child = spawnContained(binary, args[0] === 'serve' ? args : ['--model', `pacbridge/${model}`, ...args], {
     cwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
       PAC_PROVIDER_URL: `http://127.0.0.1:${server.address().port}`, PAC_PROVIDER_TOKEN: token }, stdio: 'inherit', windowsHide: false,
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   })
   process.once('SIGINT', () => { if (child) stopContained(child) })
   process.once('SIGTERM', () => { if (child) stopContained(child) })

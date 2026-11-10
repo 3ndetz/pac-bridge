@@ -96,6 +96,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
           turn.pending = { ...event, resolved: false }
           turn.timer = setTimeout(() => cancelTurn(sessionId, turn), permissionTimeoutMs)
           turn.timer.unref()
+          const operation = Object.fromEntries(['title', 'kind', 'rawInput'].filter((key) => Object.hasOwn(event.toolCall || {}, key)).map((key) => [key, event.toolCall[key]]))
+          const description = JSON.stringify(operation)
+          if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC approval details exceed size limit')
+          write({ content: `\n[PAC approval requested]\n${description}\n` })
           write({ tool_calls: [{ index: 0, id: event.id, type: 'function', function: { name: 'pac_approval', arguments: JSON.stringify({ id: event.id }) } }] })
           write({}, 'tool_calls')
           turn.streaming = false

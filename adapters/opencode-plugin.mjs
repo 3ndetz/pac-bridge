@@ -4,6 +4,14 @@ import { z } from 'zod'
 // hook lack identities and are rejected by the bridge.
 export default async function pacBridgePlugin() {
   return {
+    config: async (config) => {
+      const current = config.permission
+      if (typeof current === 'string') {
+        config.permission = { '*': current, pac_bridge: current === 'deny' ? 'deny' : 'ask' }
+      } else {
+        config.permission = { ...(current || {}), pac_bridge: current?.pac_bridge ?? (current?.['*'] === 'deny' ? 'deny' : 'ask') }
+      }
+    },
     tool: {
       pac_approval: {
         description: 'Ask the user to approve or reject a pending PAC operation.',
@@ -20,9 +28,13 @@ export default async function pacBridgePlugin() {
             return response.json()
           }
           const details = await exchange('inspect')
+          const input = details.toolCall?.rawInput
+          const rendered = typeof input === 'string' ? input : input === undefined ? '' : JSON.stringify(input)
+          const title = `${details.title}${rendered ? `: ${rendered}` : ''}`.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 512)
+          context.metadata({ title, metadata: { toolCall: details.toolCall } })
           let decision = 'deny'
           try {
-            await context.ask({ permission: 'pac_bridge', patterns: [details.title], always: [], metadata: { toolCall: details.toolCall } })
+            await context.ask({ permission: 'pac_bridge', patterns: [title], always: [], metadata: { toolCall: details.toolCall } })
             decision = 'allow'
           } catch {}
           await exchange('resolve', { decision })
