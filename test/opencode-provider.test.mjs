@@ -219,6 +219,7 @@ test('routes native question answers only to their owning PAC turn', async () =>
     const call = events.find((event) => event.choices[0].delta.tool_calls).choices[0].delta.tool_calls[0]
     assert.equal(call.function.name, 'question')
     assert.equal(JSON.parse(call.function.arguments).questions[1].multiple, true)
+    assert.equal((await post('/pac/approval', { action: 'cancel', id: call.id, sessionId: 'other' })).status, 400)
     assert.equal((await post('/pac/approval', { action: 'resolve', id: call.id, sessionId: 'other', answers: [['Custom'], ['Red', 'Blue']] })).status, 400)
     assert.equal((await post('/pac/approval', { action: 'resolve', id: call.id, sessionId: 's', answers: [['Custom', 'A'], ['Red']] })).status, 400)
     assert.equal((await post('/pac/approval', { action: 'resolve', id: call.id, sessionId: 's', answers: [['Custom'], ['Red', 'Blue']] })).status, 200)

@@ -3,7 +3,26 @@ import { z } from 'zod'
 // Only tag calls to this provider. Auxiliary model calls that bypass this
 // hook lack identities and are rejected by the bridge.
 export default async function pacBridgePlugin() {
+  const questionCalls = new Map()
   return {
+    event: async ({ event }) => {
+      const props = event?.properties
+      if (event?.type === 'question.asked' && typeof props?.id === 'string' && typeof props?.sessionID === 'string' && typeof props?.tool?.callID === 'string') {
+        if (questionCalls.size >= 1024) questionCalls.delete(questionCalls.keys().next().value)
+        questionCalls.set(props.id, { sessionId: props.sessionID, id: props.tool.callID })
+      }
+      if (!['question.rejected', 'question.replied'].includes(event?.type)) return
+      const entry = questionCalls.get(props?.requestID)
+      questionCalls.delete(props?.requestID)
+      if (!entry || event.type !== 'question.rejected' || entry.sessionId !== props.sessionID) return
+      const base = process.env.PAC_PROVIDER_URL, token = process.env.PAC_PROVIDER_TOKEN
+      if (!base || !token) return
+      try {
+        await fetch(`${base}/pac/approval`, { method: 'POST', signal: AbortSignal.timeout(5000),
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'cancel', ...entry }) })
+      } catch {}
+    },
     config: async (config) => {
       const current = config.permission
       if (typeof current === 'string') {

@@ -211,7 +211,8 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const questionTest = process.env.PAC_TEST_QUESTIONS === '1'
-    if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, questionTest ? '--question-response' : '--conversation'] })
+    if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, questionTest ? '--question-response' : '--conversation'],
+      env: { ...process.env, PAC_TEST_QUESTION_CANCEL_FILE: join(root, 'question-cancelled') } })
     const tokenFile = live ? process.env.PAC_LIVE_SOURCE_TOKEN_FILE : join(root, 'token')
     if (!live) await writeFile(tokenFile, 'test-token')
     const reservation = createServer().listen(0, '127.0.0.1')
@@ -262,6 +263,19 @@ test('keeps the same PAC conversation across OpenCode messages', {
       }
       assert.ok(question, `Native question was not presented: ${diagnostics.slice(-1000)}`)
       assert.equal(question.questions[1].multiple, true)
+      if (process.env.PAC_TEST_QUESTION_CANCEL === '1') {
+        await request(`/question/${question.id}/reject`, {})
+        const result = await pending
+        assert.match(JSON.stringify(result.parts), /user dismissed this question/i)
+        let cancelled = false
+        const cancelDeadline = Date.now() + 5000
+        while (!cancelled && Date.now() < cancelDeadline) {
+          try { cancelled = (await readFile(join(root, 'question-cancelled'), 'utf8')) === 'cancelled' } catch {}
+          if (!cancelled) await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        assert.ok(cancelled, 'Cancellation did not reach the PAC')
+        return
+      }
       await request(`/question/${question.id}/reply`, { answers: [['Custom answer'], ['Red', 'Blue']] })
       const result = await pending
       assert.match(JSON.stringify(result.parts), /Custom answer/)

@@ -37,11 +37,20 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       if (request.url === '/pac/approval') {
         const turn = turns.get(body.sessionId)
         const permission = turn?.pending
-        if (!permission || permission.id !== body.id || permission.resolved || !['inspect', 'resolve'].includes(body.action)) return fail(400, 'Unknown permission')
+        if (!permission || permission.id !== body.id || permission.resolved || !['inspect', 'resolve', 'cancel'].includes(body.action)) return fail(400, 'Unknown permission')
         if (body.action === 'inspect') {
           const toolCall = permission.toolCall || {}
           const title = typeof toolCall.title === 'string' ? toolCall.title.slice(0, 512) : 'PAC action'
           return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ title, toolCall }))
+        }
+        if (body.action === 'cancel') {
+          if (!permission.question) return fail(400, 'Invalid cancellation')
+          const option = permission.options.find((entry) => entry.kind === 'reject_once')
+          if (!option) return fail(400, 'Question cancellation is unsupported')
+          turn.channel.resolvePermission(permission.id, body.sessionId, option.optionId)
+          permission.resolved = true
+          cancelTurn(body.sessionId, turn)
+          return response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
         }
         if (permission.question && body.action === 'resolve') {
           if (!Array.isArray(body.answers) || body.answers.length !== permission.questions.length) return fail(400, 'Invalid question answers')
