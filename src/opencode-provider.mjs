@@ -106,7 +106,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         messages.set(messageId, 'Duplicate turn; outcome may be unknown')
         const cancellation = new AbortController()
         const channel = createOpencodeTurnChannel({ sessionId })
-        turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false }
+        turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false, notices: new Set() }
         turns.set(sessionId, turn)
         channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, prompt, update, { signal: cancellation.signal, mustResume: hasPriorConversation }))
       } else {
@@ -166,6 +166,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         if (event.type === 'error') throw event.error
         if (event.type === 'done') {
           if (event.result?.stopReason !== 'end_turn') throw new Error('PAC turn did not finish normally')
+          if (turn.notices.size) write({ content: `\n${[...turn.notices].join('\n')}\n` })
           write({}, 'stop')
           turn.streaming = false
           turns.delete(sessionId)
@@ -177,19 +178,19 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         const { method, params } = event.event
         const update = params?.update
         if (method === 'session/update' && update?.sessionUpdate === 'available_commands_update') {
-          write({ content: '[PAC: remote slash commands are not yet available in OpenCode.]\n' })
+          turn.notices.add('[PAC: remote slash commands are not yet available in OpenCode.]')
           continue
         }
         if (method === '_auth/status_update') {
-          write({ content: '[PAC: remote authentication status changed.]\n' })
+          turn.notices.add('[PAC: remote authentication status changed.]')
           continue
         }
         if (method === 'session/update' && update?.sessionUpdate === 'usage_update') {
-          write({ content: '[PAC: remote usage metrics are not yet displayed.]\n' })
+          turn.notices.add('[PAC: remote usage metrics are not yet displayed.]')
           continue
         }
         if (method === 'session/update' && update?.sessionUpdate === 'session_info_update') {
-          write({ content: '[PAC: remote session information changed.]\n' })
+          turn.notices.add('[PAC: remote session information changed.]')
           continue
         }
         if (method === 'session/update' && ['tool_call', 'tool_call_update'].includes(update?.sessionUpdate)) {
