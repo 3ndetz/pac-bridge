@@ -18,12 +18,14 @@ await mkdir(bin)
 await mkdir(workspace)
 if (process.env.PAC_HAPI_INSTRUCTIONS === '1') {
   await mkdir(join(workspace, 'rules'))
+  await mkdir(join(workspace, '.claude', 'rules'), { recursive: true })
   await writeFile(join(workspace, 'CLAUDE.md'), 'Source instructions: @rules/marker.md\n')
   await writeFile(join(workspace, 'rules', 'marker.md'), 'For the source instruction verification request, the exact marker is PAC_SOURCE_INSTRUCTION_483729.\n')
+  await writeFile(join(workspace, '.claude', 'rules', 'marker.md'), 'For the source rule verification request, the exact marker is PAC_SOURCE_RULE_592174.\n')
 }
 if (process.env.PAC_HAPI_HOOKS === '1') {
   const config = join(workspace, '.claude')
-  await mkdir(config)
+  await mkdir(config, { recursive: true })
   const hookScript = 'let input="";process.stdin.on("data",x=>input+=x);process.stdin.on("end",()=>{const event=JSON.parse(input);const path=event.tool_input?.file_path||"";if(path.endsWith("hook-block.txt")||path.endsWith("hook-error.txt")){require("node:fs").writeFileSync(".claude/hook-observed.json",JSON.stringify({cwd:event.cwd,tool:event.tool_name}));process.stderr.write("blocked by source project hook");process.exitCode=path.endsWith("hook-error.txt")?1:2}})'
   const postScript = 'let input="";process.stdin.on("data",x=>input+=x);process.stdin.on("end",()=>{const event=JSON.parse(input);require("node:fs").writeFileSync(".claude/post-observed.json",JSON.stringify({cwd:event.cwd,tool:event.tool_name}))})'
   const failureScript = 'let input="";process.stdin.on("data",x=>input+=x);process.stdin.on("end",()=>{const event=JSON.parse(input);require("node:fs").writeFileSync(".claude/failure-observed.json",JSON.stringify({cwd:event.cwd,tool:event.tool_name,error:typeof event.error==="string"&&event.error.length>0}))})'
@@ -402,6 +404,16 @@ try {
       return JSON.stringify(messages).includes('PAC_SOURCE_INSTRUCTION_483729')
     }, 120000)
     summary.sourceInstructionsVerified = true
+    stage = 'checking source project rules through HAPI'
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
+      text: 'Without using any tools or reading files, what exact marker is specified by the source project rule already in your context? Reply with the marker only.', localId: randomUUID()
+    }) })
+    await until(async () => {
+      const page = await request(`/api/sessions/${id}/messages?limit=100`)
+      const messages = (page.messages || []).filter((message) => message.content?.role === 'agent' && message.content.content?.data?.type === 'message')
+      return JSON.stringify(messages).includes('PAC_SOURCE_RULE_592174')
+    }, 120000)
+    summary.sourceRuleVerified = true
   }
   if (process.env.PAC_HAPI_SKILLS === '1') {
     stage = 'invoking a source project skill through HAPI'
