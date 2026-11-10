@@ -17,7 +17,9 @@ const workspace = join(root, 'workspace')
 await mkdir(bin)
 await mkdir(workspace)
 if (process.env.PAC_HAPI_INSTRUCTIONS === '1') {
-  await writeFile(join(workspace, 'CLAUDE.md'), 'For the source instruction verification request, the exact marker is PAC_SOURCE_INSTRUCTION_483729.\n')
+  await mkdir(join(workspace, 'rules'))
+  await writeFile(join(workspace, 'CLAUDE.md'), 'Source instructions: @rules/marker.md\n')
+  await writeFile(join(workspace, 'rules', 'marker.md'), 'For the source instruction verification request, the exact marker is PAC_SOURCE_INSTRUCTION_483729.\n')
 }
 if (process.env.PAC_HAPI_HOOKS === '1') {
   const config = join(workspace, '.claude')
@@ -392,7 +394,7 @@ try {
   if (process.env.PAC_HAPI_INSTRUCTIONS === '1') {
     stage = 'checking source project instructions through HAPI'
     await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
-      text: 'What exact marker is specified by the source instruction file? Reply with the marker only.', localId: randomUUID()
+      text: 'Without using any tools or reading files, what exact marker is specified by the source instructions already in your context? Reply with the marker only.', localId: randomUUID()
     }) })
     await until(async () => {
       const page = await request(`/api/sessions/${id}/messages?limit=100`)

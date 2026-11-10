@@ -1,9 +1,9 @@
 import { open, realpath } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-// Imports are not implemented yet. Reject them instead of silently omitting
-// instructions, but do not mistake Markdown code examples for imports.
-function hasUnsupportedImport(text) {
+// Exclude Markdown examples from import discovery. This deliberately leaves
+// unsupported constructs to fail visibly rather than reading external files.
+function instructionImports(text) {
   let fence = null
   let outside = ''
   for (const line of text.split(/\r?\n/)) {
@@ -34,7 +34,10 @@ function hasUnsupportedImport(text) {
     prose += ' '
     i = close + delimiter.length
   }
-  return /(^|[\s([{])@(?:[.~\/\\]|[\w-])[^\s`"']*/m.test(prose)
+  const imports = []
+  const pattern = /(^|[\s([{])@((?:\\ |[^\s`"'])+)/gm
+  for (const match of prose.matchAll(pattern)) imports.push(match[2].replaceAll('\\ ', ' '))
+  return imports
 }
 
 export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 * 1024, maxTotalBytes = 1024 * 1024 }) {
@@ -56,31 +59,52 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
   }
   const entries = []
   let total = 0
+  async function readInstruction(path, scope, depth, active) {
+    let actual
+    try { actual = await realpath(path) } catch (error) {
+      if (error.code === 'ENOENT' && depth === 0) return
+      throw error
+    }
+    const local = relative(scope, actual)
+    if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Instruction file resolves outside its scope')
+    if (active.has(actual)) throw new Error('Cyclic instruction import')
+    const file = await open(actual, 'r')
+    let text
+    try {
+      const buffer = Buffer.alloc(maxFileBytes + 1)
+      let offset = 0
+      while (offset < buffer.length) {
+        const result = await file.read(buffer, offset, buffer.length - offset, offset)
+        if (!result.bytesRead) break
+        offset += result.bytesRead
+      }
+      if (offset > maxFileBytes || total + offset > maxTotalBytes) throw new Error('Source instructions exceed the size limit')
+      total += offset
+      text = new TextDecoder('utf8', { fatal: true }).decode(buffer.subarray(0, offset))
+    } finally { await file.close() }
+    entries.push({ path, content: text })
+    if (!scope || depth === 0 && !path.endsWith('CLAUDE.md')) return
+    const imports = instructionImports(text)
+    if (imports.length && depth >= 4) throw new Error('Instruction import exceeds the maximum depth')
+    active.add(actual)
+    try {
+      for (const imported of imports) {
+        if (imported.startsWith('~')) throw new Error('External instruction imports require approval and are not supported')
+        const target = resolve(dirname(actual), imported)
+        // Workspace imports are supported; access outside it requires the
+        // runtime's approval flow, which is not implemented by this adapter.
+        const inWorkspace = relative(workspace, target)
+        if (inWorkspace === '..' || inWorkspace.startsWith(`..${sep}`) || isAbsolute(inWorkspace)) {
+          throw new Error('External instruction imports require approval and are not supported')
+        }
+        await readInstruction(target, workspace, depth + 1, active)
+      }
+    } finally { active.delete(actual) }
+  }
   for (const directory of ancestors.reverse()) {
     for (const name of ['AGENTS.md', 'CLAUDE.md', join('.claude', 'CLAUDE.md')]) {
       const path = join(directory, name)
-      let actual
-      try { actual = await realpath(path) } catch (error) { if (error.code === 'ENOENT') continue; throw error }
-      const local = relative(directory, actual)
-      if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Instruction file resolves outside its scope')
-      const file = await open(actual, 'r')
-      let text
-      try {
-        const buffer = Buffer.alloc(maxFileBytes + 1)
-        let offset = 0
-        while (offset < buffer.length) {
-          const result = await file.read(buffer, offset, buffer.length - offset, offset)
-          if (!result.bytesRead) break
-          offset += result.bytesRead
-        }
-        if (offset > maxFileBytes || total + offset > maxTotalBytes) throw new Error('Source instructions exceed the size limit')
-        total += offset
-        text = new TextDecoder('utf8', { fatal: true }).decode(buffer.subarray(0, offset))
-      } finally { await file.close() }
-      if (name.endsWith('CLAUDE.md') && hasUnsupportedImport(text)) {
-        throw new Error('Imported CLAUDE.md instructions are not yet supported')
-      }
-      entries.push({ path, content: text })
+      await readInstruction(path, directory, 0, new Set())
     }
   }
   return entries
