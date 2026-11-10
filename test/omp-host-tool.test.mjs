@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline'
 import test from 'node:test'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 
-test('runs an OMP host tool through RPC using a local synthetic model', { skip: !process.env.PAC_OMP_BIN, timeout: 45000 }, async () => {
+test('runs and cancels an OMP host tool through RPC using a local synthetic model', { skip: !process.env.PAC_OMP_BIN, timeout: 45000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-omp-host-'))
   const agentDir = join(root, 'agent')
   await mkdir(agentDir)
@@ -50,6 +50,9 @@ test('runs an OMP host tool through RPC using a local synthetic model', { skip: 
   child.stdin.on('error', () => {})
   const lines = createInterface({ input: child.stdout })
   let hostCalls = 0
+  let cancelledCallId
+  let lastHostCallId
+  let abortNext = false
   let modelReply = ''
   const eventTypes = []
   const waiters = new Map()
@@ -59,10 +62,16 @@ test('runs an OMP host tool through RPC using a local synthetic model', { skip: 
     eventTypes.push(event.type)
     if (event.type === 'host_tool_call') {
       hostCalls++
+      lastHostCallId = event.id
       if (event.toolName === 'pac_probe_echo' && event.arguments?.message === 'hello') {
-        child.stdin.write(JSON.stringify({ type: 'host_tool_result', id: event.id, result: { content: [{ type: 'text', text: 'PAC_HOST_ECHO' }] } }) + '\n')
+        if (abortNext) child.stdin.write(JSON.stringify({ id: 'abort', type: 'abort' }) + '\n')
+        else {
+          child.stdin.write(JSON.stringify({ type: 'host_tool_update', id: event.id, partialResult: { content: [{ type: 'text', text: 'PAC_HOST_PROGRESS' }] } }) + '\n')
+          child.stdin.write(JSON.stringify({ type: 'host_tool_result', id: event.id, result: { content: [{ type: 'text', text: 'PAC_HOST_ECHO' }] } }) + '\n')
+        }
       }
     }
+    if (event.type === 'host_tool_cancel') cancelledCallId = event.targetId
     if (event.type === 'message_end') modelReply += JSON.stringify(event.message || {})
     const resolve = waiters.get(event.id)
     if (resolve && event.type === 'response') { waiters.delete(event.id); resolve(event) }
@@ -82,7 +91,16 @@ test('runs an OMP host tool through RPC using a local synthetic model', { skip: 
     await done
     assert.equal(hostCalls, 1, JSON.stringify({ requests, requestPaths, eventTypes, toolIssued, modelReplyFlags: ['error', 'invalid', 'failed', 'tool', 'PAC_HOST_DONE'].filter((word) => modelReply.includes(word)) }))
     assert.equal(sawToolResult, true)
+    assert.ok(eventTypes.includes('tool_execution_update'))
     assert.match(modelReply, /PAC_HOST_DONE/)
+    toolIssued = false
+    abortNext = true
+    const cancelled = wait('agent-end')
+    child.stdin.write(JSON.stringify({ id: 'prompt-cancel', type: 'prompt', message: 'Use the host echo tool with hello.' }) + '\n')
+    await cancelled
+    assert.equal(hostCalls, 2)
+    assert.equal(typeof lastHostCallId, 'string')
+    assert.equal(cancelledCallId, lastHostCallId)
   } finally {
     const exited = child.exitCode === null ? once(child, 'close') : Promise.resolve()
     lines.close()
