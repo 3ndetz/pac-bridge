@@ -1,0 +1,90 @@
+import { lstat, open, readdir, realpath } from 'node:fs/promises'
+import { isAbsolute, join, relative, sep } from 'node:path'
+
+const namePattern = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+function scalar(value) {
+  const text = value.trim()
+  if (!text || /^[\[\]{}|>*&!]/.test(text) || /\s#/.test(text)) throw new Error('Unsupported skill frontmatter value')
+  if (text.startsWith('"')) {
+    const parsed = JSON.parse(text)
+    if (typeof parsed !== 'string') throw new Error('Invalid skill frontmatter value')
+    return parsed
+  }
+  if (text.startsWith("'")) {
+    if (!text.endsWith("'")) throw new Error('Invalid skill frontmatter value')
+    return text.slice(1, -1).replaceAll("''", "'")
+  }
+  return text
+}
+
+function parseSkill(text, directoryName) {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text)
+  if (!match) throw new Error('A supported skill must have simple frontmatter')
+  const fields = {}
+  for (const line of match[1].split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const pair = /^([a-z][a-z0-9-]*):\s*(.*)$/.exec(line)
+    if (!pair || !['name', 'description'].includes(pair[1]) || fields[pair[1]] !== undefined) throw new Error('Unsupported skill frontmatter')
+    fields[pair[1]] = scalar(pair[2])
+  }
+  const name = fields.name || directoryName
+  if (!namePattern.test(name) || typeof fields.description !== 'string' || fields.description.length > 1536) throw new Error('Invalid skill name or description')
+  if (/!`|\$ARGUMENTS\[|\$\d|\$\{/.test(match[2])) throw new Error('Unsupported dynamic skill substitution')
+  return { name, description: fields.description, body: match[2] }
+}
+
+export async function createSourceSkills({ root, maxBytes = 256 * 1024, maxSkills = 100 }) {
+  if (!isAbsolute(root) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isSafeInteger(maxSkills) || maxSkills < 1) throw new Error('Invalid skill configuration')
+  const workspace = await realpath(root)
+  const skillsPath = join(workspace, '.claude', 'skills')
+  let directory
+  try { directory = await realpath(skillsPath) } catch (error) { if (error.code === 'ENOENT') return { list: [], invoke: async () => { throw new Error('Unknown source skill') } }; throw error }
+  const local = relative(workspace, directory)
+  if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Skill directory resolves outside the workspace')
+  const skills = new Map()
+  const entries = await readdir(directory, { withFileTypes: true })
+  if (entries.length > maxSkills) throw new Error('Skill directory exceeds the entry limit')
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) throw new Error('Symbolic links in the skill directory are unsupported')
+    if (!entry.isDirectory()) continue
+    const folder = join(directory, entry.name)
+    const path = join(folder, 'SKILL.md')
+    try { if ((await lstat(path)).isSymbolicLink()) throw new Error('Symbolic skill files are unsupported') } catch (error) { if (error.code === 'ENOENT') continue; throw error }
+    const actual = await realpath(path)
+    const relativePath = relative(workspace, actual)
+    if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) throw new Error('Skill file resolves outside the workspace')
+    const file = await open(actual, 'r')
+    let text
+    try {
+      const bytes = Buffer.alloc(maxBytes + 1)
+      let offset = 0
+      while (offset < bytes.length) {
+        const result = await file.read(bytes, offset, bytes.length - offset, offset)
+        if (!result.bytesRead) break
+        offset += result.bytesRead
+      }
+      if (offset > maxBytes) throw new Error('Skill exceeds the size limit')
+      text = new TextDecoder('utf8', { fatal: true }).decode(bytes.subarray(0, offset))
+    } finally { await file.close() }
+    const skill = parseSkill(text, entry.name)
+    if (skills.has(skill.name)) throw new Error('Duplicate source skill name')
+    skills.set(skill.name, { ...skill, folder })
+  }
+  return {
+    list: [...skills.values()].map(({ name, description }) => ({ name, description })),
+    async invoke({ name, args = '' }) {
+      if (typeof name !== 'string' || typeof args !== 'string' || args.length > 16384) throw new Error('Invalid skill invocation')
+      const skill = skills.get(name.startsWith('/') ? name.slice(1) : name)
+      if (!skill) throw new Error('Unknown source skill')
+      let received = false
+      const expanded = skill.body.replace(/(\\*)(\$ARGUMENTS)(?![A-Za-z0-9_\[])/g, (_match, slashes, token) => {
+        if (slashes.length === 1) return token
+        received = true
+        return slashes + args
+      })
+      const body = received || !args ? expanded : `${expanded}\n\nARGUMENTS: ${args}`
+      return { content: `Base directory for this skill: ${skill.folder}\n\n${body}` }
+    },
+  }
+}

@@ -11,6 +11,7 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { WebSocketServer } from 'ws'
+import { attachAcpRelay } from './src/acp-relay.mjs'
 
 const PORT = Number(process.env.PORT || 8790)
 // {
@@ -231,8 +232,17 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.on('upgrade', (req, sock, head) => {
-  if (new URL(req.url, 'http://x').pathname !== '/client') return sock.destroy()
+  const pathname = new URL(req.url, 'http://x').pathname
+  if (process.env.PAC_ACP_RELAY_ENABLED === '1' && pathname.startsWith('/acp-relay/')) return
+  if (pathname !== '/client') return sock.destroy()
   wss.handleUpgrade(req, sock, head, (ws) => wss.emit('connection', ws, req))
 })
+
+if (process.env.PAC_ACP_RELAY_ENABLED === '1') {
+  attachAcpRelay(server, { authorize: ({ role, name, token }) => {
+    if (role === 'source') return may(brainScope({ headers: { authorization: `Bearer ${token}` } }), name)
+    return (tokens().clients || {})[name] === sha(token)
+  } })
+}
 
 server.listen(PORT, () => log('pac-bridge listening on', PORT))
