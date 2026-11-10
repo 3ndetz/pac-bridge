@@ -10,6 +10,7 @@ import { attachAcpRelay } from '../src/acp-relay.mjs'
 import { startAgent } from '../src/acp-transport.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
+import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 
 test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-acp-'))
@@ -38,6 +39,9 @@ test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 },
     assert.ok(partial.models.some((model) => model.id === 'PAC_testpac/sonnet'))
     assert.ok(!partial.models.some((model) => model.id.startsWith('PAC_offline/')))
     assert.deepEqual(partial.warnings, [{ name: 'offline', code: 'unavailable' }])
+    const direct = await discoverPacsDirect({ cwd: join(root, 'workspace'), env: { PAC_ENDPOINTS_FILE: endpoints } })
+    assert.ok(direct.models.some((model) => model.id === 'PAC_testpac/sonnet'))
+    assert.deepEqual(direct.warnings, [{ name: 'offline', code: 'unavailable' }])
     session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native'], cwd: join(root, 'workspace'),
       env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url,
         PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },

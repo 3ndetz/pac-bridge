@@ -30,7 +30,7 @@ try {
     OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
     NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS,
-    PAC_EXPERIMENTAL_HOOKS: live ? '1' : '0', PAC_SOURCE_BASH: live ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : undefined,
+    PAC_SOURCE_BASH: process.platform === 'win32' ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : '/bin/bash',
     PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: live ? process.env.PAC_LIVE_CONTROLLER_CWD : root }
   if (process.env.PAC_TEST_CHOOSE === '1') delete env.PAC_MODEL
   const prompt = live ? `Use Write to create ${join(root, 'tui-fixture.txt')} containing PAC_TUI_WRITE_OK.` : 'Request the test permission'

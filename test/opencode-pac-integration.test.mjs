@@ -95,6 +95,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS, PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1',
+      PAC_DISCOVERY_ACP: process.env.PAC_DISCOVERY_ACP,
       PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
       PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
@@ -167,6 +168,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
+      PAC_SOURCE_BASH: process.platform === 'win32' ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : '/bin/bash',
       PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root }
     if (denyTest) {
       await mkdir(join(root, 'config', 'opencode'), { recursive: true })
@@ -180,6 +182,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
     child.stderr.on('data', (chunk) => { errors += chunk })
     const [code] = await once(child, 'close')
     clearTimeout(deadline)
+    if (process.env.PAC_TEST_TIMING === '1') process.stderr.write((errors.match(/PAC discovery time: \d+ms/) || ['PAC discovery time unavailable'])[0] + '\n')
     assert.equal(code, 0, `${errors.slice(-2000)}\n${output.slice(-2000)}`)
     assert.match(output, permissionTest ? (denyTest ? /fake PAC permission deny/ : /fake PAC permission allow/) : /fake PAC sonnet response/)
   } finally {
@@ -221,7 +224,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS,
-      PAC_EXPERIMENTAL_HOOKS: live ? '1' : '0', PAC_SOURCE_BASH: live ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : undefined,
+      PAC_SOURCE_BASH: process.platform === 'win32' ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : '/bin/bash',
       PAC_SESSION_DIR: join(root, 'pac-sessions'),
       PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: live ? process.env.PAC_LIVE_CONTROLLER_CWD : root }
     const base = `http://127.0.0.1:${port}`

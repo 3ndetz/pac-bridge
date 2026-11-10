@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
@@ -9,6 +10,7 @@ import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 import { createSessionStore } from '../src/session-store.mjs'
 import { createOpencodeTurnJournal } from '../src/opencode-turn-journal.mjs'
+import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 
 // Experimental launcher: text only, unsupported tools/events fail closed.
@@ -18,11 +20,25 @@ if (process.env.PAC_EXPERIMENTAL !== '1' || !binary || (model && !/^PAC_[A-Za-z0
   throw new Error('Experimental PAC launcher requires PAC_EXPERIMENTAL=1, PAC_OPENCODE_BINARY and a valid PAC_MODEL if specified')
 }
 const cwd = process.cwd()
+const startedAt = Date.now()
 const sessionRoot = resolve(process.env.PAC_SESSION_DIR || join(homedir(), '.pac-bridge', 'sessions'))
 const token = randomBytes(32).toString('hex')
 const routerPath = fileURLToPath(new URL('./pac-opencode-router.mjs', import.meta.url))
 const pluginUrl = new URL('./opencode-plugin.mjs', import.meta.url).href
-const catalog = await discoverOpencodePacs({ command: process.execPath, args: [routerPath, 'acp'], cwd, env: process.env })
+const shellCandidates = process.platform === 'win32'
+  ? [process.env.PAC_SOURCE_BASH, process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+      process.env.ProgramFiles && join(process.env.ProgramFiles, 'Git', 'bin', 'bash.exe')]
+  : [process.env.PAC_SOURCE_BASH, '/bin/bash', '/usr/bin/bash']
+let sourceBash
+for (const candidate of shellCandidates.filter(Boolean)) {
+  try { await access(candidate); sourceBash = candidate; break } catch {}
+}
+if (!sourceBash) throw new Error('A local Bash executable is required for source project hooks and commands')
+const routerEnv = { ...process.env, PAC_SOURCE_BASH: sourceBash, PAC_EXPERIMENTAL_HOOKS: '1', PAC_EXPERIMENTAL_SKILLS: '1', PAC_EXPERIMENTAL_INSTRUCTIONS: '1' }
+const catalog = process.env.PAC_DISCOVERY_ACP === '1'
+  ? await discoverOpencodePacs({ command: process.execPath, args: [routerPath, 'acp'], cwd, env: routerEnv })
+  : await discoverPacsDirect({ cwd, env: routerEnv })
+if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC discovery time: ${Date.now() - startedAt}ms\n`)
 for (const warning of catalog.warnings) process.stderr.write(`PAC ${warning.name}: ${warning.code}\n`)
 if (!catalog.models.length) throw new Error('No authorized PAC models are available')
 if (model && !catalog.models.some((entry) => entry.id === model)) throw new Error('The selected PAC model is unavailable')
@@ -40,7 +56,7 @@ let server
 const router = createOpencodeSessionRouter({ store: createSessionStore(join(sessionRoot, 'opencode')), journal: createOpencodeTurnJournal(join(sessionRoot, 'pending')),
   openSession: ({ sessionId, model: selected, cwd: workspace, resumeSessionId }) => openOpencodeAcpSession({
   command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId,
-  env: { ...process.env, PAC_SESSION_DIR: join(sessionRoot, 'acp') },
+  env: { ...routerEnv, PAC_SESSION_DIR: join(sessionRoot, 'acp') },
   onPermission: (params) => server.requestPermission(sessionId, params),
   onDiagnostic: (category) => { if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC ACP ${category}\n`) },
 }) })

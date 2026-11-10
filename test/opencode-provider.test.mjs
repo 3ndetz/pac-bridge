@@ -126,3 +126,25 @@ test('expires an abandoned approval and cancels its remote turn', async () => {
     assert.equal(aborted, true)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
+
+test('reports a controller authentication failure on a retry without replaying the turn', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let calls = 0
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt() { calls++; throw new Error('Authentication failed with private-detail') }
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' }
+  const body = JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'hi' }] })
+  try {
+    try { const first = await fetch(url, { method: 'POST', headers, body }); await first.text() } catch {}
+    const retry = await fetch(url, { method: 'POST', headers, body })
+    assert.equal(retry.status, 400)
+    const error = await retry.text()
+    assert.match(error, /authentication failed on the controller/)
+    assert.doesNotMatch(error, /private-detail/)
+    assert.equal(calls, 1)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})

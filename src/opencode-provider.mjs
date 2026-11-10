@@ -23,6 +23,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
     const sessionId = request.headers['x-pac-session-id']
     const messageId = request.headers['x-pac-message-id']
     if (request.url !== '/pac/approval' && (typeof sessionId !== 'string' || typeof messageId !== 'string' || !sessionId || !messageId || sessionId.length > 512 || messageId.length > 512 || /[\x00-\x1f]/.test(sessionId + messageId))) return fail(400, 'Missing OpenCode session or message identity')
+    let messages
     try {
       let size = 0
       const chunks = []
@@ -55,10 +56,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       // no tools (for example title generation). Never send those to Claude.
       // A real turn with tools disabled is intentionally unsupported for now.
       if (!Array.isArray(body.tools) || !body.tools.length) return fail(400, 'PAC requests without tools are unsupported')
-      let messages = seen.get(sessionId)
+      messages = seen.get(sessionId)
       if (!messages) {
         if (seen.size >= 1024) return fail(503, 'Session capacity reached')
-        messages = new Set()
+        messages = new Map()
         seen.set(sessionId, messages)
       }
       let turn = turns.get(sessionId)
@@ -66,10 +67,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         if (typeof last.content !== 'string' || !last.content) return fail(400, 'Unsupported user message')
         const hasPriorConversation = body.messages.some((entry) => entry.role === 'assistant' || entry.role === 'tool') || body.messages.filter((entry) => entry.role === 'user').length > 1
         if (hasPriorConversation && !router.hasSession?.(sessionId) && !await router.canResume?.(sessionId)) return fail(400, 'PAC session binding is unavailable; refusing to start a different conversation')
-        if (messages.has(messageId)) return fail(400, 'Duplicate turn; outcome may be unknown')
+        if (messages.has(messageId)) return fail(400, messages.get(messageId))
         if (turn) return fail(400, 'A PAC turn is already active')
         if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
-        messages.add(messageId)
+        messages.set(messageId, 'Duplicate turn; outcome may be unknown')
         const cancellation = new AbortController()
         const channel = createOpencodeTurnChannel({ sessionId })
         turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false }
@@ -152,8 +153,14 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         'ACP session identity is missing', 'ACP connection lost', 'ACP request timed out', 'Unsupported PAC event',
         'PAC turn did not finish normally'].find((value) => error?.message?.includes(value)) || 'other'
       const phase = ['initialize', 'session-new', 'select-model', 'prompt'].includes(error?.pacPhase) ? error.pacPhase : 'unknown'
-      try { onFailure(`${category} (${phase})`) } catch {}
-      fail(502, 'PAC turn failed or its outcome is unknown')
+      const hint = ['rate limit', 'quota', 'authentication', 'system prompt', 'cancelled', 'timed out', 'connection lost', 'overloaded']
+        .find((term) => error?.message?.toLowerCase().includes(term))
+      const safeMessage = hint === 'authentication'
+        ? 'PAC authentication failed on the controller; sign in there. The turn was not retried.'
+        : 'PAC turn failed; its outcome may be unknown. The turn was not retried.'
+      if (messages?.has(messageId)) messages.set(messageId, safeMessage)
+      try { onFailure(`${category} (${phase})${hint ? ` ${hint}` : ''}`) } catch {}
+      fail(400, safeMessage)
     }
   })
   server.requestPermission = (sessionId, params) => {
