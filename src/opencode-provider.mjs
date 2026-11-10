@@ -155,7 +155,9 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       const phase = ['initialize', 'session-new', 'select-model', 'prompt'].includes(error?.pacPhase) ? error.pacPhase : 'unknown'
       const hint = ['rate limit', 'quota', 'authentication', 'system prompt', 'cancelled', 'timed out', 'connection lost', 'overloaded']
         .find((term) => error?.message?.toLowerCase().includes(term))
-      const safeMessage = hint === 'authentication'
+      const safeMessage = error?.message === 'PAC interactive questions are not supported by this OpenCode adapter'
+        ? 'PAC interactive questions are not supported by this OpenCode adapter; the turn was not retried.'
+        : hint === 'authentication'
         ? 'PAC authentication failed on the controller; sign in there. The turn was not retried.'
         : 'PAC turn failed; its outcome may be unknown. The turn was not retried.'
       if (messages?.has(messageId)) messages.set(messageId, safeMessage)
@@ -166,6 +168,9 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
   server.requestPermission = (sessionId, params) => {
     const turn = turns.get(sessionId)
     if (!turn) throw new Error('No active PAC turn for permission')
+    // A question needs structured answers, not an allow/deny response. Do not
+    // present it as an approval or send an answer the user never supplied.
+    if (params?._meta?.pac?.question === true) throw new Error('PAC interactive questions are not supported by this OpenCode adapter')
     return turn.channel.requestPermission(params, turn.cancellation.signal)
   }
   server.on('close', () => { for (const [sessionId, turn] of turns) cancelTurn(sessionId, turn) })

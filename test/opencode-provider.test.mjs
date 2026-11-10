@@ -148,3 +148,28 @@ test('reports a controller authentication failure on a retry without replaying t
     assert.equal(calls, 1)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
+
+test('never turns an interactive question into an approval', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let server
+  server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt(binding) {
+      return server.requestPermission(binding.sessionId, { _meta: { pac: { question: true } },
+        toolCall: { title: 'AskUserQuestion', rawInput: { questions: [{ question: 'Choose?' }] } },
+        options: [{ optionId: 'answer', kind: 'allow_once' }, { optionId: 'cancel', kind: 'reject_once' }] })
+    }
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'q' }
+  const body = JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{ function: { name: 'pac_approval' } }], messages: [{ role: 'user', content: 'hi' }] })
+  try {
+    let first = ''
+    try { const response = await fetch(url, { method: 'POST', headers, body }); first = await response.text() } catch {}
+    assert.doesNotMatch(first, /PAC approval requested/)
+    const retry = await fetch(url, { method: 'POST', headers, body })
+    assert.equal(retry.status, 400)
+    assert.match(await retry.text(), /interactive questions are not supported/)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
