@@ -166,6 +166,23 @@ try {
       const model = page.getByTestId('opencode-model-list')
       await model.locator('option[value="PAC_testpac/sonnet"]').waitFor({ state: 'attached', timeout: 90000 })
       await model.selectOption('PAC_testpac/sonnet')
+      if (process.env.PAC_HAPI_BROWSER_OFFLINE === '1') {
+        stage = 'checking that an unavailable PAC cannot silently change the selected model'
+        const probe = '**/api/machines/' + encodeURIComponent(machine.id) + '/opencode-models?*'
+        await page.route(probe, (route) => route.fulfill({ json: {
+          success: true, availableModels: [{ modelId: 'local/model', name: 'Local model' }], currentModelId: null,
+          pacDiscoveryWarnings: [{ name: 'testpac', code: 'unavailable' }],
+        } }))
+        const offlineResponse = page.waitForResponse((item) => item.url().includes('/opencode-models?cwd=') && item.request().method() === 'GET', { timeout: 30000 })
+        await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+        await offlineResponse
+        await page.getByTestId('pac-discovery-warnings').waitFor({ state: 'visible', timeout: 30000 })
+        if (await model.inputValue() !== 'PAC_testpac/sonnet') throw new Error('Unavailable PAC selection was silently replaced')
+        if (await page.getByRole('button', { name: 'Create', exact: true }).isEnabled()) throw new Error('HAPI allowed launch with an unavailable PAC')
+        await page.unroute(probe)
+        await page.getByTestId('pac-discovery-warnings').getByRole('button').click()
+        await model.locator('option[value="PAC_testpac/sonnet"]:not(:disabled)').waitFor({ state: 'attached', timeout: 90000 })
+      }
       await page.locator('select').filter({ has: page.locator('option[value="yolo"]') }).selectOption('yolo')
       const [response] = await Promise.all([
         page.waitForResponse((item) => item.url().includes(`/api/machines/${machine.id}/spawn`) && item.request().method() === 'POST', { timeout: 150000 }),
