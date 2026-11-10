@@ -1,4 +1,4 @@
-import { open, realpath } from 'node:fs/promises'
+import { open, readdir, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 // Exclude Markdown examples from import discovery. This deliberately leaves
@@ -59,7 +59,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
   }
   const entries = []
   let total = 0
-  async function readInstruction(path, scope, depth, active, allowImports) {
+  async function readInstruction(path, scope, depth, active, allowImports, rule = false) {
     let actual
     try { actual = await realpath(path) } catch (error) {
       if (error.code === 'ENOENT' && depth === 0) return
@@ -68,6 +68,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
     const local = relative(scope, actual)
     if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Instruction file resolves outside its scope')
     if (active.has(actual)) throw new Error('Cyclic instruction import')
+    if (entries.length >= 256) throw new Error('Too many source instructions')
     const file = await open(actual, 'r')
     let text
     try {
@@ -82,6 +83,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
       total += offset
       text = new TextDecoder('utf8', { fatal: true }).decode(buffer.subarray(0, offset))
     } finally { await file.close() }
+    if (rule && /^---\s*\r?\n/.test(text)) throw new Error('Rule frontmatter is not yet supported')
     entries.push({ path, content: text })
     if (!allowImports) return
     const imports = instructionImports(text)
@@ -107,5 +109,24 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
       await readInstruction(path, directory, 0, new Set(), name !== 'AGENTS.md')
     }
   }
+  // Source project rules without frontmatter apply for the whole workspace.
+  // Scoped rules and links are rejected until their semantics can be routed.
+  let ruleDirectories = 0
+  async function readRules(directory) {
+    if (++ruleDirectories > 256) throw new Error('Too many source rule directories')
+    let children
+    try { children = await readdir(directory, { withFileTypes: true }) }
+    catch (error) { if (error.code === 'ENOENT') return; throw error }
+    children.sort((a, b) => a.name.localeCompare(b.name, 'en'))
+    for (const child of children) {
+      const path = join(directory, child.name)
+      if (child.isSymbolicLink()) throw new Error('Symbolic rule paths are not yet supported')
+      if (child.isDirectory()) await readRules(path)
+      else if (child.isFile() && child.name.endsWith('.md')) {
+        await readInstruction(path, workspace, 0, new Set(), true, true)
+      }
+    }
+  }
+  await readRules(join(workspace, '.claude', 'rules'))
   return entries
 }

@@ -50,3 +50,21 @@ test('reads instructions and workspace imports, preserving boundaries and code e
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-instructions-')) await rm(actual, { recursive: true, force: true })
   }
 })
+
+test('loads unscoped project rules and rejects unsupported scoped rules', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-rules-'))
+  try {
+    const rules = join(root, '.claude', 'rules')
+    await mkdir(join(rules, 'nested'), { recursive: true })
+    await writeFile(join(root, 'CLAUDE.md'), 'Project')
+    await writeFile(join(rules, 'nested', 'style.md'), 'Use project style')
+    assert.deepEqual((await readSourceInstructions({ root, stopAt: root })).map((item) => item.content),
+      ['Project', 'Use project style'])
+    await writeFile(join(rules, 'nested', 'style.md'), '---\npaths: "src/**"\n---\nScoped rule')
+    await assert.rejects(readSourceInstructions({ root, stopAt: root }), /Rule frontmatter/)
+  } finally {
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-rules-')) await rm(actual, { recursive: true, force: true })
+  }
+})
