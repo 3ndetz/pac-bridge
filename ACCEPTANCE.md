@@ -55,6 +55,8 @@ Maintain an evidence-backed feature matrix against the actual Claude Code versio
 
 The experimental fixtures are not a release and do not satisfy this acceptance contract. Results below describe isolated tests, not installation in the user's production HAPI.
 
+On Windows, the installed OpenCode 1.19.5 selected a configured local OpenAI-compatible synthetic provider and displayed its streamed response in `opencode run`. The optional `test/opencode-provider-probe.test.mjs` uses a loopback server, synthetic credentials and no external model. This checks only provider selection and text streaming, not the interactive TUI, PAC routing, native Claude tool events or permissions.
+
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Session creation and models | Real HAPI runners on two Windows source hosts offered and selected a named PAC model before session creation. Browser tests on both hosts selected OpenCode and the PAC model in HAPI's new-session form, created a session, sent a message and stopped the resulting task; component tests also cover selection and form submission. A separate live session switched from Sonnet to Opus and back; Claude usage events confirmed the actual model family after each switch. | Persistent deployment, live discovery and authorization; independently authenticated PAC identities, all model variants and broader source platforms. |
