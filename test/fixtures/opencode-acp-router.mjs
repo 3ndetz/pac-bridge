@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawnContained, stopContained } from '../../src/spawn-contained.mjs'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
@@ -31,7 +31,7 @@ const endpoints = await Promise.all(records.map(async (entry) => {
   ids.add(entry.id)
   return { ...entry, token: (await readFile(entry.tokenFile, 'utf8')).trim() }
 }))
-const child = spawn(binary, process.argv.slice(2), { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
+const child = spawnContained(binary, process.argv.slice(2), { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
 child.on('error', (error) => { process.stderr.write(`${error.message}\n`); process.exitCode = 1 })
 const sessions = new Map()
 const store = process.env.PAC_SESSION_DIR ? createSessionStore(process.env.PAC_SESSION_DIR) : null
@@ -388,7 +388,7 @@ async function shutdown() {
   stopping = true
   for (const session of sessions.values()) for (const state of session.remotes.values()) { await state.terminal.close(); state.remote.close() }
   native.close()
-  child.kill()
+  stopContained(child)
 }
 process.on('SIGTERM', () => { void shutdown() })
 process.on('SIGINT', () => { void shutdown() })
