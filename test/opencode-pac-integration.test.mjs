@@ -263,10 +263,11 @@ test('keeps the same PAC conversation across OpenCode messages', {
       }
       assert.ok(question, `Native question was not presented: ${diagnostics.slice(-1000)}`)
       assert.equal(question.questions[1].multiple, true)
-      if (process.env.PAC_TEST_QUESTION_CANCEL === '1') {
-        await request(`/question/${question.id}/reject`, {})
+      if (process.env.PAC_TEST_QUESTION_CANCEL === '1' || process.env.PAC_TEST_QUESTION_ABORT === '1') {
+        const abort = process.env.PAC_TEST_QUESTION_ABORT === '1'
+        await request(abort ? `/session/${session.id}/abort` : `/question/${question.id}/reject`, {})
         const result = await pending
-        assert.match(JSON.stringify(result.parts), /user dismissed this question/i)
+        if (!abort) assert.match(JSON.stringify(result.parts), /user dismissed this question/i)
         let cancelled = false
         const cancelDeadline = Date.now() + 5000
         while (!cancelled && Date.now() < cancelDeadline) {
