@@ -1,6 +1,6 @@
 # pac-bridge
 
-> **Next architecture:** HAPI, named PACs, OMP and multiple harness adapters are planned in [ARCHITECTURE.md](ARCHITECTURE.md). The existing implementation described below is the legacy shared-filesystem design and does not yet satisfy [the new acceptance criteria](ACCEPTANCE.md).
+> **Next architecture:** HAPI, named PACs and multiple harness adapters are planned in [ARCHITECTURE.md](ARCHITECTURE.md). An incomplete OpenCode development launcher is described in [OPENCODE-EXPERIMENT.md](OPENCODE-EXPERIMENT.md). The existing implementation described below is the legacy shared-filesystem design and does not yet satisfy [the new acceptance criteria](ACCEPTANCE.md).
 
 **Brains here, hands there.** One controller holds the only login and runs the official Claude
 Code. Any number of containers, on this machine or behind a NAT anywhere, lend it their hands
