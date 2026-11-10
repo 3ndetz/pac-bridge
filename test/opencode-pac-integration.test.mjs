@@ -221,10 +221,12 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const questionTest = process.env.PAC_TEST_QUESTIONS === '1'
-    const abortTest = process.env.PAC_TEST_TURN_ABORT === '1'
+    const disconnectTest = process.env.PAC_TEST_DISCONNECT === '1'
+    const abortTest = process.env.PAC_TEST_TURN_ABORT === '1' || disconnectTest
     if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, abortTest ? '--slow-response' : questionTest ? '--question-response' : '--conversation'],
       env: { ...process.env, PAC_TEST_QUESTION_CANCEL_FILE: join(root, 'question-cancelled'),
         PAC_TEST_TURN_STARTED_FILE: join(root, 'turn-started'), PAC_TEST_TURN_CANCEL_FILE: join(root, 'turn-cancelled'),
+        PAC_TEST_TURN_COUNT_FILE: join(root, 'turn-count'),
         ...(process.env.PAC_TEST_RESUME === '1' ? { PAC_TEST_CONVERSATION_FILE: join(root, 'conversation') } : {}) } })
     const tokenFile = live ? process.env.PAC_LIVE_SOURCE_TOKEN_FILE : join(root, 'token')
     if (!live) await writeFile(tokenFile, 'test-token')
@@ -302,6 +304,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     if (abortTest) {
       const pending = message('Start long operation')
+      if (disconnectTest) void pending.catch(() => {})
       async function waitFile(name) {
         const deadline = Date.now() + 35000
         while (Date.now() < deadline) {
@@ -311,9 +314,20 @@ test('keeps the same PAC conversation across OpenCode messages', {
         throw new Error(`${name} was not observed`)
       }
       assert.equal(await waitFile('turn-started'), 'started')
-      await request(`/session/${session.id}/abort`, {})
-      await pending
-      assert.equal(await waitFile('turn-cancelled'), 'cancelled')
+      if (disconnectTest) {
+        const ended = once(child, 'close')
+        stopContained(child)
+        await ended
+        await pending.catch(() => {})
+        await launch()
+        const result = await message('Continue after disconnect')
+        assert.match(JSON.stringify(result), /outcome is unknown|reconcile/i)
+        assert.equal((await readFile(join(root, 'turn-count'), 'utf8')).trim().split('\n').length, 1)
+      } else {
+        await request(`/session/${session.id}/abort`, {})
+        await pending
+        assert.equal(await waitFile('turn-cancelled'), 'cancelled')
+      }
       return
     }
     if (process.env.PAC_TEST_IMAGE === '1') {

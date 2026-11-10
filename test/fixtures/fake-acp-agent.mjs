@@ -1,5 +1,5 @@
 import { Duplex } from 'node:stream'
-import { readFile, writeFile } from 'node:fs/promises'
+import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import { createAcpPeer } from '../../src/acp-peer.mjs'
 
 const native = process.argv.includes('--native')
@@ -33,6 +33,7 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
     if (method === 'session/prompt') {
       if (process.argv.includes('--slow-response')) {
         const cancelled = new Promise((resolve) => { cancelTurn = resolve })
+        if (process.env.PAC_TEST_TURN_COUNT_FILE) await appendFile(process.env.PAC_TEST_TURN_COUNT_FILE, 'started\n')
         if (process.env.PAC_TEST_TURN_STARTED_FILE) await writeFile(process.env.PAC_TEST_TURN_STARTED_FILE, 'started')
         await cancelled
         cancelTurn = null
