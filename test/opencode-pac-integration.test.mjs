@@ -83,7 +83,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   let child
   try {
     const scopedTest = process.env.PAC_LIVE_SCOPED_TEST === '1'
-    const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1' || scopedTest
+    const relativeTest = process.env.PAC_LIVE_RELATIVE_TEST === '1'
+    const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1' || scopedTest || relativeTest
     const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
     const bashTest = process.env.PAC_LIVE_BASH_TEST === '1'
     const imageTest = process.env.PAC_LIVE_IMAGE_TEST === '1'
@@ -103,6 +104,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS, PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1',
       PAC_DISCOVERY_ACP: process.env.PAC_DISCOVERY_ACP,
       PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+      PAC_TRACE_PATH: relativeTest ? join(root, 'trace.ndjson') : undefined,
       PAC_EXPERIMENTAL_IMAGE_INPUT: imageTest ? '1' : undefined,
       PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
@@ -121,6 +123,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       ? `Use Write to create the local file ${fixture} containing exactly PAC_WRITE_FIXTURE_CONTENT. Then say PAC_WRITE_VERIFIED.`
       : scopedTest
       ? `Read the local file ${fixture} and report its contents, following applicable project instructions.`
+      : relativeTest
+      ? 'Use Read on the relative path source-fixture.txt without converting it to an absolute path. If it contains PAC_READ_FIXTURE_CONTENT, finish with PAC_READ_VERIFIED.'
       : toolTest
       ? `Read the local file ${fixture}. If it contains PAC_READ_FIXTURE_CONTENT, finish your response with PAC_READ_VERIFIED.`
       : 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'
@@ -136,6 +140,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
     if (!denyTest) assert.match(output, imageTest ? /PAC_IMAGE_VERIFIED/ : bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : scopedTest ? /PAC_SCOPED_RULE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
     if (imageTest) assert.doesNotMatch(output, /PAC_IMAGE_MISSING/)
+    if (relativeTest) assert.match(await readFile(join(root, 'trace.ndjson'), 'utf8'), /"sourceReadPath":"relative"/)
     if (toolTest || writeTest || bashTest) assert.match(output, /PAC tool event/)
     if (bashTest) {
       assert.match(output, /pac_approval/)

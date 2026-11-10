@@ -14,8 +14,8 @@ export async function createWorkspace({ root, sessionId, maxBytes = 8 * 1024 * 1
   const realRoot = await realpath(root)
 
   async function targetFor(path, writing) {
-    if (typeof path !== 'string' || !isAbsolute(path) || path.includes('\0')) throw new Error('An absolute workspace path is required')
-    const requested = resolve(path)
+    if (typeof path !== 'string' || !path || path.includes('\0')) throw new Error('A workspace path is required')
+    const requested = isAbsolute(path) ? resolve(path) : resolve(requestedRoot, path)
     if (!within(requestedRoot, requested) && !within(realRoot, requested)) throw new Error('Path is outside the workspace')
     let target
     try {

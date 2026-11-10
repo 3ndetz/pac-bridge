@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
 import { Duplex } from 'node:stream'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 import { connectSource } from '../src/acp-transport.mjs'
@@ -135,12 +136,13 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           onRequest: async (remoteMethod, remoteParams) => {
             if (session.selected !== endpoint.id) throw new Error('Request from inactive PAC session')
             if (remoteMethod === 'fs/read_text_file') {
+              if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ sourceReadPath: isAbsolute(remoteParams.path || '') ? 'absolute' : 'relative' }) + '\n')
               if (process.env.PAC_TRACE_PATH && /hook-(block|error)\.txt$/.test(remoteParams.path || '')) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ blockedFixtureRead: true }) + '\n')
               return state.workspace.readTextFile(remoteParams)
             }
             if (remoteMethod === 'pac/instructions/match') {
               if (remoteParams.sessionId !== state.remote?.sessionId || typeof remoteParams.path !== 'string') throw new Error('Invalid scoped instruction request')
-              const [workspace, actual] = await Promise.all([realpath(session.cwd), realpath(remoteParams.path)])
+              const [workspace, actual] = await Promise.all([realpath(session.cwd), realpath(resolve(session.cwd, remoteParams.path))])
               const matching = (state.instructions || []).filter((entry) => entry.paths && matchesProjectRule(workspace, actual, entry.paths))
               return { instructions: matching.map(({ path, content }) => ({ path, content })) }
             }
