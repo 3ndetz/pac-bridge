@@ -46,8 +46,15 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
         }
         const before = await peer.call('fs/read_text_file', { sessionId: params.sessionId, path })
         if (before.content !== 'SOURCE_ONLY_MARKER') throw new Error('Wrong workspace content')
+        const search = await peer.call('pac/search/grep', { sessionId: params.sessionId, path: workspace, pattern: 'SOURCE_ONLY_MARKER', outputMode: 'content' })
+        if (!search.output?.includes('SOURCE_ONLY_MARKER')) throw new Error('Source search did not find the fixture')
         await peer.call('pac/fs/write', { sessionId: params.sessionId, operationId: randomUUID(), path, content: 'SOURCE_WRITTEN_MARKER' }, 0)
-        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'source workspace read and write completed' } } })
+        const terminal = await peer.call('pac/terminal/create', { sessionId: params.sessionId, operationId: randomUUID(), command: 'bash', args: ['-c', 'printf SHELL_SOURCE_OK'], cwd: workspace }, 0)
+        const status = await peer.call('terminal/wait_for_exit', { sessionId: params.sessionId, terminalId: terminal.terminalId }, 0)
+        const output = await peer.call('terminal/output', { sessionId: params.sessionId, terminalId: terminal.terminalId })
+        await peer.call('terminal/release', { sessionId: params.sessionId, terminalId: terminal.terminalId })
+        if (status.exitCode !== 0 || output.output !== 'SHELL_SOURCE_OK') throw new Error('Source shell output was incorrect')
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'source workspace read and write completed; search and shell completed' } } })
         return { stopReason: 'end_turn' }
       }
       if (process.argv.includes('--slow-response')) {
