@@ -1,4 +1,4 @@
-import { open, readdir, realpath } from 'node:fs/promises'
+import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 // Exclude Markdown examples from import discovery. This deliberately leaves
@@ -115,7 +115,13 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
   async function readRules(directory) {
     if (++ruleDirectories > 256) throw new Error('Too many source rule directories')
     let children
-    try { children = await readdir(directory, { withFileTypes: true }) }
+    try {
+      if ((await lstat(directory)).isSymbolicLink()) throw new Error('Symbolic rule paths are not yet supported')
+      const actual = await realpath(directory)
+      const local = relative(workspace, actual)
+      if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Rule directory resolves outside the workspace')
+      children = await readdir(actual, { withFileTypes: true })
+    }
     catch (error) { if (error.code === 'ENOENT') return; throw error }
     children.sort((a, b) => a.name.localeCompare(b.name, 'en'))
     for (const child of children) {

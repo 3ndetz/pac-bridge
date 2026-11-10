@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, realpath, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
@@ -48,6 +48,22 @@ test('reads instructions and workspace imports, preserving boundaries and code e
     const actual = await realpath(root)
     const local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-instructions-')) await rm(actual, { recursive: true, force: true })
+  }
+})
+
+test('rejects a linked project rule directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-rule-link-'))
+  try {
+    const workspace = join(root, 'workspace')
+    const external = join(root, 'external')
+    await mkdir(join(workspace, '.claude'), { recursive: true })
+    await mkdir(external)
+    await symlink(external, join(workspace, '.claude', 'rules'), process.platform === 'win32' ? 'junction' : 'dir')
+    await assert.rejects(readSourceInstructions({ root: workspace, stopAt: workspace }), /Symbolic rule paths/)
+  } finally {
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-rule-link-')) await rm(actual, { recursive: true, force: true })
   }
 })
 
