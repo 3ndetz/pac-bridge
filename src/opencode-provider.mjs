@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 
 // Experimental text-only transport. Unsupported events and permissions must
 // terminate the turn, never be translated into a successful text answer.
-export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024 * 1024 }) {
+export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024 * 1024, onFailure = () => {} }) {
   if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
@@ -36,7 +36,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         messages = new Set()
         seen.set(sessionId, messages)
       }
-      if (messages.has(messageId)) return fail(409, 'Duplicate turn; outcome may be unknown')
+      if (messages.has(messageId)) return fail(400, 'Duplicate turn; outcome may be unknown')
       if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
       messages.add(messageId)
       let completed = false
@@ -55,7 +55,14 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       write({}, 'stop')
       completed = true
       response.end('data: [DONE]\n\n')
-    } catch (error) { fail(502, 'PAC turn failed or its outcome is unknown') }
+    } catch (error) {
+      const category = ['Selected PAC model is unavailable', 'PAC model selection was not confirmed', 'Unsupported ACP version',
+        'ACP session identity is missing', 'ACP connection lost', 'ACP request timed out', 'Unsupported PAC event',
+        'PAC turn did not finish normally'].find((value) => error?.message?.includes(value)) || 'other'
+      const phase = ['initialize', 'session-new', 'select-model', 'prompt'].includes(error?.pacPhase) ? error.pacPhase : 'unknown'
+      try { onFailure(`${category} (${phase})`) } catch {}
+      fail(502, 'PAC turn failed or its outcome is unknown')
+    }
   })
   return server
 }

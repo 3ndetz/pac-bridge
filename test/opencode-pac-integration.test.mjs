@@ -75,3 +75,47 @@ test('routes an actual OpenCode CLI text turn to a fake PAC', {
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-opencode-integration-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
 })
+
+test('experimental launcher opens OpenCode against a fake PAC', {
+  skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-opencode-launcher-'))
+  const relayServer = createServer()
+  const relay = attachAcpRelay(relayServer, { authorize: () => true })
+  let agent, child
+  try {
+    relayServer.listen(0, '127.0.0.1')
+    await once(relayServer, 'listening')
+    const url = `ws://127.0.0.1:${relayServer.address().port}`
+    const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
+    const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
+    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--text-response'] })
+    const tokenFile = join(root, 'token')
+    await writeFile(tokenFile, 'test-token')
+    const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
+      SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC, TEMP: root, TMP: root,
+      HOME: root, USERPROFILE: root, APPDATA: join(root, 'appdata'), LOCALAPPDATA: join(root, 'localappdata'),
+      XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
+      OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+      PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
+      PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root }
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', 'Hello PAC'],
+      { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    let output = '', errors = ''
+    const deadline = setTimeout(() => stopContained(child), 90000)
+    child.stdout.on('data', (chunk) => { output += chunk })
+    child.stderr.on('data', (chunk) => { errors += chunk })
+    const [code] = await once(child, 'close')
+    clearTimeout(deadline)
+    assert.equal(code, 0, `${errors.slice(-2000)}\n${output.slice(-2000)}`)
+    assert.match(output, /fake PAC sonnet response/)
+  } finally {
+    if (child && child.exitCode === null) stopContained(child)
+    agent?.close()
+    relay.close()
+    relayServer.close()
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-opencode-launcher-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+})

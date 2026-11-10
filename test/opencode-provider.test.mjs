@@ -30,7 +30,7 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
     assert.match(stream, /\[DONE\]/)
     assert.deepEqual(calls, [{ binding: { sessionId: 'session-1', model: 'PAC_work/sonnet', cwd: '/source' }, prompt: [{ type: 'text', text: 'hello' }] }])
     const replay = await fetch(url, { method: 'POST', headers, body })
-    assert.equal(replay.status, 409)
+    assert.equal(replay.status, 400)
     assert.equal(calls.length, 1)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
