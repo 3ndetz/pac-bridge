@@ -124,6 +124,7 @@ try {
   stage = 'starting HAPI OpenCode session'
   let machineModelOffered = false
   let pacWarningsVerified = false
+  let browserUnavailableSelectionVerified = false
   if (process.env.PAC_HAPI_RUNNER === '1') {
     launch(['runner', 'start-sync', '--workspace-root', workspace], root)
     const machine = await until(async () => (await request('/api/machines')).machines?.find((entry) => entry.active), 60000)
@@ -182,6 +183,7 @@ try {
         await page.unroute(probe)
         await page.getByTestId('pac-discovery-warnings').getByRole('button').click()
         await model.locator('option[value="PAC_testpac/sonnet"]:not(:disabled)').waitFor({ state: 'attached', timeout: 90000 })
+        browserUnavailableSelectionVerified = true
       }
       await page.locator('select').filter({ has: page.locator('option[value="yolo"]') }).selectOption('yolo')
       const [response] = await Promise.all([
@@ -226,7 +228,7 @@ try {
   }
   const history = await request(`/api/sessions/${id}/messages?limit=100`)
   const visible = JSON.stringify(history)
-  const summary = { hapiSession: true, runnerCreatedSession: !!runnerSessionId, machineModelOffered, pacWarningsVerified, modelOffered: true, modelSelected: true, contentsVerified: process.env.PAC_HAPI_FAST_RESUME !== '1',
+  const summary = { hapiSession: true, runnerCreatedSession: !!runnerSessionId, machineModelOffered, pacWarningsVerified, browserUnavailableSelectionVerified, modelOffered: true, modelSelected: true, contentsVerified: process.env.PAC_HAPI_FAST_RESUME !== '1',
     readVisible: visible.includes('Read'), writeVisible: visible.includes('Write'), editVisible: visible.includes('Edit') }
   if (process.env.PAC_HAPI_BROWSER === '1') summary.browserCreatedSession = true
   if (process.env.PAC_HAPI_MCP === '1') {
