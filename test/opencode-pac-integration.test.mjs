@@ -85,6 +85,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1'
     const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
     const bashTest = process.env.PAC_LIVE_BASH_TEST === '1'
+    const imageTest = process.env.PAC_LIVE_IMAGE_TEST === '1'
     const writeTest = process.env.PAC_LIVE_WRITE_TEST === '1' || denyTest
     const fixture = join(root, 'source-fixture.txt')
     if (toolTest) await writeFile(fixture, 'PAC_READ_FIXTURE_CONTENT')
@@ -97,6 +98,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS, PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1',
       PAC_DISCOVERY_ACP: process.env.PAC_DISCOVERY_ACP,
       PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+      PAC_EXPERIMENTAL_IMAGE_INPUT: imageTest ? '1' : undefined,
       PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
       PAC_CONTROLLER_CWD: process.env.PAC_LIVE_CONTROLLER_CWD }
@@ -104,14 +106,18 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       await mkdir(join(root, 'config', 'opencode'), { recursive: true })
       await writeFile(join(root, 'config', 'opencode', 'opencode.json'), JSON.stringify({ permission: { pac_bridge: 'deny' } }))
     }
-    const prompt = bashTest
+    const imageFile = join(root, 'fixture.png')
+    if (imageTest) await writeFile(imageFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAMSURBVBhXY0ADDAwAABIAAaMn47oAAAAASUVORK5CYII=', 'base64'))
+    const prompt = imageTest
+      ? 'Look at the attached image and describe its visible appearance in one sentence, then say PAC_IMAGE_VERIFIED. If no image is visible say PAC_IMAGE_MISSING.'
+      : bashTest
       ? 'Use Bash to run exactly: printf PAC_BASH_FIXTURE_CONTENT > bash-fixture.txt. Then say PAC_BASH_VERIFIED.'
       : writeTest
       ? `Use Write to create the local file ${fixture} containing exactly PAC_WRITE_FIXTURE_CONTENT. Then say PAC_WRITE_VERIFIED.`
       : toolTest
       ? `Read the local file ${fixture}. If it contains PAC_READ_FIXTURE_CONTENT, finish your response with PAC_READ_VERIFIED.`
       : 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'
-    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(writeTest || bashTest ? ['--auto'] : []), prompt],
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(writeTest || bashTest ? ['--auto'] : []), ...(imageTest ? ['--file', imageFile, '--'] : []), prompt],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
     const deadline = setTimeout(() => stopContained(child), 150000)
@@ -121,7 +127,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     clearTimeout(deadline)
     const categories = errors.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
     assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
-    if (!denyTest) assert.match(output, bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
+    if (!denyTest) assert.match(output, imageTest ? /PAC_IMAGE_VERIFIED/ : bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
+    if (imageTest) assert.doesNotMatch(output, /PAC_IMAGE_MISSING/)
     if (toolTest || writeTest || bashTest) assert.match(output, /PAC tool event/)
     if (bashTest) {
       assert.match(output, /pac_approval/)
