@@ -230,7 +230,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
       env: { ...process.env, PAC_TEST_QUESTION_CANCEL_FILE: join(root, 'question-cancelled'),
         PAC_TEST_TURN_STARTED_FILE: join(root, 'turn-started'), PAC_TEST_TURN_CANCEL_FILE: join(root, 'turn-cancelled'),
         PAC_TEST_TURN_COUNT_FILE: join(root, 'turn-count'),
-        ...(process.env.PAC_TEST_RESUME === '1' ? { PAC_TEST_CONVERSATION_FILE: join(root, 'conversation') } : {}),
+        ...(process.env.PAC_TEST_RESUME === '1' ? { PAC_TEST_CONVERSATION_FILE: join(root, 'conversation') } : {}), PAC_TEST_EXPECT_DENY: process.env.PAC_TEST_WORKSPACE_DENY,
         PAC_TEST_THOUGHT: process.env.PAC_TEST_THOUGHT, PAC_TEST_IDENTITY: 'controller-one' } })
     const tokenFile = live || remoteFake ? process.env.PAC_LIVE_SOURCE_TOKEN_FILE : join(root, 'token')
     if (!live && !remoteFake) await writeFile(tokenFile, 'test-token')
@@ -262,7 +262,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
       PAC_ENDPOINTS_FILE: endpointsFile,
       PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: live || remoteFake ? process.env.PAC_LIVE_CONTROLLER_CWD : root }
     if (workspaceTest) {
-      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'allow' } })
+      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: process.env.PAC_TEST_WORKSPACE_DENY === '1' ? 'deny' : 'allow' } })
       await writeFile(join(root, 'remote-fixture.txt'), 'SOURCE_ONLY_MARKER')
     }
     const base = `http://127.0.0.1:${port}`
@@ -290,8 +290,8 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
     if (workspaceTest) {
       const result = await message('Read and update the fixture')
-      assert.match(JSON.stringify(result.parts), /source workspace read and write completed/)
-      assert.equal(await readFile(join(root, 'remote-fixture.txt'), 'utf8'), 'SOURCE_WRITTEN_MARKER')
+      assert.match(JSON.stringify(result.parts), process.env.PAC_TEST_WORKSPACE_DENY === '1' ? /source workspace write denied/ : /source workspace read and write completed/)
+      assert.equal(await readFile(join(root, 'remote-fixture.txt'), 'utf8'), process.env.PAC_TEST_WORKSPACE_DENY === '1' ? 'SOURCE_ONLY_MARKER' : 'SOURCE_WRITTEN_MARKER')
       return
     }
     if (concurrentApprovals) {
