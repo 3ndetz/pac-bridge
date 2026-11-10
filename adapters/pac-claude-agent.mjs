@@ -8,6 +8,7 @@ import { mapQuestionAnswers } from '../src/question-answers.mjs'
 import { startTerminalOutputPump } from '../src/terminal-stream.mjs'
 import { waitForTerminal } from '../src/terminal-wait.mjs'
 import { stopNativeTask } from '../src/native-task-stop.mjs'
+import { createInstructionLedger } from '../src/instruction-ledger.mjs'
 
 // Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
 // notification arrives with the long path. Preserve the target, including a
@@ -227,7 +228,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     const meta = params._meta || {}
     const skills = meta.pac?.skills || []
     const instructions = meta.pac?.instructions || []
-    const loadedScopedRules = new Set()
+    const loadedInstructions = createInstructionLedger()
     const scopedRulesHook = async (input) => {
       if (meta.pac?.scopedRules !== true) return {}
       const name = (input.tool_name || '').replace(/^mcp__pac__/, '')
@@ -237,11 +238,13 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       try {
         const result = await agent.client.inner.ctx.request('pac/instructions/match', { sessionId, ...target })
         if (!Array.isArray(result?.instructions) || result.instructions.length > 256 || result.instructions.some((entry) => typeof entry?.path !== 'string' || typeof entry?.content !== 'string')) throw new Error('Invalid scoped instruction response')
-        const next = result.instructions.filter((entry) => !loadedScopedRules.has(entry.path))
+        const next = loadedInstructions.unseen(input.agent_id, result.instructions)
         if (!next.length) return {}
         const context = next.map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
         if (context.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
-        for (const entry of next) loadedScopedRules.add(entry.path)
+        loadedInstructions.mark(input.agent_id, next)
+        if (process.env.PAC_TEST_SCOPED_TRACE === '1') await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'session_info_update',
+          _meta: { pacProbe: { scopedInstructionOwner: input.agent_id === undefined ? 'main' : 'subagent' } } } })
         return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } }
       } catch {
         await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: {

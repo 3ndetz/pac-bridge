@@ -170,4 +170,6 @@ An isolated patched HAPI hub and runner used the HAPI OpenCode command with the 
 
 After adding file-scoped rules, another isolated browser run repeated PAC selection and source-file operations and confirmed that Claude received the matching rule after the read. This does not establish full nested and subagent instruction behavior.
 
+An isolated HAPI run then loaded the same file-scoped rule independently for the main Claude conversation and a background subagent, and observed the marker in subsequent output. Other nested and concurrent subagent instruction cases remain unverified.
+
 An authenticated cross-host OpenCode test read a file using a relative workspace path. Local tests also verified relative writes and rejection of an attempted parent-directory escape.

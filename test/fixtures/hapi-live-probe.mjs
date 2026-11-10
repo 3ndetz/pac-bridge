@@ -243,6 +243,20 @@ try {
     await until(async () => JSON.stringify((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).includes('PAC_HAPI_SCOPED_492316'), 120000)
     summary.scopedRuleVerified = true
   }
+  if (process.env.PAC_HAPI_SCOPED_SUBAGENT === '1') {
+    stage = 'checking that a subagent independently receives a source rule'
+    const previous = new Set(((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).map((message) => message.id))
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
+      text: `Use Agent to start a background subagent. It must Read ${file}, follow its project instructions, and return the scoped marker. Wait for the subagent and report its result.`, localId: randomUUID()
+    }) })
+    await until(async () => {
+      const events = (await readFile(env.PAC_TRACE_PATH, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line))
+      const messages = (await request(`/api/sessions/${id}/messages?limit=100`)).messages || []
+      return events.some((event) => event.scopedInstructionOwner === 'main') && events.some((event) => event.scopedInstructionOwner === 'subagent') &&
+        JSON.stringify(messages.filter((message) => !previous.has(message.id))).includes('PAC_HAPI_SCOPED_492316')
+    }, 180000)
+    summary.scopedRuleSubagentVerified = true
+  }
   if (process.env.PAC_HAPI_MCP === '1') {
     stage = 'calling source MCP tool across the relay'
     await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({

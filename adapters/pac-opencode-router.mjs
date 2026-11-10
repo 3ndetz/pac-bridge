@@ -285,6 +285,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             const update = remoteParams?.update
             if (process.env.PAC_TRACE_PATH && remoteMethod === 'session/update') appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({
               type: update?.sessionUpdate, title: update?.title, background: update?.rawInput?.run_in_background ?? update?._meta?.pacProbe?.background,
+              scopedInstructionOwner: ['main', 'subagent'].includes(update?._meta?.pacProbe?.scopedInstructionOwner) ? update._meta.pacProbe.scopedInstructionOwner : undefined,
               observedModel: typeof update?._meta?.['_claude/model'] === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(update._meta['_claude/model']) ? update._meta['_claude/model'] : undefined,
               meta: update?._meta ? Object.keys(update._meta) : [],
             }) + '\n')
