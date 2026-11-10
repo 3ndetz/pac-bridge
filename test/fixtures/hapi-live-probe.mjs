@@ -141,7 +141,7 @@ try {
       const discovered = await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(warningCwd)}`)
       if (!discovered.success || !Array.isArray(discovered.availableModels) ||
           !discovered.pacDiscoveryWarnings?.some((warning) => warning.name === 'testpac' && warning.code === 'rule_frontmatter_unsupported')) {
-        throw new Error('HAPI did not expose the expected PAC discovery warning')
+        throw new Error(`HAPI did not expose the expected PAC discovery warning: ${JSON.stringify({ success: discovered.success, warnings: discovered.pacDiscoveryWarnings, models: discovered.availableModels?.length })}`)
       }
       if (process.env.PAC_HAPI_BROWSER === '1') {
         const page = await openBrowser()
