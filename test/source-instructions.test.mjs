@@ -67,6 +67,21 @@ test('rejects a linked project rule directory', async () => {
   }
 })
 
+test('loads instructions from directories between the workspace and the accessed file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-nested-instructions-'))
+  try {
+    await mkdir(join(root, 'src', 'feature'), { recursive: true })
+    await writeFile(join(root, 'CLAUDE.md'), 'Root instruction')
+    await writeFile(join(root, 'src', 'CLAUDE.md'), 'Source instruction')
+    await writeFile(join(root, 'src', 'feature', 'AGENTS.md'), 'Feature instruction')
+    const file = join(root, 'src', 'feature', 'file.txt')
+    await writeFile(file, 'File')
+    const entries = await readSourceInstructions({ root, nestedTarget: file, nestedOnly: true })
+    assert.deepEqual(entries.map((item) => item.content), ['Source instruction', 'Feature instruction'])
+    await assert.rejects(readSourceInstructions({ root, nestedTarget: join(root, '..', 'outside'), nestedOnly: true }))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('loads unscoped and scoped project rules without making scoped content global', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-rules-'))
   try {

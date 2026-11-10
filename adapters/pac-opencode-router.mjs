@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { Duplex } from 'node:stream'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 import { connectSource } from '../src/acp-transport.mjs'
@@ -130,7 +130,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           })
           if (binding) state.translator = createSubagentTranslator({ localSessionId: session.id, remoteSessionId: binding.remoteSessionId, pacId: endpoint.id })
           state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
-            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: (state.instructions || []).some((entry) => entry.paths) } },
+            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions) } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
             clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {} },
           onRequest: async (remoteMethod, remoteParams) => {
@@ -148,8 +148,11 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
               let workspace, actual
               try { [workspace, actual] = await Promise.all([realpath(session.cwd), realpath(resolve(session.cwd, path))]) }
               catch (error) { if (error.code === 'ENOENT') return { instructions: [] }; throw error }
+              const local = relative(workspace, actual)
+              if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) return { instructions: [] }
               const matching = (state.instructions || []).filter((entry) => entry.paths && matchesProjectRule(workspace, actual, entry.paths))
-              return { instructions: matching.map(({ path, content }) => ({ path, content })) }
+              const nested = await readSourceInstructions({ root: workspace, stopAt: workspace, nestedTarget: actual, nestedOnly: true })
+              return { instructions: [...nested, ...matching].map(({ path, content }) => ({ path, content })) }
             }
             if (remoteMethod === 'pac/fs/read_image') {
               const result = await state.workspace.readImageFile(remoteParams)

@@ -234,14 +234,20 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       const target = ['Read', 'Write', 'Edit'].includes(name) && typeof input.tool_input?.file_path === 'string' ? { path: input.tool_input.file_path }
         : name === 'Bash' && !input.tool_input?.run_in_background && typeof input.tool_input?.command === 'string' ? { command: input.tool_input.command } : null
       if (!target) return {}
-      const result = await agent.client.inner.ctx.request('pac/instructions/match', { sessionId, ...target })
-      if (!Array.isArray(result?.instructions) || result.instructions.length > 256 || result.instructions.some((entry) => typeof entry?.path !== 'string' || typeof entry?.content !== 'string')) throw new Error('Invalid scoped instruction response')
-      const next = result.instructions.filter((entry) => !loadedScopedRules.has(entry.path))
-      if (!next.length) return {}
-      const context = next.map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
-      if (context.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
-      for (const entry of next) loadedScopedRules.add(entry.path)
-      return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } }
+      try {
+        const result = await agent.client.inner.ctx.request('pac/instructions/match', { sessionId, ...target })
+        if (!Array.isArray(result?.instructions) || result.instructions.length > 256 || result.instructions.some((entry) => typeof entry?.path !== 'string' || typeof entry?.content !== 'string')) throw new Error('Invalid scoped instruction response')
+        const next = result.instructions.filter((entry) => !loadedScopedRules.has(entry.path))
+        if (!next.length) return {}
+        const context = next.map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
+        if (context.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
+        for (const entry of next) loadedScopedRules.add(entry.path)
+        return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } }
+      } catch {
+        await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: {
+          type: 'text', text: 'PAC Bridge could not load source instructions; the turn was stopped.' } } }).catch(() => {})
+        return { continue: false, stopReason: 'PAC Bridge could not load source instructions.' }
+      }
     }
     if (!Array.isArray(skills) || skills.length > 100 || skills.some((skill) => typeof skill?.name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(skill.name) || typeof skill?.description !== 'string' || skill.description.length > 1536)) throw new Error('Invalid source skill catalog')
     if (!Array.isArray(instructions) || instructions.length > 256 || instructions.some((entry) => typeof entry?.path !== 'string' || typeof entry?.content !== 'string') ||

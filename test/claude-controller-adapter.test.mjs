@@ -26,6 +26,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
   let requests = 0, answer = '', toolCalls = 0, modelSawSource = false, modelSawScopedRule = false, scopedRequests = 0
   const toolTest = process.env.PAC_TEST_SYNTHETIC_TOOL === '1'
   const scopedTest = process.env.PAC_TEST_SYNTHETIC_SCOPED === '1'
+  const scopedFailure = process.env.PAC_TEST_SYNTHETIC_SCOPED_FAILURE === '1'
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || !request.url.startsWith('/v1/messages')) { response.writeHead(404).end(); return }
     let body = ''
@@ -66,6 +67,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
       onRequest: async (method, params) => {
         if (method === 'pac/instructions/match' && scopedTest && params.path === join(root, 'synthetic.txt')) {
           scopedRequests++
+          if (scopedFailure) throw new Error('Synthetic source instruction failure')
           return { instructions: [{ path: 'scoped-rule.md', content: 'SYNTHETIC_SCOPED_RULE' }] }
         }
         if (method !== 'fs/read_text_file' || params.path !== join(root, 'synthetic.txt')) throw new Error('Unexpected source operation')
@@ -76,9 +78,10 @@ test('runs the installed controller against a local synthetic model endpoint', {
     const session = await peer.call('session/new', { cwd: root, mcpServers: [], ...(scopedTest ? { _meta: { pac: { scopedRules: true } } } : {}) })
     await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Reply with the local marker.' }] }, 90000)
     assert.ok(requests > 0)
-    assert.match(answer, /LOCAL_SYNTHETIC_CLAUDE_OK/)
-    if (toolTest) { assert.ok(requests >= 2); assert.equal(toolCalls, 1); assert.equal(modelSawSource, true) }
-    if (scopedTest) { assert.equal(scopedRequests, 1); assert.equal(modelSawScopedRule, true) }
+    assert.match(answer, scopedFailure ? /could not load source instructions/ : /LOCAL_SYNTHETIC_CLAUDE_OK/)
+    if (scopedFailure) { assert.doesNotMatch(answer, /LOCAL_SYNTHETIC_CLAUDE_OK/); assert.equal(requests, 1) }
+    if (toolTest) { if (!scopedFailure) { assert.ok(requests >= 2); assert.equal(modelSawSource, true) }; assert.equal(toolCalls, 1) }
+    if (scopedTest) { assert.equal(scopedRequests, 1); if (!scopedFailure) assert.equal(modelSawScopedRule, true) }
   } finally {
     peer?.close(); child?.kill(); await new Promise((resolve) => server.close(resolve))
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)

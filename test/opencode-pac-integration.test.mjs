@@ -84,13 +84,18 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   try {
     const scopedBash = process.env.PAC_LIVE_SCOPED_BASH_TEST === '1'
     const scopedTest = process.env.PAC_LIVE_SCOPED_TEST === '1' || scopedBash
+    const nestedTest = process.env.PAC_LIVE_NESTED_TEST === '1'
     const relativeTest = process.env.PAC_LIVE_RELATIVE_TEST === '1'
-    const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1' || scopedTest || relativeTest
+    const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1' || scopedTest || relativeTest || nestedTest
     const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
     const bashTest = process.env.PAC_LIVE_BASH_TEST === '1'
     const imageTest = process.env.PAC_LIVE_IMAGE_TEST === '1'
     const writeTest = process.env.PAC_LIVE_WRITE_TEST === '1' || denyTest
-    const fixture = join(root, 'source-fixture.txt')
+    const fixture = join(root, ...(nestedTest ? ['nested'] : []), 'source-fixture.txt')
+    if (nestedTest) {
+      await mkdir(join(root, 'nested'))
+      await writeFile(join(root, 'nested', 'CLAUDE.md'), 'When reporting this file, include the exact marker PAC_NESTED_RULE_VERIFIED.\n')
+    }
     if (toolTest) await writeFile(fixture, 'PAC_READ_FIXTURE_CONTENT')
     if (scopedTest) {
       await mkdir(join(root, '.claude', 'rules'), { recursive: true })
@@ -122,6 +127,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       ? 'Use Bash to run exactly: printf PAC_BASH_FIXTURE_CONTENT > bash-fixture.txt. Then say PAC_BASH_VERIFIED.'
       : writeTest
       ? `Use Write to create the local file ${fixture} containing exactly PAC_WRITE_FIXTURE_CONTENT. Then say PAC_WRITE_VERIFIED.`
+      : nestedTest
+      ? `Read the local file ${fixture} and report its contents, following applicable project instructions.`
       : scopedBash
       ? 'Use Bash to run exactly cat source-fixture.txt and report its contents, following applicable project instructions.'
       : scopedTest
@@ -141,7 +148,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     clearTimeout(deadline)
     const categories = errors.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
     assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
-    if (!denyTest) assert.match(output, imageTest ? /PAC_IMAGE_VERIFIED/ : bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : scopedTest ? /PAC_SCOPED_RULE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
+    if (!denyTest) assert.match(output, imageTest ? /PAC_IMAGE_VERIFIED/ : bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : nestedTest ? /PAC_NESTED_RULE_VERIFIED/ : scopedTest ? /PAC_SCOPED_RULE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
     if (imageTest) assert.doesNotMatch(output, /PAC_IMAGE_MISSING/)
     if (relativeTest) assert.match(await readFile(join(root, 'trace.ndjson'), 'utf8'), /"sourceReadPath":"relative"/)
     if (scopedBash) assert.match(await readFile(join(root, 'trace.ndjson'), 'utf8'), /"scopedBashRead":true/)

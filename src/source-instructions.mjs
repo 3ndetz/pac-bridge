@@ -41,8 +41,9 @@ function instructionImports(text) {
   return imports
 }
 
-export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 * 1024, maxTotalBytes = 1024 * 1024 }) {
+export async function readSourceInstructions({ root, stopAt, nestedTarget, nestedOnly = false, maxFileBytes = 256 * 1024, maxTotalBytes = 1024 * 1024 }) {
   if (!isAbsolute(root) || (stopAt !== undefined && !isAbsolute(stopAt)) || !Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1 ||
+      (nestedTarget !== undefined && !isAbsolute(nestedTarget)) || (nestedOnly && !nestedTarget) ||
       !Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 1) throw new Error('Invalid source instruction configuration')
   const workspace = await realpath(root)
   const boundary = stopAt ? await realpath(stopAt) : null
@@ -105,10 +106,31 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
       }
     } finally { active.delete(actual) }
   }
-  for (const directory of ancestors.reverse()) {
-    for (const name of ['AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', join('.claude', 'CLAUDE.md')]) {
-      const path = join(directory, name)
-      await readInstruction(path, directory, 0, new Set(), name !== 'AGENTS.md')
+  if (!nestedOnly) {
+    for (const directory of ancestors.reverse()) {
+      for (const name of ['AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', join('.claude', 'CLAUDE.md')]) {
+        const path = join(directory, name)
+        await readInstruction(path, directory, 0, new Set(), name !== 'AGENTS.md')
+      }
+    }
+  }
+  if (nestedTarget) {
+    const actual = await realpath(nestedTarget)
+    const local = relative(workspace, actual)
+    if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Nested instruction target is outside the workspace')
+    const nestedDirectories = []
+    let directory = dirname(actual)
+    while (directory !== workspace) {
+      nestedDirectories.push(directory)
+      const parent = dirname(directory)
+      if (parent === directory) throw new Error('Nested instruction target is outside the workspace')
+      directory = parent
+    }
+    if (nestedDirectories.length > 256) throw new Error('Too many nested instruction directories')
+    for (const directory of nestedDirectories.reverse()) {
+      for (const name of ['AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', join('.claude', 'CLAUDE.md')]) {
+        await readInstruction(join(directory, name), directory, 0, new Set(), name !== 'AGENTS.md')
+      }
     }
   }
   // Links are rejected until external-import approval can be routed.
@@ -134,8 +156,8 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
       }
     }
   }
-  await readRules(join(workspace, '.claude', 'rules'))
-  const scopedContext = entries.filter((entry) => entry.paths).map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
+  if (!nestedOnly) await readRules(join(workspace, '.claude', 'rules'))
+  const scopedContext = entries.filter((entry) => nestedOnly || entry.paths).map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
   if (scopedContext.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
   return entries
 }
