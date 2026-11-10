@@ -39,18 +39,22 @@ export function createOpencodeSessionRouter({ openSession }) {
   }
 
   return {
-    async prompt(binding, prompt, onUpdate) {
+    async prompt(binding, prompt, onUpdate, { signal } = {}) {
       if (!Array.isArray(prompt) || typeof onUpdate !== 'function') throw new Error('Invalid PAC prompt')
+      if (signal?.aborted) throw new Error('PAC turn was cancelled before it started')
       const { state, session } = await getSession(binding)
+      if (signal?.aborted) throw new Error('PAC turn was cancelled before it started')
       if (state.busy) throw new Error('A PAC turn is already running in this session')
       state.busy = true
+      const cancel = () => { try { Promise.resolve(session.cancel()).catch(() => {}) } catch {} }
+      signal?.addEventListener('abort', cancel, { once: true })
       try {
         return await session.prompt(prompt, onUpdate)
       } catch (error) {
         // A failed in-flight call may have performed side effects; do not replay.
         state.lost = true
         throw error
-      } finally { state.busy = false }
+      } finally { signal?.removeEventListener('abort', cancel); state.busy = false }
     },
     async cancel(sessionId) {
       identity(sessionId, 'OpenCode session identity')

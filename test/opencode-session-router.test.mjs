@@ -76,3 +76,17 @@ test('closes an ACP session that finishes opening after shutdown', async () => {
   await assert.rejects(attempt, /closed/)
   assert.equal(closed, 1)
 })
+
+test('does not start a remote prompt after cancellation during session setup', async () => {
+  const pending = deferred()
+  const controller = new AbortController()
+  let calls = 0
+  const router = createOpencodeSessionRouter({ openSession: () => pending.promise })
+  const attempt = router.prompt(binding, [], () => {}, { signal: controller.signal })
+  await Promise.resolve()
+  controller.abort()
+  pending.resolve({ prompt() { calls++ }, cancel() {}, close() {} })
+  await assert.rejects(attempt, /cancelled before it started/)
+  assert.equal(calls, 0)
+  router.close()
+})
