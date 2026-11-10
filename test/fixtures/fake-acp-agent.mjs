@@ -7,7 +7,8 @@ const models = [{ value: 'initial', name: 'Initial' }, { value: 'sonnet', name: 
 const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.stdout }), {
   onRequest: async (method, params) => {
     if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
-    if (method === 'session/new') return { sessionId: native ? 'native-session' : 'remote-session', configOptions: [
+    if (method === 'session/new') return { sessionId: native ? 'native-session' : 'remote-session',
+      ...(process.argv.includes('--empty-model-block') ? { models: { availableModels: [] } } : {}), configOptions: [
       { id: 'model', category: 'model', currentValue: selected, options: models }
     ] }
     if (method === 'session/load') {

@@ -119,6 +119,7 @@ try {
   if (!jwt) throw new Error('HAPI authentication returned no token')
   stage = 'starting HAPI OpenCode session'
   let machineModelOffered = false
+  let pacWarningsVerified = false
   if (process.env.PAC_HAPI_RUNNER === '1') {
     launch(['runner', 'start-sync', '--workspace-root', workspace], root)
     const machine = await until(async () => (await request('/api/machines')).machines?.find((entry) => entry.active), 60000)
@@ -126,6 +127,18 @@ try {
     stage = 'discovering PAC model before creating a session'
     await until(async () => JSON.stringify(await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(workspace)}`)).includes('PAC_testpac/sonnet'), 180000)
     machineModelOffered = true
+    if (process.env.PAC_HAPI_INSTRUCTIONS === '1') {
+      stage = 'checking PAC discovery warnings through HAPI'
+      const warningCwd = join(workspace, 'warning-case')
+      await mkdir(warningCwd)
+      await writeFile(join(warningCwd, 'CLAUDE.md'), 'External instruction: @../rules/marker.md\n')
+      const discovered = await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(warningCwd)}`)
+      if (!discovered.success || !Array.isArray(discovered.availableModels) ||
+          !discovered.pacDiscoveryWarnings?.some((warning) => warning.name === 'testpac' && warning.code === 'external_import_unsupported')) {
+        throw new Error('HAPI did not expose the expected PAC discovery warning')
+      }
+      pacWarningsVerified = true
+    }
     stage = 'creating OpenCode session through the HAPI runner'
     let result
     if (process.env.PAC_HAPI_BROWSER === '1') {
@@ -178,7 +191,7 @@ try {
   }
   const history = await request(`/api/sessions/${id}/messages?limit=100`)
   const visible = JSON.stringify(history)
-  const summary = { hapiSession: true, runnerCreatedSession: !!runnerSessionId, machineModelOffered, modelOffered: true, modelSelected: true, contentsVerified: process.env.PAC_HAPI_FAST_RESUME !== '1',
+  const summary = { hapiSession: true, runnerCreatedSession: !!runnerSessionId, machineModelOffered, pacWarningsVerified, modelOffered: true, modelSelected: true, contentsVerified: process.env.PAC_HAPI_FAST_RESUME !== '1',
     readVisible: visible.includes('Read'), writeVisible: visible.includes('Write'), editVisible: visible.includes('Edit') }
   if (process.env.PAC_HAPI_BROWSER === '1') summary.browserCreatedSession = true
   if (process.env.PAC_HAPI_MCP === '1') {

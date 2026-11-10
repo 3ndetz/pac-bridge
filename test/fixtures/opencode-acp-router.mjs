@@ -52,14 +52,23 @@ function publishBackground(session, state) {
 
 function combined(response, session, current) {
   const result = structuredClone(response)
+  if (session.discoveryWarnings.length) {
+    result._meta = { ...(result._meta || {}), pacDiscoveryWarnings: session.discoveryWarnings }
+  }
   const choices = [...session.remotes.values()].filter((entry) => entry.connected).flatMap((entry) => entry.remote.models.models.map((model) => ({ value: `PAC_${entry.endpoint.name}/${model.id}`, name: `${entry.endpoint.name}: ${model.name}` })))
   const option = result.configOptions?.find((entry) => entry.category === 'model' || entry.id === 'model')
   if (option) {
     option.options = [...(option.options || []), ...choices.filter((choice) => !(option.options || []).some((entry) => entry.value === choice.value))]
     if (current) option.currentValue = current
   }
-  result.models ??= { availableModels: [], currentModelId: option?.currentValue }
+  result.models ??= { availableModels: (option?.options || []).filter((entry) => typeof entry?.value === 'string')
+    .map((entry) => ({ modelId: entry.value, ...(typeof entry.name === 'string' ? { name: entry.name } : {}) })), currentModelId: option?.currentValue }
   result.models.availableModels ??= []
+  for (const entry of option?.options || []) {
+    if (typeof entry?.value === 'string' && !result.models.availableModels.some((model) => model.modelId === entry.value)) {
+      result.models.availableModels.push({ modelId: entry.value, ...(typeof entry.name === 'string' ? { name: entry.name } : {}) })
+    }
+  }
   for (const choice of choices) if (!result.models.availableModels.some((entry) => entry.modelId === choice.value)) result.models.availableModels.push({ modelId: choice.value, name: choice.name })
   if (current) result.models.currentModelId = current
   return result
@@ -79,12 +88,13 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       }
       const result = (await native.call(method, params)) || {}
       const session = { id: result.sessionId || params.sessionId, cwd: params.cwd, native: result, selected: binding?.pacId || null,
-        remotes: new Map(), modelQueue: Promise.resolve(), modelError: null }
+        remotes: new Map(), discoveryWarnings: [], modelQueue: Promise.resolve(), modelError: null }
       sessions.set(session.id, session)
       const targets = binding ? endpoints.filter((endpoint) => endpoint.id === binding.pacId) : endpoints
       if (binding && targets.length !== 1) throw new Error('The original PAC is unavailable; refusing to switch controllers')
       await Promise.all(targets.map(async (endpoint) => {
         const state = { endpoint, connected: true }
+        let sourceReady = false
         const connectionStarted = Date.now()
         const traceConnection = (stage) => {
           if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ connectionStage: stage, elapsedMs: Date.now() - connectionStarted }) + '\n')
@@ -98,6 +108,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           if (process.env.PAC_EXPERIMENTAL_SKILLS === '1') state.skills = await createSourceSkills({ root: params.cwd })
           if (process.env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') state.instructions = await readSourceInstructions({ root: params.cwd,
             ...(process.env.PAC_TEST_INSTRUCTION_BOUNDARY === 'workspace' ? { stopAt: params.cwd } : {}) })
+          sourceReady = true
           const stream = await connectSource(endpoint)
           traceConnection('transport_connected')
           stream.once('close', () => {
@@ -295,7 +306,14 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
         } catch (error) {
           traceConnection('failed')
           state.remote?.close()
-          process.stderr.write(`PAC ${endpoint.name} unavailable: ${error.message}\n`)
+          const reason = error instanceof Error ? error.message : 'Unknown error'
+          const code = sourceReady ? 'unavailable'
+            : reason === 'Rule frontmatter is not yet supported' ? 'rule_frontmatter_unsupported'
+              : reason === 'External instruction imports require approval and are not supported' ? 'external_import_unsupported'
+                : 'source_setup_failed'
+          session.discoveryWarnings.push({ name: endpoint.name, code })
+          const errno = typeof error?.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(error.code) ? ` (${error.code})` : ''
+          process.stderr.write(`PAC ${endpoint.name} unavailable: ${code}${errno}\n`)
         }
       }))
       if (binding) {
