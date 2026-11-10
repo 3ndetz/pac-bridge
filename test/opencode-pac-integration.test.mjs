@@ -221,9 +221,10 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const questionTest = process.env.PAC_TEST_QUESTIONS === '1'
+    const concurrentApprovals = process.env.PAC_TEST_CONCURRENT_APPROVALS === '1'
     const disconnectTest = process.env.PAC_TEST_DISCONNECT === '1'
     const abortTest = process.env.PAC_TEST_TURN_ABORT === '1' || disconnectTest
-    if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, abortTest ? '--slow-response' : questionTest ? '--question-response' : '--conversation'],
+    if (!live) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, abortTest ? '--slow-response' : concurrentApprovals ? '--permission-response' : questionTest ? '--question-response' : '--conversation'],
       env: { ...process.env, PAC_TEST_QUESTION_CANCEL_FILE: join(root, 'question-cancelled'),
         PAC_TEST_TURN_STARTED_FILE: join(root, 'turn-started'), PAC_TEST_TURN_CANCEL_FILE: join(root, 'turn-cancelled'),
         PAC_TEST_TURN_COUNT_FILE: join(root, 'turn-count'),
@@ -280,6 +281,28 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const session = await request('/session', {})
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
+    if (concurrentApprovals) {
+      const other = await request('/session', {})
+      const first = message('First write')
+      const second = request(`/session/${other.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text: 'Second write' }] })
+      let permissions = []
+      const deadline = Date.now() + 35000
+      while (permissions.length < 2 && Date.now() < deadline) {
+        const response = await fetch(`${base}/permission`)
+        if (response.ok) permissions = (await response.json()).filter((entry) => [session.id, other.id].includes(entry.sessionID))
+        if (permissions.length < 2) await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+      assert.equal(permissions.length, 2, 'Both approvals must be available')
+      const bySession = new Map(permissions.map((permission) => [permission.sessionID, permission.id]))
+      await Promise.all([
+        request(`/permission/${bySession.get(session.id)}/reply`, { reply: 'once' }),
+        request(`/permission/${bySession.get(other.id)}/reply`, { reply: 'reject' }),
+      ])
+      const [firstResult, secondResult] = await Promise.all([first, second])
+      assert.match(JSON.stringify(firstResult.parts), /fake PAC permission allow/)
+      assert.match(JSON.stringify(secondResult.parts), /fake PAC permission deny/)
+      return
+    }
     if (process.env.PAC_TEST_TWO_PACS === '1') {
       const other = await request('/session', {})
       const [first, second] = await Promise.all([
