@@ -394,25 +394,22 @@ try {
     }
   }
   if (process.env.PAC_HAPI_INSTRUCTIONS === '1') {
+    const contextMarker = async (text, marker) => {
+      const before = await request(`/api/sessions/${id}/messages?limit=100`)
+      const known = new Set((before.messages || []).map((message) => message.id))
+      await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text, localId: randomUUID() }) })
+      await until(async () => {
+        const page = await request(`/api/sessions/${id}/messages?limit=100`)
+        const fresh = (page.messages || []).filter((message) => !known.has(message.id) && message.content?.role === 'agent')
+        if (fresh.some((message) => message.content.content?.data?.type === 'tool-call')) throw new Error('Context marker was checked using a tool')
+        return fresh.some((message) => message.content.content?.data?.type === 'message' && JSON.stringify(message).includes(marker))
+      }, 120000)
+    }
     stage = 'checking source project instructions through HAPI'
-    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
-      text: 'Without using any tools or reading files, what exact marker is specified by the source instructions already in your context? Reply with the marker only.', localId: randomUUID()
-    }) })
-    await until(async () => {
-      const page = await request(`/api/sessions/${id}/messages?limit=100`)
-      const messages = (page.messages || []).filter((message) => message.content?.role === 'agent' && message.content.content?.data?.type === 'message')
-      return JSON.stringify(messages).includes('PAC_SOURCE_INSTRUCTION_483729')
-    }, 120000)
+    await contextMarker('Without using any tools or reading files, what exact marker is specified by the source instructions already in your context? Reply with the marker only.', 'PAC_SOURCE_INSTRUCTION_483729')
     summary.sourceInstructionsVerified = true
     stage = 'checking source project rules through HAPI'
-    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
-      text: 'Without using any tools or reading files, what exact marker is specified by the source project rule already in your context? Reply with the marker only.', localId: randomUUID()
-    }) })
-    await until(async () => {
-      const page = await request(`/api/sessions/${id}/messages?limit=100`)
-      const messages = (page.messages || []).filter((message) => message.content?.role === 'agent' && message.content.content?.data?.type === 'message')
-      return JSON.stringify(messages).includes('PAC_SOURCE_RULE_592174')
-    }, 120000)
+    await contextMarker('Without using any tools or reading files, what exact marker is specified by the source project rule already in your context? Reply with the marker only.', 'PAC_SOURCE_RULE_592174')
     summary.sourceRuleVerified = true
   }
   if (process.env.PAC_HAPI_SKILLS === '1') {
