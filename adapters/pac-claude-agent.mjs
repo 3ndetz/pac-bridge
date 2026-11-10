@@ -229,8 +229,12 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     const instructions = meta.pac?.instructions || []
     const loadedScopedRules = new Set()
     const scopedRulesHook = async (input) => {
-      if (meta.pac?.scopedRules !== true || !/^(?:mcp__pac__)?(?:Read|Write|Edit)$/.test(input.tool_name || '') || typeof input.tool_input?.file_path !== 'string') return {}
-      const result = await agent.client.inner.ctx.request('pac/instructions/match', { sessionId, path: input.tool_input.file_path })
+      if (meta.pac?.scopedRules !== true) return {}
+      const name = (input.tool_name || '').replace(/^mcp__pac__/, '')
+      const target = ['Read', 'Write', 'Edit'].includes(name) && typeof input.tool_input?.file_path === 'string' ? { path: input.tool_input.file_path }
+        : name === 'Bash' && !input.tool_input?.run_in_background && typeof input.tool_input?.command === 'string' ? { command: input.tool_input.command } : null
+      if (!target) return {}
+      const result = await agent.client.inner.ctx.request('pac/instructions/match', { sessionId, ...target })
       if (!Array.isArray(result?.instructions) || result.instructions.length > 256 || result.instructions.some((entry) => typeof entry?.path !== 'string' || typeof entry?.content !== 'string')) throw new Error('Invalid scoped instruction response')
       const next = result.instructions.filter((entry) => !loadedScopedRules.has(entry.path))
       if (!next.length) return {}

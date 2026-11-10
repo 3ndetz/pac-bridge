@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
-import { matchesProjectRule, parseProjectRule } from '../src/scoped-rules.mjs'
+import { matchesProjectRule, parseProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
 
 test('parses scoped and unscoped project rules', () => {
   assert.deepEqual(parseProjectRule('General rule'), { content: 'General rule', paths: [] })
@@ -9,6 +9,15 @@ test('parses scoped and unscoped project rules', () => {
     { content: 'Scoped', paths: ['src/**/*.{ts,tsx}', '/*.md'] })
   assert.deepEqual(parseProjectRule('---\npaths: "src/**/*.{ts,tsx}, tests/**"\n---\nScoped').paths, ['src/**/*.{ts,tsx}', 'tests/**'])
   assert.deepEqual(parseProjectRule('---\ninvalid: [\n---\nGeneral'), { content: 'General', paths: [] })
+})
+
+test('recognizes only literal single-file shell reads for scoped rules', () => {
+  assert.equal(simpleBashReadPath('cat src/file.txt'), 'src/file.txt')
+  assert.equal(simpleBashReadPath('head -n 10 "src/file name.txt"'), 'src/file name.txt')
+  assert.equal(simpleBashReadPath("tail --lines=2 -- 'src/file name.txt'"), 'src/file name.txt')
+  for (const command of ['cat a b', 'cat $FILE', 'cat file | head', 'cat file; rm other', 'cat *.txt', 'head -n "$N" file', 'echo file', 'cat "unfinished']) {
+    assert.equal(simpleBashReadPath(command), null)
+  }
 })
 
 test('matches paths relative to the workspace with root and basename semantics', () => {

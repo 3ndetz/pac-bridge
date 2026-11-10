@@ -82,7 +82,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-live-'))
   let child
   try {
-    const scopedTest = process.env.PAC_LIVE_SCOPED_TEST === '1'
+    const scopedBash = process.env.PAC_LIVE_SCOPED_BASH_TEST === '1'
+    const scopedTest = process.env.PAC_LIVE_SCOPED_TEST === '1' || scopedBash
     const relativeTest = process.env.PAC_LIVE_RELATIVE_TEST === '1'
     const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1' || scopedTest || relativeTest
     const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
@@ -104,7 +105,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS, PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1',
       PAC_DISCOVERY_ACP: process.env.PAC_DISCOVERY_ACP,
       PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
-      PAC_TRACE_PATH: relativeTest ? join(root, 'trace.ndjson') : undefined,
+      PAC_TRACE_PATH: relativeTest || scopedBash ? join(root, 'trace.ndjson') : undefined,
       PAC_EXPERIMENTAL_IMAGE_INPUT: imageTest ? '1' : undefined,
       PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
@@ -121,6 +122,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       ? 'Use Bash to run exactly: printf PAC_BASH_FIXTURE_CONTENT > bash-fixture.txt. Then say PAC_BASH_VERIFIED.'
       : writeTest
       ? `Use Write to create the local file ${fixture} containing exactly PAC_WRITE_FIXTURE_CONTENT. Then say PAC_WRITE_VERIFIED.`
+      : scopedBash
+      ? 'Use Bash to run exactly cat source-fixture.txt and report its contents, following applicable project instructions.'
       : scopedTest
       ? `Read the local file ${fixture} and report its contents, following applicable project instructions.`
       : relativeTest
@@ -128,7 +131,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       : toolTest
       ? `Read the local file ${fixture}. If it contains PAC_READ_FIXTURE_CONTENT, finish your response with PAC_READ_VERIFIED.`
       : 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'
-    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(writeTest || bashTest ? ['--auto'] : []), ...(imageTest ? ['--file', imageFile, '--'] : []), prompt],
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(writeTest || bashTest || scopedBash ? ['--auto'] : []), ...(imageTest ? ['--file', imageFile, '--'] : []), prompt],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
     const deadline = setTimeout(() => stopContained(child), 150000)
@@ -141,6 +144,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     if (!denyTest) assert.match(output, imageTest ? /PAC_IMAGE_VERIFIED/ : bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : scopedTest ? /PAC_SCOPED_RULE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
     if (imageTest) assert.doesNotMatch(output, /PAC_IMAGE_MISSING/)
     if (relativeTest) assert.match(await readFile(join(root, 'trace.ndjson'), 'utf8'), /"sourceReadPath":"relative"/)
+    if (scopedBash) assert.match(await readFile(join(root, 'trace.ndjson'), 'utf8'), /"scopedBashRead":true/)
     if (toolTest || writeTest || bashTest) assert.match(output, /PAC tool event/)
     if (bashTest) {
       assert.match(output, /pac_approval/)

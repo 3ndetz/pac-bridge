@@ -17,7 +17,7 @@ import { createProjectHooks } from '../src/project-hooks.mjs'
 import { createBackgroundTerminal } from '../src/background-terminal.mjs'
 import { createSourceSkills } from '../src/source-skills.mjs'
 import { readSourceInstructions } from '../src/source-instructions.mjs'
-import { matchesProjectRule } from '../src/scoped-rules.mjs'
+import { matchesProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
 
 const { PAC_OPENCODE_BINARY: binary, PAC_RELAY_URL: url, PAC_NAME: name, PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd } = process.env
 if (process.env.PAC_EXPERIMENTAL !== '1' || !binary) throw new Error('Incomplete experimental OpenCode router configuration')
@@ -130,7 +130,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           })
           if (binding) state.translator = createSubagentTranslator({ localSessionId: session.id, remoteSessionId: binding.remoteSessionId, pacId: endpoint.id })
           state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
-            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: true } },
+            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: (state.instructions || []).some((entry) => entry.paths) } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
             clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {} },
           onRequest: async (remoteMethod, remoteParams) => {
@@ -141,8 +141,13 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
               return state.workspace.readTextFile(remoteParams)
             }
             if (remoteMethod === 'pac/instructions/match') {
-              if (remoteParams.sessionId !== state.remote?.sessionId || typeof remoteParams.path !== 'string') throw new Error('Invalid scoped instruction request')
-              const [workspace, actual] = await Promise.all([realpath(session.cwd), realpath(resolve(session.cwd, remoteParams.path))])
+              if (remoteParams.sessionId !== state.remote?.sessionId || (typeof remoteParams.path !== 'string' && typeof remoteParams.command !== 'string')) throw new Error('Invalid scoped instruction request')
+              const path = typeof remoteParams.path === 'string' ? remoteParams.path : simpleBashReadPath(remoteParams.command)
+              if (!path) return { instructions: [] }
+              if (typeof remoteParams.command === 'string' && process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ scopedBashRead: true }) + '\n')
+              let workspace, actual
+              try { [workspace, actual] = await Promise.all([realpath(session.cwd), realpath(resolve(session.cwd, path))]) }
+              catch (error) { if (error.code === 'ENOENT') return { instructions: [] }; throw error }
               const matching = (state.instructions || []).filter((entry) => entry.paths && matchesProjectRule(workspace, actual, entry.paths))
               return { instructions: matching.map(({ path, content }) => ({ path, content })) }
             }

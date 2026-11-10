@@ -63,3 +63,53 @@ export function matchesProjectRule(root, path, patterns) {
       nocase: process.platform === 'win32' })
   })
 }
+
+// Recognize only a single, literal file read. Commands involving expansion,
+// pipelines or shell control syntax need a full shell parser and return null.
+export function simpleBashReadPath(command) {
+  if (typeof command !== 'string' || !command || command.length > 16384) return null
+  const words = []
+  let word = '', quoted = false, quote = '', escaped = false
+  for (const character of command) {
+    if (escaped) {
+      if (character === '\n' || character === '\r') return null
+      if (quote === '"' && !['$', '`', '"', '\\'].includes(character)) word += '\\'
+      word += character; escaped = false; continue
+    }
+    if (quote === "'") { if (character === "'") quote = ''; else word += character; continue }
+    if (character === '\\') { escaped = true; continue }
+    if (quote === '"') {
+      if (character === '"') quote = ''
+      else if (character === '$' || character === '`' || character === '\n' || character === '\r') return null
+      else word += character
+      continue
+    }
+    if (character === "'" || character === '"') { quote = character; quoted = true; continue }
+    if (/\s/.test(character)) {
+      if (character === '\n' || character === '\r') return null
+      if (word || quoted) { words.push(word); word = ''; quoted = false }
+      continue
+    }
+    if (/[;&|<>()$`*?\[\]{}]/.test(character) || (!word && (character === '~' || character === '#'))) return null
+    word += character
+  }
+  if (quote || escaped) return null
+  if (word || quoted) words.push(word)
+  const tool = words.shift()
+  if (!['cat', 'head', 'tail'].includes(tool)) return null
+  let target, options = true
+  while (words.length) {
+    const item = words.shift()
+    if (options && item === '--') { options = false; continue }
+    if (options && item.startsWith('-')) {
+      if (tool === 'cat' && /^-[bnstuvET]+$/.test(item)) continue
+      if (tool !== 'cat' && /^-(?:n|c)\d+$/.test(item)) continue
+      if (tool !== 'cat' && ['-n', '-c', '--lines', '--bytes'].includes(item) && /^\d+$/.test(words[0] || '')) { words.shift(); continue }
+      if (tool !== 'cat' && /^--(?:lines|bytes)=\d+$/.test(item)) continue
+      return null
+    }
+    if (!item || target) return null
+    target = item
+  }
+  return target || null
+}
