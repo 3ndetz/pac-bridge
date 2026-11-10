@@ -418,6 +418,15 @@ test('keeps the same PAC conversation across OpenCode messages', {
       }
       assert.ok(question, `Native question was not presented: ${diagnostics.slice(-1000)}`)
       assert.equal(question.questions[1].multiple, true)
+      if ((live && process.env.PAC_LIVE_QUESTION_CANCEL === '1') || process.env.PAC_TEST_QUESTION_CANCEL_RESUME === '1') {
+        await request(`/question/${question.id}/reject`, {})
+        await pending
+        const outstanding = await (await fetch(`${base}/question`)).json()
+        assert.equal(outstanding.some((entry) => entry.id === question.id), false, 'Rejected question must close')
+        const next = await message('Reply exactly PAC_AFTER_QUESTION_CANCEL. Do not use tools.')
+        assert.match(JSON.stringify(next.parts), /PAC_AFTER_QUESTION_CANCEL/, `Next turn failed: ${JSON.stringify(next.info?.error || {})}; ${diagnostics.slice(-500)}`)
+        return
+      }
       if (process.env.PAC_TEST_QUESTION_CANCEL === '1' || process.env.PAC_TEST_QUESTION_ABORT === '1') {
         const abort = process.env.PAC_TEST_QUESTION_ABORT === '1'
         await request(abort ? `/session/${session.id}/abort` : `/question/${question.id}/reject`, {})

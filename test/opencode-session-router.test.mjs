@@ -48,6 +48,22 @@ test('rejects concurrent turns and sends cancellation only to their owner', asyn
   router.close()
 })
 
+test('clears the turn marker only after confirmed cancellation', async () => {
+  let pending = false, prompts = 0
+  const journal = { isPending: async () => pending, begin: async () => {
+    pending = true
+    return async () => { pending = false }
+  } }
+  const router = createOpencodeSessionRouter({ journal, openSession: async () => ({
+    prompt: async () => ({ stopReason: ++prompts === 1 ? 'cancelled' : 'end_turn' }), cancel() {}, close() {},
+  }) })
+  await router.prompt(binding, [], () => {})
+  assert.equal(pending, false)
+  await router.prompt(binding, [], () => {})
+  assert.equal(prompts, 2)
+  router.close()
+})
+
 test('never silently retries a failed open or a turn with an uncertain outcome', async () => {
   let opens = 0, calls = 0
   const router = createOpencodeSessionRouter({ openSession: async ({ sessionId }) => {

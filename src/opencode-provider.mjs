@@ -61,7 +61,22 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
           if (!option) return fail(400, 'Question cancellation is unsupported')
           turn.channel.resolvePermission(permission.id, body.sessionId, option.optionId)
           permission.resolved = true
-          cancelTurn(body.sessionId, turn)
+          clearTimeout(turn.timer)
+          // OpenCode ends the assistant message on rejection without sending
+          // a continuation. Cancel remotely and retain the turn until ACP
+          // confirms its end; a following user message must wait for that.
+          turn.cancellation.abort()
+          turn.timer = setTimeout(() => cancelTurn(body.sessionId, turn), 15000)
+          turn.settled = (async () => {
+            while (true) {
+              const event = await turn.channel.next()
+              if (event.type === 'done' || event.type === 'error') break
+              if (event.type === 'permission') { cancelTurn(body.sessionId, turn); break }
+            }
+            clearTimeout(turn.timer)
+            if (turns.get(body.sessionId) === turn) turns.delete(body.sessionId)
+            turn.channel.close()
+          })()
           return response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
         }
         if (permission.question && body.action === 'resolve') {
@@ -101,6 +116,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         const hasPriorConversation = body.messages.some((entry) => entry.role === 'assistant' || entry.role === 'tool') || body.messages.filter((entry) => entry.role === 'user').length > 1
         if (hasPriorConversation && !router.hasSession?.(sessionId) && !await router.canResume?.(sessionId)) return fail(400, 'PAC session binding is unavailable; refusing to start a different conversation')
         if (messages.has(messageId)) return fail(400, messages.get(messageId))
+        if (turn?.settled) { await turn.settled; turn = turns.get(sessionId) }
         if (turn) return fail(400, 'A PAC turn is already active')
         if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
         messages.set(messageId, 'Duplicate turn; outcome may be unknown')

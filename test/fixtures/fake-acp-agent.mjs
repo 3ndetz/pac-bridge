@@ -77,6 +77,10 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
         return { stopReason: 'cancelled' }
       }
       if (process.argv.includes('--question-response')) {
+        if (params.prompt?.some((part) => part.type === 'text' && part.text.includes('PAC_AFTER_QUESTION_CANCEL'))) {
+          peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'PAC_AFTER_QUESTION_CANCEL' } } })
+          return { stopReason: 'end_turn' }
+        }
         let result
         try { result = await peer.call('pac/questions/ask', { sessionId: params.sessionId, ownerSessionId: params.sessionId, toolCallId: 'fake-question', questions: [
           { question: 'Name?', header: 'Name', options: [{ label: 'A', description: 'Option A' }], multiSelect: false },

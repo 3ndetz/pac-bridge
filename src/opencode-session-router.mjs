@@ -78,7 +78,7 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
         clearMarker = await journal?.begin(binding.sessionId)
         if (signal?.aborted) { await clearMarker?.(); throw new Error('PAC turn was cancelled before it started') }
         const result = await session.prompt(prompt, onUpdate)
-        if (result?.stopReason === 'end_turn') await clearMarker?.()
+        if (result?.stopReason === 'end_turn' || result?.stopReason === 'cancelled') await clearMarker?.()
         return result
       } catch (error) {
         // A failed in-flight call may have performed side effects; do not replay.
