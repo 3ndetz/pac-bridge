@@ -90,4 +90,6 @@ An isolated Windows-source browser scenario also observed the scoped-rule discov
 
 Another browser scenario substituted an unavailable catalog response inside the test browser, verified that the selected PAC remained visible and Create was disabled, then restored the real catalog and created the session. This validates the interface response to a discovery change, not detection of an actual transport disconnect while the form is open.
 
+After fixing Windows process-tree shutdown for HAPI's model-variant catalog server, that browser scenario and the subagent cancellation check completed with exit code zero, including test workspace cleanup. This verifies the exercised Windows cleanup path; other lifecycle and platform cases remain open.
+
 The [OpenCode V1 server API](https://opencode.ai/v1/docs/server/) exposes an experimental tool catalog with schemas. Catalog discovery alone does not prove that arbitrary configured tools can be invoked through the same OpenCode session, or that their permissions and lifecycle can be preserved. The synthetic dynamic MCP proof above does not establish integration with OpenCode-configured MCP servers or plugin tools; these remain separate acceptance requirements.
