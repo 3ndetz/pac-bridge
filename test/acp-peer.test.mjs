@@ -58,3 +58,41 @@ test('preserves notification order when a handler is asynchronous', async () => 
     assert.deepEqual(seen, ['first', 'second'])
   } finally { first.close(); second.close() }
 })
+
+test('closes an oversized unfinished message and reports an uncertain in-flight call', async () => {
+  const [firstStream, secondStream] = streams()
+  secondStream.on('error', () => {})
+  const first = createAcpPeer(firstStream, { maxLineBytes: 128 })
+  try {
+    const pending = first.call('side-effect', {}, 1000)
+    secondStream.write('x'.repeat(129))
+    await assert.rejects(pending, /outcome may be unknown/)
+  } finally { first.close(); secondStream.destroy() }
+})
+
+test('does not dispatch messages after an oversized line in the same chunk', async () => {
+  const [firstStream, secondStream] = streams()
+  secondStream.on('error', () => {})
+  const calls = []
+  const first = createAcpPeer(firstStream, { maxLineBytes: 128, onRequest: (method) => calls.push(method) })
+  try {
+    secondStream.write(`${'x'.repeat(129)}\n${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'side-effect' })}\n`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.deepEqual(calls, [])
+  } finally { first.close(); secondStream.destroy() }
+})
+
+test('accepts fragmented UTF-8 messages and multiple short lines within the limit', async () => {
+  const [firstStream, secondStream] = streams()
+  secondStream.on('error', () => {})
+  const seen = []
+  const first = createAcpPeer(firstStream, { maxLineBytes: 128, onNotification: (_method, params) => seen.push(params.text) })
+  try {
+    const line = Buffer.from(JSON.stringify({ jsonrpc: '2.0', method: 'update', params: { text: 'привет' } }) + '\n')
+    const split = line.indexOf(Buffer.from('пр')) + 1
+    secondStream.write(line.subarray(0, split))
+    secondStream.write(Buffer.concat([line.subarray(split), line, line]))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(seen, ['привет', 'привет', 'привет'])
+  } finally { first.close(); secondStream.destroy() }
+})

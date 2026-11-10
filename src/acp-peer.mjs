@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
-export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 30000 } = {}) {
+export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 30000, maxLineBytes = 16 * 1024 * 1024 } = {}) {
+  if (!Number.isSafeInteger(maxLineBytes) || maxLineBytes < 1) throw new Error('Invalid ACP message size limit')
   const pending = new Map()
   const lines = createInterface({ input: stream, crlfDelay: Infinity })
   let closed = false
+  let partialBytes = 0
   let notifications = Promise.resolve()
   function send(message) {
     if (closed || stream.destroyed || !stream.writable) throw new Error('ACP connection is closed')
@@ -17,6 +19,8 @@ export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 3
     pending.clear()
   }
   lines.on('line', async (line) => {
+    if (closed) return
+    if (Buffer.byteLength(line, 'utf8') > maxLineBytes) { failPending(); stream.destroy(new Error('ACP message exceeds size limit')); return }
     let message
     try { message = JSON.parse(line) } catch { stream.destroy(new Error('Invalid ACP JSON')); return }
     if (!message || message.jsonrpc !== '2.0') { stream.destroy(new Error('Invalid ACP message')); return }
@@ -43,6 +47,15 @@ export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 3
       send({ jsonrpc: '2.0', id: message.id, result: result ?? null })
     } catch (error) {
       if (!closed) send({ jsonrpc: '2.0', id: message.id, error: { code: Number.isInteger(error.code) ? error.code : -32603, message: error.message } })
+    }
+  })
+  // readline buffers an unfinished line internally. Limit it before the peer
+  // can accumulate an unbounded message without sending a newline.
+  stream.on('data', (chunk) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    for (const byte of bytes) {
+      if (byte === 10) partialBytes = 0
+      else if (++partialBytes > maxLineBytes) { failPending(); stream.destroy(new Error('ACP message exceeds size limit')); return }
     }
   })
   lines.on('close', failPending)
