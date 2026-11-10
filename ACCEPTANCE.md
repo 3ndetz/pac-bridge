@@ -172,4 +172,6 @@ After adding file-scoped rules, another isolated browser run repeated PAC select
 
 An isolated HAPI run then loaded the same file-scoped rule independently for the main Claude conversation and a background subagent, and observed the marker in subsequent output. Other nested and concurrent subagent instruction cases remain unverified.
 
+An authenticated OpenCode CLI run started a background Claude subagent, received subagent and background task events and returned the source-file result. Events are rendered as text; updates received between turns are buffered until the next turn. Native task cards, controls and complete idle-event and recovery behavior remain unverified or unsupported.
+
 An authenticated cross-host OpenCode test read a file using a relative workspace path. Local tests also verified relative writes and rejection of an attempted parent-directory escape.

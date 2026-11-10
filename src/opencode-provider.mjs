@@ -193,6 +193,23 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         }
         const { method, params } = event.event
         const update = params?.update
+        if (method === 'opencode/session/child_update') {
+          const visible = Object.fromEntries(['childSessionId', 'parentSessionId', 'depth', 'type', 'status'].filter((key) => Object.hasOwn(params || {}, key)).map((key) => [key, params[key]]))
+          if (update) visible.update = Object.fromEntries(['sessionUpdate', 'toolCallId', 'title', 'kind', 'status', 'rawInput', 'rawOutput', 'content', 'locations']
+            .filter((key) => Object.hasOwn(update, key)).map((key) => [key, update[key]]))
+          const description = JSON.stringify(visible)
+          if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC child update exceeds size limit')
+          write({ content: `\n[PAC subagent event]\n${description}\n` })
+          continue
+        }
+        if (method === 'pac/background_tasks_changed') {
+          if (!Array.isArray(params?.tasks) || params.tasks.length > 128) throw new Error('Invalid PAC background task update')
+          const tasks = params.tasks.map((task) => Object.fromEntries(['task_id', 'task_type', 'description'].filter((key) => typeof task?.[key] === 'string').map((key) => [key, task[key]])))
+          const description = JSON.stringify(tasks)
+          if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC background task update exceeds size limit')
+          write({ content: `\n[PAC background tasks]\n${description}\n` })
+          continue
+        }
         if (method === 'session/update' && update?.sessionUpdate === 'available_commands_update') {
           turn.notices.add('[PAC: remote slash commands are not yet available in OpenCode.]')
           continue

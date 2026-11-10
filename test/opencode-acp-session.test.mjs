@@ -12,6 +12,27 @@ import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 
+test('retains an idle subagent update for its originating session', { timeout: 15000 }, async () => {
+  const fake = fileURLToPath(new URL('./fixtures/fake-opencode-child-events.mjs', import.meta.url))
+  const session = await openOpencodeAcpSession({ command: process.execPath, args: [fake], cwd: tmpdir(), env: process.env,
+    model: 'PAC_test/sonnet', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
+  try {
+    const first = [], second = []
+    await session.prompt([], (event) => first.push(event))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await session.prompt([], (event) => second.push(event))
+    assert.equal(first.find((event) => event.method === 'opencode/session/child_update')?.params.status, 'created')
+    assert.equal(second.find((event) => event.method === 'opencode/session/child_update')?.params.status, 'completed')
+  } finally { session.close() }
+})
+
+test('rejects a child event attributed to another root session', { timeout: 15000 }, async () => {
+  const fake = fileURLToPath(new URL('./fixtures/fake-opencode-child-events.mjs', import.meta.url))
+  const session = await openOpencodeAcpSession({ command: process.execPath, args: [fake], cwd: tmpdir(),
+    env: { ...process.env, PAC_TEST_BAD_CHILD_OWNER: '1' }, model: 'PAC_test/sonnet', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
+  try { await assert.rejects(session.prompt([], () => {}), /connection lost/) } finally { session.close() }
+})
+
 test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-acp-'))
   const server = createServer()

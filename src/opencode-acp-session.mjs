@@ -32,9 +32,13 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
       const type = params?.update?.sessionUpdate
       const safeMethod = typeof method === 'string' && /^[a-z_/]{1,64}$/.test(method) ? method.replaceAll('/', 'Z') : 'other'
       try { onDiagnostic(`notification:${safeMethod}__${typeof type === 'string' && /^[a-z_]{1,64}$/.test(type) ? type : 'none'}`) } catch {}
-      if (params?.sessionId && params.sessionId !== id) { onDiagnostic('bad_session'); throw new Error('ACP update belongs to another session') }
+      if ((params?.sessionId && params.sessionId !== id) || (params?.rootSessionId && params.rootSessionId !== id) ||
+          (['opencode/session/child_update', 'pac/background_tasks_changed'].includes(method) && params?.rootSessionId !== id)) {
+        onDiagnostic('bad_session'); throw new Error('ACP update belongs to another session')
+      }
       if (!activeUpdate) {
-        const metadata = method === '_auth/status_update' || (method === 'session/update' && ['session_info_update', 'usage_update', 'available_commands_update'].includes(type))
+        const metadata = method === '_auth/status_update' || method === 'opencode/session/child_update' || method === 'pac/background_tasks_changed' ||
+          (method === 'session/update' && ['session_info_update', 'usage_update', 'available_commands_update'].includes(type))
         const bytes = Buffer.byteLength(JSON.stringify({ method, params }))
         if (!metadata || delayed.length >= 64 || delayedBytes + bytes > 1024 * 1024) { onDiagnostic('no_active_turn'); throw new Error('ACP update cannot be delivered outside an active turn') }
         delayed.push({ event: { method, params }, bytes })
