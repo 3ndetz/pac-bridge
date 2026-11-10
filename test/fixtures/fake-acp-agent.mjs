@@ -5,8 +5,15 @@ import { createAcpPeer } from '../../src/acp-peer.mjs'
 const native = process.argv.includes('--native')
 let selected = 'initial'
 let firstPrompt
+let cancelTurn
 const models = [{ value: 'initial', name: 'Initial' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'opus', name: 'Opus' }]
 const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.stdout }), {
+  onNotification: async (method) => {
+    if (method === 'session/cancel' && cancelTurn) {
+      if (process.env.PAC_TEST_TURN_CANCEL_FILE) await writeFile(process.env.PAC_TEST_TURN_CANCEL_FILE, 'cancelled')
+      cancelTurn()
+    }
+  },
   onRequest: async (method, params) => {
     if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
     if (method === 'session/new') return { sessionId: native ? 'native-session' : 'remote-session',
@@ -23,6 +30,13 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/prompt') {
+      if (process.argv.includes('--slow-response')) {
+        const cancelled = new Promise((resolve) => { cancelTurn = resolve })
+        if (process.env.PAC_TEST_TURN_STARTED_FILE) await writeFile(process.env.PAC_TEST_TURN_STARTED_FILE, 'started')
+        await cancelled
+        cancelTurn = null
+        return { stopReason: 'cancelled' }
+      }
       if (process.argv.includes('--question-response')) {
         let result
         try { result = await peer.call('pac/questions/ask', { sessionId: params.sessionId, ownerSessionId: params.sessionId, toolCallId: 'fake-question', questions: [
