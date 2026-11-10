@@ -976,15 +976,20 @@ try {
     }
   }
   stage = 'stopping isolated test processes'
+  let processCleanupUncertain = false
   for (const child of children.reverse()) if (child.pid && child.exitCode === null) {
     const result = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 10000 })
-    if (result.error) process.stderr.write(`Could not confirm isolated process cleanup: ${result.error.message}\n`)
+    if (result.error) {
+      process.stderr.write(`Could not confirm isolated process cleanup: ${result.error.message}\n`)
+      process.exitCode = 1
+      processCleanupUncertain = true
+    }
   }
   stage = 'removing the isolated test workspace'
   const realTemp = await realpath(tmpdir())
   const realRoot = await realpath(root)
   const local = relative(realTemp, realRoot)
-  if (local && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local) && local.startsWith('pac-hapi-proof-')) await rm(realRoot, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 })
+  if (!processCleanupUncertain && local && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local) && local.startsWith('pac-hapi-proof-')) await rm(realRoot, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 })
   stage = 'isolated test cleanup finished'
   if (stageTimer) clearInterval(stageTimer)
 }
