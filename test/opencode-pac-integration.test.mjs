@@ -228,7 +228,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const relayUrl = live || remoteFake ? process.env.PAC_LIVE_URL : `ws://127.0.0.1:${relayServer.address().port}`
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
-    const questionTest = process.env.PAC_TEST_QUESTIONS === '1'
+    const questionTest = process.env.PAC_TEST_QUESTIONS === '1' || process.env.PAC_LIVE_QUESTION_TEST === '1'
     const workspaceTest = process.env.PAC_TEST_WORKSPACE === '1'
     const concurrentApprovals = process.env.PAC_TEST_CONCURRENT_APPROVALS === '1'
     const disconnectTest = process.env.PAC_TEST_DISCONNECT === '1'
@@ -406,7 +406,9 @@ test('keeps the same PAC conversation across OpenCode messages', {
       return
     }
     if (questionTest) {
-      const pending = message('Ask the questions')
+      const pending = message(live
+        ? 'Use AskUserQuestion to ask two questions together: first ask for a custom project name with options Alpha and Beta; second ask the user to select multiple colors from Red, Blue, and Green. After the answers, repeat the project name and selected colors exactly.'
+        : 'Ask the questions')
       let question
       const deadline = Date.now() + 35000
       while (!question && Date.now() < deadline) {
