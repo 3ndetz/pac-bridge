@@ -74,6 +74,8 @@ The prototype deliberately disables or rejects unsupported controller-side tools
 
 With the installed Windows OMP executable supplied explicitly, tests initialized its actual ACP process directly and through the relay and created an ACP session without invoking a model. In the inspected session response, no `models.availableModels` field or model configuration category was present; mode and thought-level configuration were present. This does not establish that model selection is impossible through other OMP mechanisms. OMP's HAPI integration and the feature comparison remain unverified.
 
+OMP 18.18.3 on Windows also answered the Pi-style RPC `get_state` and `get_available_models` commands and accepted `set_model` between two OpenAI catalog entries. This used a placeholder API key, an ephemeral session and no model request. The observed response shapes are compatible with the exercised HAPI Pi state and model fields, but this does not prove end-to-end HAPI operation, PAC model registration or tool/lifecycle parity.
+
 A server-level test verifies two PAC names with distinct agent credentials and separate source scopes, including cross-scope denials and correct routing. This does not replace the required test with two independently authenticated Claude runtimes.
 
 A separate HAPI test sent requests simultaneously to two named PAC sessions and verified distinct workspace results. Both names still used the same authenticated Claude account, so this is not evidence of independent controller identities or the full concurrency matrix.
