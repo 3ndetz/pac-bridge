@@ -55,7 +55,7 @@ Maintain an evidence-backed feature matrix against the actual Claude Code versio
 
 The experimental fixtures are not a release and do not satisfy this acceptance contract. Results below describe isolated tests, not installation in the user's production HAPI.
 
-On Windows, the installed OpenCode 1.19.5 selected a configured local OpenAI-compatible synthetic provider and displayed its streamed response in `opencode run`. The optional `test/opencode-provider-probe.test.mjs` uses a loopback server, synthetic credentials and no external model. This checks only provider selection and text streaming, not the interactive TUI, PAC routing, native Claude tool events or permissions.
+On Windows, the installed OpenCode 1.19.5 selected a configured local OpenAI-compatible synthetic provider, displayed its streamed response in `opencode run`, and executed a synthetic provider's request to read an isolated fixture, returning the result on the next provider call. The optional `test/opencode-provider-probe.test.mjs` uses a loopback server, synthetic credentials and no external model. OpenCode also made a separate request without tools, so a future bridge must distinguish auxiliary requests from user turns rather than start extra remote operations. This checks local provider selection, text streaming and one local tool call, not the interactive TUI, PAC routing, native Claude tool events or permissions.
 
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
