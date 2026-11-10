@@ -101,6 +101,20 @@ test('closes an oversized unfinished message and reports an uncertain in-flight 
   } finally { first.close(); secondStream.destroy() }
 })
 
+test('does not dispatch requests after malformed messages in the same chunk', async () => {
+  for (const invalid of ['not-json', JSON.stringify({ jsonrpc: '1.0' })]) {
+    const [firstStream, secondStream] = streams()
+    secondStream.on('error', () => {})
+    const calls = []
+    const first = createAcpPeer(firstStream, { onRequest: (method) => calls.push(method) })
+    try {
+      secondStream.write(`${invalid}\n${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'side-effect' })}\n`)
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.deepEqual(calls, [])
+    } finally { first.close(); secondStream.destroy() }
+  }
+})
+
 test('does not dispatch messages after an oversized line in the same chunk', async () => {
   const [firstStream, secondStream] = streams()
   secondStream.on('error', () => {})
