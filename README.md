@@ -109,7 +109,7 @@ outside that session, not taken from its own report.
 
 ## Quick start
 
-**1. The bridge.** Node 22, one dependency (`ws`).
+**1. The bridge.** Node 22 and the dependencies in `package-lock.json`.
 
 ```sh
 docker compose up -d --build                 # listens on 8790

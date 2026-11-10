@@ -4,6 +4,8 @@ This describes the current development launcher for an already provisioned PAC a
 
 The source machine needs Node.js, this checkout with its npm dependencies installed, an OpenCode executable and a local Bash executable. The PAC must already be registered with the relay and have a separately authenticated Claude runtime. Remote relay connections require `wss://`; a source credential is supplied as a file and Claude credentials stay on the controller.
 
+The experimental controller adapter and its pinned SDK dependencies are included in this checkout; install them with `npm ci` on the controller. The adapter can be started by `adapters/pac-acp-agent.mjs` using `node` and the path to `adapters/pac-claude-agent.mjs` as its executable and argument. Its startup with these dependencies is tested without a login; a full authenticated run with the bundled dependency versions and complete production provisioning are still outstanding. The lockfile overrides the ACP package's older Zod patch to address a published vulnerability, so compatibility must be rechecked when upgrading.
+
 From the source workspace, set the following environment variables to the paths and values appropriate to that machine:
 
 ```text

@@ -9,8 +9,7 @@ import { waitForTerminal } from '../src/terminal-wait.mjs'
 import { stopNativeTask } from '../src/native-task-stop.mjs'
 
 const [sdkRoot] = process.argv.slice(2)
-if (!sdkRoot) throw new Error('Expected the installed Claude ACP package root')
-const require = createRequire(join(sdkRoot, 'package.json'))
+const require = createRequire(sdkRoot ? join(sdkRoot, 'package.json') : fileURLToPath(new URL('../package.json', import.meta.url)))
 const acp = await import(pathToFileURL(require.resolve('@agentclientprotocol/claude-agent-acp/dist/acp-agent.js')).href)
 const utils = await import(pathToFileURL(require.resolve('@agentclientprotocol/claude-agent-acp/dist/utils.js')).href)
 const { ndJsonStream, methods } = await import(pathToFileURL(require.resolve('@agentclientprotocol/sdk')).href)
