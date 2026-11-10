@@ -1,6 +1,6 @@
 // Maps OpenCode session identities to dedicated ACP sessions. The caller owns
 // the transport and translates the updates and permission requests it receives.
-export function createOpencodeSessionRouter({ openSession, store }) {
+export function createOpencodeSessionRouter({ openSession, store, journal }) {
   if (typeof openSession !== 'function') throw new Error('openSession is required')
   const sessions = new Map()
   let closed = false
@@ -15,6 +15,7 @@ export function createOpencodeSessionRouter({ openSession, store }) {
     identity(model, 'PAC model')
     identity(cwd, 'workspace')
     if (closed) throw new Error('Session router is closed')
+    if (await journal?.isPending(sessionId)) throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
     let state = sessions.get(sessionId)
     if (state) {
       if (state.model !== model || state.cwd !== cwd) throw new Error('PAC model or workspace changed; start a new session')
@@ -49,7 +50,10 @@ export function createOpencodeSessionRouter({ openSession, store }) {
 
   return {
     hasSession(sessionId) { return sessions.has(sessionId) },
-    async canResume(sessionId) { return Boolean(await store?.read(sessionId)) },
+    async canResume(sessionId) {
+      if (await journal?.isPending(sessionId)) throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
+      return Boolean(await store?.read(sessionId))
+    },
     async prompt(binding, prompt, onUpdate, { signal, mustResume = false } = {}) {
       if (!Array.isArray(prompt) || typeof onUpdate !== 'function') throw new Error('Invalid PAC prompt')
       if (signal?.aborted) throw new Error('PAC turn was cancelled before it started')
@@ -59,8 +63,13 @@ export function createOpencodeSessionRouter({ openSession, store }) {
       state.busy = true
       const cancel = () => { try { Promise.resolve(session.cancel()).catch(() => {}) } catch {} }
       signal?.addEventListener('abort', cancel, { once: true })
+      let clearMarker
       try {
-        return await session.prompt(prompt, onUpdate)
+        clearMarker = await journal?.begin(binding.sessionId)
+        if (signal?.aborted) { await clearMarker?.(); throw new Error('PAC turn was cancelled before it started') }
+        const result = await session.prompt(prompt, onUpdate)
+        if (result?.stopReason === 'end_turn') await clearMarker?.()
+        return result
       } catch (error) {
         // A failed in-flight call may have performed side effects; do not replay.
         state.lost = true

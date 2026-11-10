@@ -7,6 +7,7 @@ import { createOpencodeSessionRouter } from '../src/opencode-session-router.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 import { createSessionStore } from '../src/session-store.mjs'
+import { createOpencodeTurnJournal } from '../src/opencode-turn-journal.mjs'
 
 // Experimental launcher: text only, unsupported tools/events fail closed.
 const binary = process.env.PAC_OPENCODE_BINARY
@@ -20,7 +21,7 @@ const token = randomBytes(32).toString('hex')
 const routerPath = fileURLToPath(new URL('./pac-opencode-router.mjs', import.meta.url))
 const pluginUrl = new URL('./opencode-plugin.mjs', import.meta.url).href
 let server
-const router = createOpencodeSessionRouter({ store: createSessionStore(join(sessionRoot, 'opencode')),
+const router = createOpencodeSessionRouter({ store: createSessionStore(join(sessionRoot, 'opencode')), journal: createOpencodeTurnJournal(join(sessionRoot, 'pending')),
   openSession: ({ sessionId, model: selected, cwd: workspace, resumeSessionId }) => openOpencodeAcpSession({
   command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId,
   env: { ...process.env, PAC_SESSION_DIR: join(sessionRoot, 'acp') },

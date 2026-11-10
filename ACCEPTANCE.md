@@ -69,6 +69,8 @@ In a further isolated run, two messages sent through one OpenCode server session
 
 The same test was repeated after stopping and restarting the isolated OpenCode server and PAC launcher between messages. The saved PAC and ACP session binding restored the completed Claude conversation and its first-turn marker. Recovery of an interrupted operation and reconciliation of uncertain side effects remain open.
 
+The launcher now records an exclusive pending-turn marker before sending a prompt and clears it only after a confirmed normal completion. Unit tests verify that a failed turn leaves the marker and a new router refuses to repeat it; the completed-conversation restart scenario also passed with the marker enabled. This is fail-closed detection, not automatic reconciliation or a cross-host crash test of every side-effect timing.
+
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Session creation and models | Real HAPI runners on two Windows source hosts offered and selected a named PAC model before session creation. Browser tests on both hosts selected OpenCode and the PAC model in HAPI's new-session form, created a session, sent a message and stopped the resulting task; component tests also cover selection and form submission. A separate live session switched from Sonnet to Opus and back; Claude usage events confirmed the actual model family after each switch. | Persistent deployment, live discovery and authorization; independently authenticated PAC identities, all model variants and broader source platforms. |
