@@ -8,6 +8,8 @@ HAPI requires a real harness on the source machine to create a session. The requ
 
 In the inspected HAPI source, the Pi integration starts Pi with `--mode rpc`; OMP's separate `acp` command is not a drop-in proof of compatibility with that path. The actual installed HAPI version and OMP RPC compatibility must be tested before registering OMP as a HAPI harness. HAPI's OpenCode integration and model-picker behavior must likewise be verified end to end rather than inferred from their presence.
 
+Windows OMP 18.18.3 responds to Pi-style state, model listing and model selection RPCs, but rejects HAPI's `get_commands` in favor of `get_available_commands`. Its [RPC reference](https://github.com/can1357/oh-my-pi/blob/main/docs/rpc.md) also distinguishes completion and subagent events from Pi. A local synthetic model confirmed OMP host-tool invocation, progress and cancellation without external requests. The [extension reference](https://github.com/can1357/oh-my-pi/blob/main/docs/extensions.md) describes custom provider streams, but routing Claude Code through one still needs a verified translation of the remote agent's own tool, permission and lifecycle events; a provider returning only final text would not satisfy the acceptance criteria.
+
 This is a design decision and an initial ACP stdio adapter, not a working remote integration. The existing bridge still relies on a shared filesystem for native Claude file tools. It does not meet the acceptance criteria.
 
 ## Boundaries
