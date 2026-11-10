@@ -7,7 +7,7 @@ import { createInterface } from 'node:readline'
 import test from 'node:test'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 
-test('obtains OMP RPC state and changes models without invoking a model', { skip: !process.env.PAC_OMP_BIN, timeout: 45000 }, async () => {
+test('obtains OMP RPC state, changes models and registers a host tool without invoking a model', { skip: !process.env.PAC_OMP_BIN, timeout: 45000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-omp-rpc-'))
   const child = spawnContained(process.env.PAC_OMP_BIN, ['--mode', 'rpc', '--no-session', '--model', 'openai/gpt-4o-mini'], {
     cwd: root, env: { ...process.env, OPENAI_API_KEY: 'pac-test-placeholder' }, stdio: ['pipe', 'pipe', 'pipe']
@@ -53,6 +53,12 @@ test('obtains OMP RPC state and changes models without invoking a model', { skip
     assert.equal(switched.command, 'set_model')
     assert.equal(switched.success, true)
     assert.equal(switched.data?.id, 'gpt-4.1-mini')
+    const tools = await request({ id: 'probe-tools', type: 'set_host_tools', tools: [{ name: 'pac_probe_echo', label: 'PAC probe',
+      description: 'Echo a test value', parameters: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'], additionalProperties: false } }] })
+    assert.equal(tools.type, 'response')
+    assert.equal(tools.command, 'set_host_tools')
+    assert.equal(tools.success, true)
+    assert.ok(tools.data?.toolNames?.includes('pac_probe_echo'))
   } finally {
     const exited = child.exitCode === null ? once(child, 'close') : Promise.resolve()
     lines.close()
