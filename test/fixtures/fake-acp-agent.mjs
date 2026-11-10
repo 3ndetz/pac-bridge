@@ -1,11 +1,14 @@
 import { Duplex } from 'node:stream'
-import { appendFile, readFile, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
+import { access, appendFile, readFile, writeFile } from 'node:fs/promises'
 import { createAcpPeer } from '../../src/acp-peer.mjs'
 
 const native = process.argv.includes('--native')
 let selected = 'initial'
 let firstPrompt
 let cancelTurn
+let workspace
 const models = [{ value: 'initial', name: 'Initial' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'opus', name: 'Opus' }]
 const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.stdout }), {
   onNotification: async (method) => {
@@ -16,10 +19,12 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
   },
   onRequest: async (method, params) => {
     if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
-    if (method === 'session/new') return { sessionId: native ? 'native-session' : 'remote-session',
+    if (method === 'session/new') {
+      workspace = params?._meta?.pac?.workspaceCwd
+      return { sessionId: native ? 'native-session' : 'remote-session',
       ...(process.argv.includes('--empty-model-block') ? { models: { availableModels: [] } } : {}), configOptions: [
       { id: 'model', category: 'model', currentValue: selected, options: models }
-    ] }
+    ] } }
     if (method === 'session/load') {
       if (params.sessionId !== (native ? 'native-session' : 'remote-session')) throw new Error('Unknown fake session')
       if (process.env.PAC_TEST_CONVERSATION_FILE) firstPrompt = await readFile(process.env.PAC_TEST_CONVERSATION_FILE, 'utf8')
@@ -31,6 +36,20 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/prompt') {
+      if (process.argv.includes('--workspace-operations')) {
+        if (!workspace) throw new Error('Source workspace was not provided')
+        const path = join(workspace, 'remote-fixture.txt')
+        if (process.env.PAC_REQUIRE_DISTINCT_FS === '1') {
+          let exists = false
+          try { await access(path); exists = true } catch (error) { if (error.code !== 'ENOENT') throw error }
+          if (exists) throw new Error('Source fixture is visible on the controller')
+        }
+        const before = await peer.call('fs/read_text_file', { sessionId: params.sessionId, path })
+        if (before.content !== 'SOURCE_ONLY_MARKER') throw new Error('Wrong workspace content')
+        await peer.call('pac/fs/write', { sessionId: params.sessionId, operationId: randomUUID(), path, content: 'SOURCE_WRITTEN_MARKER' }, 0)
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'source workspace read and write completed' } } })
+        return { stopReason: 'end_turn' }
+      }
       if (process.argv.includes('--slow-response')) {
         const cancelled = new Promise((resolve) => { cancelTurn = resolve })
         if (process.env.PAC_TEST_TURN_COUNT_FILE) await appendFile(process.env.PAC_TEST_TURN_COUNT_FILE, 'started\n')

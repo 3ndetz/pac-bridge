@@ -222,10 +222,11 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const questionTest = process.env.PAC_TEST_QUESTIONS === '1'
+    const workspaceTest = process.env.PAC_TEST_WORKSPACE === '1'
     const concurrentApprovals = process.env.PAC_TEST_CONCURRENT_APPROVALS === '1'
     const disconnectTest = process.env.PAC_TEST_DISCONNECT === '1'
     const abortTest = process.env.PAC_TEST_TURN_ABORT === '1' || disconnectTest
-    if (!live && !remoteFake) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, abortTest ? '--slow-response' : concurrentApprovals ? '--permission-response' : questionTest ? '--question-response' : '--conversation'],
+    if (!live && !remoteFake) agent = await startAgent({ url: relayUrl, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, workspaceTest ? '--workspace-operations' : abortTest ? '--slow-response' : concurrentApprovals ? '--permission-response' : questionTest ? '--question-response' : '--conversation'],
       env: { ...process.env, PAC_TEST_QUESTION_CANCEL_FILE: join(root, 'question-cancelled'),
         PAC_TEST_TURN_STARTED_FILE: join(root, 'turn-started'), PAC_TEST_TURN_CANCEL_FILE: join(root, 'turn-cancelled'),
         PAC_TEST_TURN_COUNT_FILE: join(root, 'turn-count'),
@@ -260,6 +261,10 @@ test('keeps the same PAC conversation across OpenCode messages', {
       PAC_SESSION_DIR: join(root, 'pac-sessions'),
       PAC_ENDPOINTS_FILE: endpointsFile,
       PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: live || remoteFake ? process.env.PAC_LIVE_CONTROLLER_CWD : root }
+    if (workspaceTest) {
+      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'allow' } })
+      await writeFile(join(root, 'remote-fixture.txt'), 'SOURCE_ONLY_MARKER')
+    }
     const base = `http://127.0.0.1:${port}`
     let diagnostics = ''
     async function launch() {
@@ -283,6 +288,12 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const session = await request('/session', {})
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
+    if (workspaceTest) {
+      const result = await message('Read and update the fixture')
+      assert.match(JSON.stringify(result.parts), /source workspace read and write completed/)
+      assert.equal(await readFile(join(root, 'remote-fixture.txt'), 'utf8'), 'SOURCE_WRITTEN_MARKER')
+      return
+    }
     if (concurrentApprovals) {
       const other = await request('/session', {})
       const first = message('First write')
