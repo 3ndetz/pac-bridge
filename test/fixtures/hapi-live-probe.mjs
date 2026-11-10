@@ -41,7 +41,7 @@ if (process.env.PAC_HAPI_SKILLS === '1') {
 }
 const file = join(workspace, 'fixture.txt')
 await writeFile(file, 'PAC_HAPI_INITIAL')
-const router = fileURLToPath(new URL('./opencode-acp-router.mjs', import.meta.url))
+const router = fileURLToPath(new URL('../../adapters/pac-hapi-opencode.mjs', import.meta.url))
 const launcher = `@echo off\r\nif /i "%~1"=="acp" (\r\n  "${process.execPath}" "${router}" %*\r\n) else (\r\n  "${opencode}" %*\r\n)\r\n`
 await writeFile(join(bin, 'opencode.cmd'), launcher)
 const reserved = createServer().listen(0, '127.0.0.1')
@@ -978,6 +978,10 @@ try {
       process.stderr.write(`Diagnostic task result categories: ${JSON.stringify(Object.fromEntries(['stop_requested', 'completed', 'unknown native subagent', 'cancellation is unavailable', 'sdk rejected'].map((word) => [word, results.includes(word)])))}\n`)
       process.stderr.write(`Diagnostic message kinds: ${JSON.stringify((page.messages || []).slice(-10).map((message) => ({ role: message.content?.role,
         type: message.content?.content?.data?.type, keys: Object.keys(message.content?.content?.data || {}).sort() })))}\n`)
+      const syntheticOutput = JSON.stringify((page.messages || []).map((message) => message.content?.content?.data || {})).toLowerCase()
+      process.stderr.write(`Diagnostic tool categories: ${JSON.stringify(Object.fromEntries(['permission', 'denied', 'not found', 'unavailable', 'no tools', 'toolsearch', 'write', 'edit', 'error', 'inactive', 'outside', 'workspace', 'connection', 'session', 'model', 'no such', 'read_text_file', 'unknown', 'failed'].map((word) => [word, syntheticOutput.includes(word)])))}\n`)
+      const resultsByCall = (page.messages || []).map((message) => message.content?.content?.data).filter((data) => data?.type === 'tool-call-result')
+      process.stderr.write(`Diagnostic tool result flags: ${JSON.stringify(resultsByCall.map((data) => ({ error: data.is_error === true, hasFixture: JSON.stringify(data.output).includes('PAC_HAPI_INITIAL') })))}\n`)
     } catch {}
   }
   process.exitCode = 1
