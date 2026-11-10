@@ -60,6 +60,14 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
           write({ content: '[PAC: remote usage metrics are not yet displayed.]\n' })
           return
         }
+        if (method === 'session/update' && ['tool_call', 'tool_call_update'].includes(update?.sessionUpdate)) {
+          const visible = Object.fromEntries(['sessionUpdate', 'toolCallId', 'title', 'kind', 'status', 'rawInput', 'rawOutput', 'content', 'locations']
+            .filter((key) => Object.hasOwn(update, key)).map((key) => [key, update[key]]))
+          const description = JSON.stringify(visible)
+          if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC tool update exceeds size limit')
+          write({ content: `\n[PAC tool event]\n${description}\n` })
+          return
+        }
         if (method !== 'session/update' || update?.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') throw new Error('Unsupported PAC event; turn cannot be represented')
         write({ content: update.content.text })
       }, { signal: cancellation.signal })

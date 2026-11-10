@@ -12,6 +12,7 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
       update({ method: '_auth/status_update', params: { secret: 'must-not-be-forwarded' } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'usage_update' } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'available_commands_update' } } })
+      update({ method: 'session/update', params: { update: { sessionUpdate: 'tool_call', toolCallId: 'call-1', title: 'Read', rawInput: { path: 'a.txt' }, _meta: { secret: 'must-not-be-forwarded' } } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'remote reply' } } } })
       return { stopReason: 'end_turn' }
     }, async cancel() {}
@@ -32,6 +33,7 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
     assert.match(stream, /remote reply/)
     assert.match(stream, /usage metrics are not yet displayed/)
     assert.match(stream, /remote slash commands are not yet available/)
+    assert.match(stream, /call-1/)
     assert.doesNotMatch(stream, /must-not-be-forwarded/)
     assert.match(stream, /\[DONE\]/)
     assert.deepEqual(calls, [{ binding: { sessionId: 'session-1', model: 'PAC_work/sonnet', cwd: '/source' }, prompt: [{ type: 'text', text: 'hello' }] }])
@@ -45,7 +47,7 @@ test('does not report an unsupported ACP event as a completed response', async (
   const token = 'local-test-token-with-at-least-32-characters'
   const server = createOpencodeProvider({ token, cwd: '/source', router: {
     async prompt(_binding, _prompt, update) {
-      update({ method: 'session/update', params: { update: { sessionUpdate: 'tool_call' } } })
+      update({ method: 'session/update', params: { update: { sessionUpdate: 'subagent_spawned' } } })
       return { stopReason: 'end_turn' }
     }, async cancel() {}
   } })

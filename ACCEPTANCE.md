@@ -59,6 +59,8 @@ On Windows, the installed OpenCode 1.19.5 selected a configured local OpenAI-com
 
 An isolated cross-host test subsequently launched the installed OpenCode CLI through the experimental PAC provider, selected `PAC_testpac/sonnet`, and received a requested text marker from an authenticated Claude Code runtime on another host. Source credentials were not copied. This was a single text-only turn, not an interactive TUI or a tool, permission, reconnect, or complete acceptance test. Remote slash commands and usage metrics currently produce explicit limitations; unsupported events terminate the turn.
 
+A second isolated CLI run asked the same remote Claude to read a fixture present only in the OpenCode workspace, observed a PAC tool event, and received a confirmation marker. Tool events are currently rendered as structured text, not native OpenCode tool cards; permission handling, writes, commands and subagents are not validated through this route.
+
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Session creation and models | Real HAPI runners on two Windows source hosts offered and selected a named PAC model before session creation. Browser tests on both hosts selected OpenCode and the PAC model in HAPI's new-session form, created a session, sent a message and stopped the resulting task; component tests also cover selection and form submission. A separate live session switched from Sonnet to Opus and back; Claude usage events confirmed the actual model family after each switch. | Persistent deployment, live discovery and authorization; independently authenticated PAC identities, all model variants and broader source platforms. |

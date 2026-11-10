@@ -82,6 +82,9 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-live-'))
   let child
   try {
+    const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1'
+    const fixture = join(root, 'source-fixture.txt')
+    if (toolTest) await writeFile(fixture, 'PAC_READ_FIXTURE_CONTENT')
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
       SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC, TEMP: root, TMP: root,
@@ -92,7 +95,10 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
       PAC_CONTROLLER_CWD: process.env.PAC_LIVE_CONTROLLER_CWD }
-    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'],
+    const prompt = toolTest
+      ? `Read the local file ${fixture}. If it contains PAC_READ_FIXTURE_CONTENT, finish your response with PAC_READ_VERIFIED.`
+      : 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', prompt],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
     const deadline = setTimeout(() => stopContained(child), 150000)
@@ -102,7 +108,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     clearTimeout(deadline)
     const categories = errors.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
     assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
-    assert.match(output, /PAC_CLI_LIVE_OK/)
+    assert.match(output, toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
+    if (toolTest) assert.match(output, /PAC tool event/)
   } finally {
     if (child && child.exitCode === null) stopContained(child)
     const actual = await realpath(root)
