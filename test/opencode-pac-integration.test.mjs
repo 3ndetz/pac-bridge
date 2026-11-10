@@ -251,7 +251,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
       return response.json()
     }
     const session = await request('/session', {})
-    const message = (text) => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text }] })
+    const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
     if (questionTest) {
       const pending = message('Ask the questions')
       let question
@@ -293,9 +293,11 @@ test('keeps the same PAC conversation across OpenCode messages', {
       await ended
       await launch()
     }
-    const second = await message(live ? 'What code did I ask you to remember? Reply with the exact code.' : 'What did I say first?')
+    const switching = process.env.PAC_TEST_MODEL_SWITCH === '1'
+    const second = await message(live ? 'What code did I ask you to remember? Reply with the exact code.' : 'What did I say first?', switching ? 'PAC_testpac/opus' : 'PAC_testpac/sonnet')
     const categories = diagnostics.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
     assert.match(JSON.stringify(second.parts), live ? /PAC_CONTEXT_6184/ : /remembered:FIRST_PAC_CONTEXT/, categories)
+    if (switching) assert.match(JSON.stringify(second.parts), /model:opus/)
   } finally {
     if (child && child.exitCode === null) { const ended = once(child, 'close'); stopContained(child); await ended }
     agent?.close()

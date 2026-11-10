@@ -113,3 +113,43 @@ test('restores the original ACP identity and rejects mismatched persisted bindin
   assert.equal(opens.length, 2)
   third.close()
 })
+
+test('switches models only within the same PAC and persists the selection across resume', async () => {
+  const records = new Map(), selections = [], opens = []
+  const store = { read: async (id) => records.get(id) || null, write: async (record) => records.set(record.sessionId, record) }
+  const openSession = async (options) => {
+    opens.push(options)
+    return { sourceSessionId: 'acp-original', selectModel: async (model) => selections.push(model),
+      prompt: async () => ({ stopReason: 'end_turn' }), cancel() {}, close() {} }
+  }
+  const router = createOpencodeSessionRouter({ openSession, store })
+  await router.prompt(binding, [], () => {})
+  const changed = { ...binding, model: 'PAC_work/opus' }
+  await router.prompt(changed, [], () => {})
+  assert.deepEqual(selections, ['PAC_work/opus'])
+  assert.equal(records.get(binding.sessionId).model, 'PAC_work/opus')
+  await assert.rejects(router.prompt({ ...binding, model: 'PAC_other/opus' }, [], () => {}), /start a new session/)
+  router.close()
+  const resumed = createOpencodeSessionRouter({ openSession, store })
+  await resumed.prompt(changed, [], () => {}, { mustResume: true })
+  assert.equal(opens[1].resumeSessionId, 'acp-original')
+  assert.equal(opens[1].model, 'PAC_work/opus')
+  resumed.close()
+})
+
+test('does not start another turn while a model change is pending', async () => {
+  const pending = deferred(), entered = deferred()
+  let prompts = 0
+  const router = createOpencodeSessionRouter({ openSession: async () => ({
+    selectModel: async () => { entered.resolve(); await pending.promise },
+    prompt: async () => { prompts++; return { stopReason: 'end_turn' } }, cancel() {}, close() {},
+  }) })
+  await router.prompt(binding, [], () => {})
+  const changing = router.prompt({ ...binding, model: 'PAC_work/opus' }, [], () => {})
+  await entered.promise
+  await assert.rejects(router.prompt(binding, [], () => {}), /already running/)
+  pending.resolve()
+  await changing
+  assert.equal(prompts, 2)
+  router.close()
+})

@@ -63,18 +63,21 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
     const option = opened.configOptions?.find((entry) => entry.id === 'model' || entry.category === 'model')
     const available = option?.options?.some((entry) => entry.value === model) || opened.models?.availableModels?.some((entry) => entry.modelId === model)
     if (!available) throw new Error('Selected PAC model is unavailable')
-    phase = 'select-model'
-    if (option) {
-      const selected = await peer.call('session/set_config_option', { sessionId: id, configId: option.id, value: model })
-      const confirmed = selected?.configOptions?.find((entry) => entry.id === option.id)
-      if (confirmed?.currentValue !== model) throw new Error('PAC model selection was not confirmed')
-    } else {
-      // The router's legacy method returns only after the remote runtime has
-      // confirmed the selected model; its ACP response itself is empty.
-      await peer.call('session/set_model', { sessionId: id, modelId: model })
+    async function selectModel(value) {
+      if (option) {
+        const selected = await peer.call('session/set_config_option', { sessionId: id, configId: option.id, value })
+        const confirmed = selected?.configOptions?.find((entry) => entry.id === option.id)
+        if (confirmed?.currentValue !== value) throw new Error('PAC model selection was not confirmed')
+      } else {
+        // The router returns only after the remote runtime confirms the model.
+        await peer.call('session/set_model', { sessionId: id, modelId: value })
+      }
     }
+    phase = 'select-model'
+    await selectModel(model)
     return {
       sourceSessionId: id,
+      selectModel,
       async prompt(prompt, onUpdate) {
         if (stopped || activeUpdate) throw new Error('ACP session is unavailable or busy')
         activeUpdate = onUpdate

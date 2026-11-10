@@ -5,6 +5,9 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
   const sessions = new Map()
   let closed = false
 
+  const samePac = (first, second) => first.startsWith('PAC_') && second.startsWith('PAC_') &&
+    first.includes('/') && first.slice(0, first.indexOf('/')) === second.slice(0, second.indexOf('/'))
+
   function identity(value, label) {
     if (typeof value !== 'string' || !value || value.length > 512 || /[\x00-\x1f]/.test(value)) throw new Error(`Invalid ${label}`)
     return value
@@ -18,15 +21,16 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
     if (await journal?.isPending(sessionId)) throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
     let state = sessions.get(sessionId)
     if (state) {
-      if (state.model !== model || state.cwd !== cwd) throw new Error('PAC model or workspace changed; start a new session')
+      if (!samePac(state.model, model) || state.cwd !== cwd) throw new Error('PAC model or workspace changed; start a new session')
     } else {
       state = { model, cwd, busy: false, lost: false, opening: null, session: null }
       sessions.set(sessionId, state)
       state.opening = Promise.resolve().then(async () => {
         const saved = await store?.read(sessionId)
-        if (saved && (saved.pacId !== 'opencode-acp' || saved.model !== model || saved.workspace !== cwd)) throw new Error('Saved PAC binding does not match the selected model or workspace')
+        if (saved && (saved.pacId !== 'opencode-acp' || !samePac(saved.model, model) || saved.workspace !== cwd)) throw new Error('Saved PAC binding does not match the selected model or workspace')
         if (mustResume && !saved) throw new Error('PAC session binding is unavailable; refusing to start a different conversation')
-        const session = await openSession({ sessionId, model, cwd, ...(saved ? { resumeSessionId: saved.remoteSessionId } : {}) })
+        if (saved) state.model = saved.model
+        const session = await openSession({ sessionId, model: state.model, cwd, ...(saved ? { resumeSessionId: saved.remoteSessionId } : {}) })
         if (!session || typeof session.prompt !== 'function' || typeof session.cancel !== 'function' || typeof session.close !== 'function') throw new Error('Invalid ACP session')
         state.session = session
         if (closed) { session.close(); throw new Error('Session router is closed') }
@@ -65,6 +69,12 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
       signal?.addEventListener('abort', cancel, { once: true })
       let clearMarker
       try {
+        if (state.model !== binding.model) {
+          if (typeof session.selectModel !== 'function') throw new Error('PAC model switching is unavailable in this session')
+          await session.selectModel(binding.model)
+          if (store) await store.write({ version: 1, sessionId: binding.sessionId, pacId: 'opencode-acp', remoteSessionId: session.sourceSessionId, model: binding.model, workspace: binding.cwd })
+          state.model = binding.model
+        }
         clearMarker = await journal?.begin(binding.sessionId)
         if (signal?.aborted) { await clearMarker?.(); throw new Error('PAC turn was cancelled before it started') }
         const result = await session.prompt(prompt, onUpdate)
