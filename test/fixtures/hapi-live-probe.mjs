@@ -39,6 +39,10 @@ if (process.env.PAC_HAPI_SKILLS === '1') {
   await mkdir(skillDirectory, { recursive: true })
   await writeFile(join(skillDirectory, 'SKILL.md'), '---\nname: pac-test-skill\ndescription: Return the PAC skill verification marker with its argument\n---\n\nReply exactly with PAC_SKILL_SUCCESS_$ARGUMENTS.\n')
 }
+if (process.env.PAC_HAPI_SCOPED === '1') {
+  await mkdir(join(workspace, '.claude', 'rules'), { recursive: true })
+  await writeFile(join(workspace, '.claude', 'rules', 'file-rule.md'), '---\npaths: "fixture.txt"\n---\nWhen asked for the scoped marker, reply with PAC_HAPI_SCOPED_492316.\n')
+}
 const file = join(workspace, 'fixture.txt')
 await writeFile(file, 'PAC_HAPI_INITIAL')
 const router = fileURLToPath(new URL('../../adapters/pac-hapi-opencode.mjs', import.meta.url))
@@ -231,6 +235,14 @@ try {
   const summary = { hapiSession: true, runnerCreatedSession: !!runnerSessionId, machineModelOffered, pacWarningsVerified, browserUnavailableSelectionVerified, modelOffered: true, modelSelected: true, contentsVerified: process.env.PAC_HAPI_FAST_RESUME !== '1',
     readVisible: visible.includes('Read'), writeVisible: visible.includes('Write'), editVisible: visible.includes('Edit') }
   if (process.env.PAC_HAPI_BROWSER === '1') summary.browserCreatedSession = true
+  if (process.env.PAC_HAPI_SCOPED === '1') {
+    stage = 'checking a source path-scoped rule through HAPI'
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
+      text: 'What is the scoped marker from the project instructions for the file you just read? Reply with it exactly.', localId: randomUUID()
+    }) })
+    await until(async () => JSON.stringify((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).includes('PAC_HAPI_SCOPED_492316'), 120000)
+    summary.scopedRuleVerified = true
+  }
   if (process.env.PAC_HAPI_MCP === '1') {
     stage = 'calling source MCP tool across the relay'
     await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
