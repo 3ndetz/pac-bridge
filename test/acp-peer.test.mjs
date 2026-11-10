@@ -59,6 +59,21 @@ test('preserves notification order when a handler is asynchronous', async () => 
   } finally { first.close(); second.close() }
 })
 
+test('bounds queued notifications and reports an uncertain in-flight call', async () => {
+  const [firstStream, secondStream] = streams()
+  let release
+  const blocked = new Promise((resolve) => { release = resolve })
+  const first = createAcpPeer(firstStream, { maxQueuedNotificationBytes: 160, onNotification: () => blocked })
+  const second = createAcpPeer(secondStream, { onRequest: () => new Promise(() => {}) })
+  try {
+    const pending = first.call('side-effect', {}, 1000)
+    second.notify('update', { text: 'x'.repeat(50) })
+    second.notify('update', { text: 'x'.repeat(50) })
+    await assert.rejects(pending, /outcome may be unknown/)
+    await assert.rejects(first.call('later', {}), /closed/)
+  } finally { release(); first.close(); second.close() }
+})
+
 test('closes an oversized unfinished message and reports an uncertain in-flight call', async () => {
   const [firstStream, secondStream] = streams()
   secondStream.on('error', () => {})

@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
-export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 30000, maxLineBytes = 16 * 1024 * 1024 } = {}) {
-  if (!Number.isSafeInteger(maxLineBytes) || maxLineBytes < 1) throw new Error('Invalid ACP message size limit')
+export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 30000, maxLineBytes = 16 * 1024 * 1024, maxQueuedNotificationBytes = 16 * 1024 * 1024 } = {}) {
+  if (!Number.isSafeInteger(maxLineBytes) || maxLineBytes < 1 || !Number.isSafeInteger(maxQueuedNotificationBytes) || maxQueuedNotificationBytes < 1) throw new Error('Invalid ACP message size limit')
   const pending = new Map()
   const lines = createInterface({ input: stream, crlfDelay: Infinity })
   let closed = false
   let partialBytes = 0
   let notifications = Promise.resolve()
+  let queuedNotificationBytes = 0
   function send(message) {
     if (closed || stream.destroyed || !stream.writable) throw new Error('ACP connection is closed')
     stream.write(JSON.stringify(message) + '\n')
@@ -37,7 +38,15 @@ export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 3
       return
     }
     if (message.id === undefined) {
+      const size = Buffer.byteLength(line, 'utf8')
+      if (queuedNotificationBytes + size > maxQueuedNotificationBytes) {
+        failPending()
+        stream.destroy(new Error('ACP notification queue exceeds size limit'))
+        return
+      }
+      queuedNotificationBytes += size
       notifications = notifications.then(() => onNotification?.(message.method, message.params))
+        .finally(() => { queuedNotificationBytes -= size })
       notifications.catch(() => stream.destroy(new Error('ACP notification handler failed')))
       return
     }
