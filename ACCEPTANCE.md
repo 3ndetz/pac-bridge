@@ -176,4 +176,6 @@ An authenticated OpenCode CLI run started a background Claude subagent, received
 
 The installed OpenCode CLI also expanded `/pac-stop` in an existing session and delivered it without a model call; an independent ACP relay test routed the task identity to a synthetic controller, while rejecting a different task identity. Live Claude cancellation through this OpenCode command, native task cards and complete lifecycle handling remain unverified.
 
+In an isolated authenticated Claude run, a background subagent started its shell command, but an OpenCode stop command submitted while the originating response was active timed out after 45 seconds. This scenario did not confirm cancellation and requires an independent control path.
+
 An authenticated cross-host OpenCode test read a file using a relative workspace path. Local tests also verified relative writes and rejection of an attempted parent-directory escape.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
@@ -261,7 +261,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
 })
 
 test('keeps the same PAC conversation across OpenCode messages', {
-  skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000
+  skip: !process.env.PAC_OPENCODE_BINARY, timeout: process.env.PAC_LIVE_STOP_TEST === '1' ? 240000 : 120000
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-multiturn-'))
   const relayServer = createServer()
@@ -315,6 +315,7 @@ test('keeps the same PAC conversation across OpenCode messages', {
       PAC_SESSION_DIR: join(root, 'pac-sessions'),
       PAC_ENDPOINTS_FILE: endpointsFile,
       PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: live || remoteFake ? process.env.PAC_LIVE_CONTROLLER_CWD : root }
+    if (process.env.PAC_LIVE_STOP_TEST === '1') env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'allow' } })
     if (workspaceTest) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: process.env.PAC_TEST_WORKSPACE_DENY === '1' ? 'deny' : 'allow' } })
       await writeFile(join(root, 'remote-fixture.txt'), 'SOURCE_ONLY_MARKER')
@@ -342,6 +343,26 @@ test('keeps the same PAC conversation across OpenCode messages', {
     }
     const session = await request('/session', {})
     const message = (text, model = 'PAC_testpac/sonnet') => request(`/session/${session.id}/message`, { model: { providerID: 'pacbridge', modelID: model }, parts: [{ type: 'text', text }] })
+    if (process.env.PAC_LIVE_STOP_TEST === '1') {
+      const submitted = await fetch(`${base}/session/${session.id}/prompt_async`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: { providerID: 'pacbridge', modelID: 'PAC_testpac/sonnet' }, parts: [{ type: 'text', text: 'Use Agent to start exactly one background subagent. The subagent must use Bash to run `printf started > native-agent-started.txt; sleep 90; printf unwanted > native-agent-unwanted.txt`. Return its task ID immediately without waiting.' }] }) })
+      assert.equal(submitted.status, 204)
+      let match
+      const identityDeadline = Date.now() + 60000
+      while (!match && Date.now() < identityDeadline) {
+        const messages = await (await fetch(`${base}/session/${session.id}/message`)).json()
+        match = /\\"task_id\\":\\"([^\\"]+)\\"/.exec(JSON.stringify(messages))
+        if (!match) await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+      assert.ok(match, 'Background task identity was not returned to OpenCode')
+      const deadline = Date.now() + 45000
+      while (Date.now() < deadline && !await access(join(root, 'native-agent-started.txt')).then(() => true, () => false)) await new Promise((resolve) => setTimeout(resolve, 300))
+      assert.equal(await access(join(root, 'native-agent-started.txt')).then(() => true, () => false), true, 'Background command did not start')
+      const stopped = await request(`/session/${session.id}/command`, { command: 'pac-stop', arguments: match[1], model: 'pacbridge/PAC_testpac/sonnet' })
+      assert.match(JSON.stringify(stopped.parts), /stop request accepted/)
+      await new Promise((resolve) => setTimeout(resolve, 92000))
+      assert.equal(await access(join(root, 'native-agent-unwanted.txt')).then(() => true, () => false), false, 'Stopped task performed its delayed side effect')
+      return
+    }
     if (workspaceTest) {
       const result = await message('Read and update the fixture')
       assert.match(JSON.stringify(result.parts), process.env.PAC_TEST_WORKSPACE_DENY === '1' ? /source workspace write denied/ : /source workspace read and write completed/)
