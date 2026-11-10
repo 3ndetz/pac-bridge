@@ -98,6 +98,8 @@ Another browser scenario substituted an unavailable catalog response inside the 
 
 After fixing Windows process-tree shutdown for HAPI's model-variant catalog server, that browser scenario and the subagent cancellation check completed with exit code zero, including test workspace cleanup. This verifies the exercised Windows cleanup path; other lifecycle and platform cases remain open.
 
+An expanded non-browser HAPI run also completed with exit code zero after the relay and ACP hardening changes. It exercised source file operations and search, imported instructions and an unscoped rule, one skill, project hook outcomes, foreground and background shell, subagent updates, approval and denial, two named PAC sessions and resumption with a subsequent source write and skill call. The two PAC names still shared one authenticated Claude account; this run does not establish independent controller identities or full feature parity.
+
 A relay test closes a PAC registration while keeping both established channel peers open and verifies that the relay closes those peers without disrupting a different PAC. Registration handling is installed before the handshake completes, and reconnect tests exercise startup and recovery; this does not establish recovery of interrupted in-flight work or complete authorization guarantees.
 
 ACP peer tests bound incoming line length, queued notification bytes and concurrently handled request bytes. Invalid JSON or response envelopes close the connection, reject in-flight calls with an unknown outcome and do not dispatch a later request from the same input chunk. These bounds deliberately reject traffic above the configured limits and do not establish parity for large payloads.
