@@ -69,7 +69,7 @@ Another test killed OpenCode and its launcher during a synthetic PAC turn, resta
 
 An installed OpenCode server represented a synthetic PAC `agent_thought_chunk` as a reasoning part while also preserving the final response. Real-runtime reasoning, mixed content and multi-step streaming remain unverified.
 
-Two simultaneous sessions in the installed OpenCode server each received only its own distinct prompt marker from separate synthetic PAC sessions. Separate simultaneous-question and simultaneous-permission tests returned distinct answers and approve/deny decisions only to their owning synthetic sessions; the permission scenario also passed between separate Windows hosts through an isolated TLS relay. Real-controller concurrency and broader cross-machine isolation remain to be verified.
+Two simultaneous sessions in the installed OpenCode server each received only its own distinct prompt marker from separate synthetic PAC sessions. Separate simultaneous-question and simultaneous-permission tests returned distinct answers and approve/deny decisions only to their owning synthetic sessions; both scenarios also passed between separate Windows hosts through an isolated TLS relay. Real-controller concurrency and broader cross-machine isolation remain to be verified.
 
 In a separate installed OpenCode server test, two concurrent sessions selected different models on two named synthetic PAC processes and received their respective controller markers. The scenario also passed between separate Windows hosts through an isolated TLS relay. This is routing evidence only; it does not establish two independently authenticated Claude accounts.
 
