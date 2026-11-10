@@ -15,12 +15,13 @@ const cwd = process.cwd()
 const token = randomBytes(32).toString('hex')
 const routerPath = fileURLToPath(new URL('./pac-opencode-router.mjs', import.meta.url))
 const pluginUrl = new URL('./opencode-plugin.mjs', import.meta.url).href
-const router = createOpencodeSessionRouter({ openSession: ({ model: selected, cwd: workspace }) => openOpencodeAcpSession({
+let server
+const router = createOpencodeSessionRouter({ openSession: ({ sessionId, model: selected, cwd: workspace }) => openOpencodeAcpSession({
   command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, env: process.env,
-  onPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+  onPermission: (params) => server.requestPermission(sessionId, params),
   onDiagnostic: (category) => { if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC ACP ${category}\n`) },
 }) })
-const server = createOpencodeProvider({ router, token, cwd, onFailure: (category) => {
+server = createOpencodeProvider({ router, token, cwd, onFailure: (category) => {
   if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC provider failure: ${category}\n`)
 } })
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
@@ -35,7 +36,8 @@ try {
     models: { [model]: { name: model } },
   } } }
   child = spawnContained(binary, ['--model', `pacbridge/${model}`, ...process.argv.slice(2)], {
-    cwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) }, stdio: 'inherit', windowsHide: false,
+    cwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
+      PAC_PROVIDER_URL: `http://127.0.0.1:${server.address().port}`, PAC_PROVIDER_TOKEN: token }, stdio: 'inherit', windowsHide: false,
   })
   process.once('SIGINT', () => { if (child) stopContained(child) })
   process.once('SIGTERM', () => { if (child) stopContained(child) })

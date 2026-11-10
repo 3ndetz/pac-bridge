@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
@@ -83,6 +83,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   let child
   try {
     const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1'
+    const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
+    const writeTest = process.env.PAC_LIVE_WRITE_TEST === '1' || denyTest
     const fixture = join(root, 'source-fixture.txt')
     if (toolTest) await writeFile(fixture, 'PAC_READ_FIXTURE_CONTENT')
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
@@ -92,13 +94,17 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS, PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1',
+      PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
       PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
       PAC_CONTROLLER_CWD: process.env.PAC_LIVE_CONTROLLER_CWD }
-    const prompt = toolTest
+    if (denyTest) env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'deny' } })
+    const prompt = writeTest
+      ? `Use Write to create the local file ${fixture} containing exactly PAC_WRITE_FIXTURE_CONTENT. Then say PAC_WRITE_VERIFIED.`
+      : toolTest
       ? `Read the local file ${fixture}. If it contains PAC_READ_FIXTURE_CONTENT, finish your response with PAC_READ_VERIFIED.`
       : 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'
-    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', prompt],
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(writeTest ? ['--auto'] : []), prompt],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
     const deadline = setTimeout(() => stopContained(child), 150000)
@@ -108,8 +114,17 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     clearTimeout(deadline)
     const categories = errors.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
     assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
-    assert.match(output, toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
-    if (toolTest) assert.match(output, /PAC tool event/)
+    if (!denyTest) assert.match(output, writeTest ? /PAC_WRITE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
+    if (toolTest || writeTest) assert.match(output, /PAC tool event/)
+    if (writeTest) {
+      let content
+      try { content = await readFile(fixture, 'utf8') } catch {}
+      const observed = { approvalTool: output.includes('pac_approval'), permissionDenied: /permission.*(?:denied|reject)/i.test(output),
+        errorEvent: output.includes('"type":"error"'), categories }
+      assert.equal(observed.approvalTool, true, `Live write did not request approval: ${JSON.stringify(observed)}`)
+      if (denyTest) assert.equal(content, undefined, 'Denied write changed the source')
+      else assert.equal(content?.trim(), 'PAC_WRITE_FIXTURE_CONTENT', `Live write did not reach the source: ${JSON.stringify(observed)}`)
+    }
   } finally {
     if (child && child.exitCode === null) stopContained(child)
     const actual = await realpath(root)
@@ -131,7 +146,9 @@ test('experimental launcher opens OpenCode against a fake PAC', {
     const url = `ws://127.0.0.1:${relayServer.address().port}`
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
-    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--text-response'] })
+    const permissionTest = process.env.PAC_TEST_PERMISSION === '1'
+    const denyTest = process.env.PAC_TEST_DENY === '1'
+    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, permissionTest ? '--permission-response' : '--text-response'] })
     const tokenFile = join(root, 'token')
     await writeFile(tokenFile, 'test-token')
     const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
@@ -141,7 +158,8 @@ test('experimental launcher opens OpenCode against a fake PAC', {
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root }
-    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', 'Hello PAC'],
+    if (denyTest) env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ permission: { pac_bridge: 'deny' } })
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', ...(permissionTest ? ['--auto'] : []), 'Hello PAC'],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
     const deadline = setTimeout(() => stopContained(child), 90000)
@@ -150,7 +168,7 @@ test('experimental launcher opens OpenCode against a fake PAC', {
     const [code] = await once(child, 'close')
     clearTimeout(deadline)
     assert.equal(code, 0, `${errors.slice(-2000)}\n${output.slice(-2000)}`)
-    assert.match(output, /fake PAC sonnet response/)
+    assert.match(output, permissionTest ? (denyTest ? /fake PAC permission deny/ : /fake PAC permission allow/) : /fake PAC sonnet response/)
   } finally {
     if (child && child.exitCode === null) stopContained(child)
     agent?.close()

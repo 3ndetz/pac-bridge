@@ -10,6 +10,8 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
   child.stderr.resume()
   child.on('error', () => {})
   let activeUpdate = null
+  const delayed = []
+  let delayedBytes = 0
   let id
   let stopped = false
   let phase = 'initialize'
@@ -26,7 +28,14 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
       const safeMethod = typeof method === 'string' && /^[a-z_/]{1,64}$/.test(method) ? method.replaceAll('/', 'Z') : 'other'
       try { onDiagnostic(`notification:${safeMethod}__${typeof type === 'string' && /^[a-z_]{1,64}$/.test(type) ? type : 'none'}`) } catch {}
       if (params?.sessionId && params.sessionId !== id) { onDiagnostic('bad_session'); throw new Error('ACP update belongs to another session') }
-      if (!activeUpdate) { onDiagnostic('no_active_turn'); throw new Error('ACP update cannot be delivered outside an active turn') }
+      if (!activeUpdate) {
+        const metadata = method === '_auth/status_update' || (method === 'session/update' && ['session_info_update', 'usage_update', 'available_commands_update'].includes(type))
+        const bytes = Buffer.byteLength(JSON.stringify({ method, params }))
+        if (!metadata || delayed.length >= 64 || delayedBytes + bytes > 1024 * 1024) { onDiagnostic('no_active_turn'); throw new Error('ACP update cannot be delivered outside an active turn') }
+        delayed.push({ event: { method, params }, bytes })
+        delayedBytes += bytes
+        return
+      }
       try { activeUpdate({ method, params }) } catch (error) { onDiagnostic('consumer_error'); throw error }
     },
   })
@@ -60,7 +69,10 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
       async prompt(prompt, onUpdate) {
         if (stopped || activeUpdate) throw new Error('ACP session is unavailable or busy')
         activeUpdate = onUpdate
-        try { return await peer.call('session/prompt', { sessionId: id, prompt }, 0) }
+        try {
+          while (delayed.length) { const item = delayed.shift(); delayedBytes -= item.bytes; activeUpdate(item.event) }
+          return await peer.call('session/prompt', { sessionId: id, prompt }, 0)
+        }
         catch (error) { error.pacPhase = 'prompt'; throw error }
         finally { activeUpdate = null }
       },

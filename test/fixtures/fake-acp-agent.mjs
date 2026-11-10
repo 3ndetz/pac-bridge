@@ -21,6 +21,13 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/prompt') {
+      if (process.argv.includes('--permission-response')) {
+        const answer = await peer.call('session/request_permission', { sessionId: params.sessionId,
+          toolCall: { toolCallId: 'fake-write', title: 'Write test file', kind: 'edit', rawInput: { path: 'fixture.txt' } },
+          options: [{ optionId: 'allow', name: 'Allow once', kind: 'allow_once' }, { optionId: 'deny', name: 'Deny', kind: 'reject_once' }] }, 0)
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `fake PAC permission ${answer.outcome.optionId}` } } })
+        return { stopReason: 'end_turn' }
+      }
       if (process.argv.includes('--text-response')) {
         peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `fake PAC ${selected} response` } } })
         return { stopReason: 'end_turn' }

@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
+import { createOpencodeTurnChannel } from './opencode-turn-channel.mjs'
 
 // Experimental text-only transport. Unsupported events and permissions must
 // terminate the turn, never be translated into a successful text answer.
@@ -7,14 +8,15 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
   if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
+  const turns = new Map()
   const server = createServer(async (request, response) => {
     const fail = (status, message) => { if (!response.headersSent) response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { message } })); else response.destroy() }
     const auth = Buffer.from(request.headers.authorization || '')
     if (auth.length !== expected.length || !timingSafeEqual(auth, expected)) return fail(401, 'Unauthorized')
-    if (request.method !== 'POST' || request.url !== '/v1/chat/completions') return fail(404, 'Not found')
+    if (request.method !== 'POST' || !['/v1/chat/completions', '/pac/approval'].includes(request.url)) return fail(404, 'Not found')
     const sessionId = request.headers['x-pac-session-id']
     const messageId = request.headers['x-pac-message-id']
-    if (typeof sessionId !== 'string' || typeof messageId !== 'string' || !sessionId || !messageId || sessionId.length > 512 || messageId.length > 512 || /[\x00-\x1f]/.test(sessionId + messageId)) return fail(400, 'Missing OpenCode session or message identity')
+    if (request.url !== '/pac/approval' && (typeof sessionId !== 'string' || typeof messageId !== 'string' || !sessionId || !messageId || sessionId.length > 512 || messageId.length > 512 || /[\x00-\x1f]/.test(sessionId + messageId))) return fail(400, 'Missing OpenCode session or message identity')
     try {
       let size = 0
       const chunks = []
@@ -24,8 +26,25 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         chunks.push(chunk)
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if (request.url === '/pac/approval') {
+        const turn = turns.get(body.sessionId)
+        const permission = turn?.pending
+        if (!permission || permission.id !== body.id || permission.resolved || !['inspect', 'resolve'].includes(body.action)) return fail(400, 'Unknown permission')
+        if (body.action === 'inspect') {
+          const toolCall = permission.toolCall || {}
+          const title = typeof toolCall.title === 'string' ? toolCall.title.slice(0, 512) : 'PAC action'
+          return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ title, toolCall }))
+        }
+        if (!['allow', 'deny'].includes(body.decision)) return fail(400, 'Invalid decision')
+        const kind = body.decision === 'allow' ? 'allow_once' : 'reject_once'
+        const option = permission.options.find((entry) => entry.kind === kind)
+        if (!option) return fail(400, 'Decision is unsupported')
+        turn.channel.resolvePermission(permission.id, body.sessionId, option.optionId)
+        permission.resolved = true
+        return response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+      }
       const last = Array.isArray(body.messages) ? body.messages.at(-1) : undefined
-      if (body.stream !== true || typeof body.model !== 'string' || !body.model.startsWith('PAC_') || last?.role !== 'user' || typeof last.content !== 'string' || !last.content) return fail(400, 'Unsupported provider request')
+      if (body.stream !== true || typeof body.model !== 'string' || !body.model.startsWith('PAC_') || !last || !['user', 'tool'].includes(last.role)) return fail(400, 'Unsupported provider request')
       // OpenCode also sends auxiliary requests with the same message id and
       // no tools (for example title generation). Never send those to Claude.
       // A real turn with tools disabled is intentionally unsupported for now.
@@ -36,29 +55,71 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         messages = new Set()
         seen.set(sessionId, messages)
       }
-      if (messages.has(messageId)) return fail(400, 'Duplicate turn; outcome may be unknown')
-      if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
-      messages.add(messageId)
+      let turn = turns.get(sessionId)
+      if (last.role === 'user') {
+        if (typeof last.content !== 'string' || !last.content) return fail(400, 'Unsupported user message')
+        if (messages.has(messageId)) return fail(400, 'Duplicate turn; outcome may be unknown')
+        if (turn) return fail(400, 'A PAC turn is already active')
+        if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
+        messages.add(messageId)
+        const cancellation = new AbortController()
+        const channel = createOpencodeTurnChannel({ sessionId })
+        turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false }
+        turns.set(sessionId, turn)
+        channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], update, { signal: cancellation.signal }))
+      } else {
+        if (!turn || turn.messageId !== messageId || turn.model !== body.model || !turn.pending?.resolved || last.tool_call_id !== turn.pending.id) return fail(400, 'Invalid PAC continuation')
+        turn.pending = null
+      }
+      if (turn.streaming) return fail(400, 'A PAC response segment is already active')
+      turn.streaming = true
       let completed = false
-      const cancellation = new AbortController()
-      response.on('close', () => { if (!completed) cancellation.abort() })
+      response.on('close', () => { if (!completed) { turn.cancellation.abort(); turn.channel.close(); turns.delete(sessionId) } })
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
       const write = (delta, finish = null) => response.write(`data: ${JSON.stringify({ id: messageId, object: 'chat.completion.chunk', created: 0,
         model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`)
       write({ role: 'assistant' })
-      const result = await router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], ({ method, params }) => {
+      while (true) {
+        const event = await turn.channel.next()
+        if (event.type === 'permission') {
+          if (!body.tools.some((tool) => tool.function?.name === 'pac_approval') ||
+              !event.options.some((option) => option.kind === 'allow_once') || !event.options.some((option) => option.kind === 'reject_once')) throw new Error('PAC permission cannot be represented')
+          turn.pending = { ...event, resolved: false }
+          write({ tool_calls: [{ index: 0, id: event.id, type: 'function', function: { name: 'pac_approval', arguments: JSON.stringify({ id: event.id }) } }] })
+          write({}, 'tool_calls')
+          turn.streaming = false
+          completed = true
+          response.end('data: [DONE]\n\n')
+          return
+        }
+        if (event.type === 'error') throw event.error
+        if (event.type === 'done') {
+          if (event.result?.stopReason !== 'end_turn') throw new Error('PAC turn did not finish normally')
+          write({}, 'stop')
+          turn.streaming = false
+          turns.delete(sessionId)
+          completed = true
+          turn.channel.close()
+          response.end('data: [DONE]\n\n')
+          return
+        }
+        const { method, params } = event.event
         const update = params?.update
         if (method === 'session/update' && update?.sessionUpdate === 'available_commands_update') {
           write({ content: '[PAC: remote slash commands are not yet available in OpenCode.]\n' })
-          return
+          continue
         }
         if (method === '_auth/status_update') {
           write({ content: '[PAC: remote authentication status changed.]\n' })
-          return
+          continue
         }
         if (method === 'session/update' && update?.sessionUpdate === 'usage_update') {
           write({ content: '[PAC: remote usage metrics are not yet displayed.]\n' })
-          return
+          continue
+        }
+        if (method === 'session/update' && update?.sessionUpdate === 'session_info_update') {
+          write({ content: '[PAC: remote session information changed.]\n' })
+          continue
         }
         if (method === 'session/update' && ['tool_call', 'tool_call_update'].includes(update?.sessionUpdate)) {
           const visible = Object.fromEntries(['sessionUpdate', 'toolCallId', 'title', 'kind', 'status', 'rawInput', 'rawOutput', 'content', 'locations']
@@ -66,15 +127,11 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
           const description = JSON.stringify(visible)
           if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC tool update exceeds size limit')
           write({ content: `\n[PAC tool event]\n${description}\n` })
-          return
+          continue
         }
         if (method !== 'session/update' || update?.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') throw new Error('Unsupported PAC event; turn cannot be represented')
         write({ content: update.content.text })
-      }, { signal: cancellation.signal })
-      if (result?.stopReason !== 'end_turn') throw new Error('PAC turn did not finish normally')
-      write({}, 'stop')
-      completed = true
-      response.end('data: [DONE]\n\n')
+      }
     } catch (error) {
       const category = ['Selected PAC model is unavailable', 'PAC model selection was not confirmed', 'Unsupported ACP version',
         'ACP session identity is missing', 'ACP connection lost', 'ACP request timed out', 'Unsupported PAC event',
@@ -84,5 +141,11 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       fail(502, 'PAC turn failed or its outcome is unknown')
     }
   })
+  server.requestPermission = (sessionId, params) => {
+    const turn = turns.get(sessionId)
+    if (!turn) throw new Error('No active PAC turn for permission')
+    return turn.channel.requestPermission(params, turn.cancellation.signal)
+  }
+  server.on('close', () => { for (const turn of turns.values()) { turn.cancellation.abort(); turn.channel.close() }; turns.clear() })
   return server
 }

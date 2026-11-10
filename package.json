@@ -3,5 +3,8 @@
   "private": true,
   "type": "module",
   "description": "Brains here, hands there: see README.md",
-  "dependencies": { "ws": "^8.18.0" }
+  "dependencies": {
+    "ws": "^8.18.0",
+    "zod": "^4.6.7"
+  }
 }

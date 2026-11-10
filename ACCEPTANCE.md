@@ -59,7 +59,9 @@ On Windows, the installed OpenCode 1.19.5 selected a configured local OpenAI-com
 
 An isolated cross-host test subsequently launched the installed OpenCode CLI through the experimental PAC provider, selected `PAC_testpac/sonnet`, and received a requested text marker from an authenticated Claude Code runtime on another host. Source credentials were not copied. This was a single text-only turn, not an interactive TUI or a tool, permission, reconnect, or complete acceptance test. Remote slash commands and usage metrics currently produce explicit limitations; unsupported events terminate the turn.
 
-A second isolated CLI run asked the same remote Claude to read a fixture present only in the OpenCode workspace, observed a PAC tool event, and received a confirmation marker. Tool events are currently rendered as structured text, not native OpenCode tool cards; permission handling, writes, commands and subagents are not validated through this route.
+A second isolated CLI run asked the same remote Claude to read a fixture present only in the OpenCode workspace, observed a PAC tool event, and received a confirmation marker. Tool events are currently rendered as structured text, not native OpenCode tool cards; commands and subagents are not validated through this route.
+
+An experimental approval bridge splits a remote turn into OpenCode provider response segments, asks through an OpenCode plugin tool and sends the chosen allow-once or reject-once option back to the originating PAC. Isolated tests with OpenCode and a fake PAC exercised automatic approval and an explicit deny policy. Separate cross-host runs with real Claude verified a source-side file write under automatic approval and verified that a denied write did not create the file. Interactive TUI approval, cancellation while an approval is visible, other approval variants, commands, concurrent sessions and reconnect remain unverified.
 
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
