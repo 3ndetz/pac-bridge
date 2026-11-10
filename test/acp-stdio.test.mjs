@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, relative, sep } from 'node:path'
+import { Duplex } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { createAcpPeer } from '../src/acp-peer.mjs'
+import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 
 const adapter = fileURLToPath(new URL('../adapters/acp-stdio.mjs', import.meta.url))
 
@@ -54,5 +60,26 @@ test('initializes an installed OMP through the ACP adapter', { skip: !process.en
     assert.equal(result.result?.protocolVersion, 1)
   } finally {
     child.kill()
+  }
+})
+
+test('creates an actual OMP ACP session without invoking a model', { skip: !process.env.PAC_OMP_BIN, timeout: 45000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-omp-probe-'))
+  const child = spawnContained(process.execPath, [adapter, 'omp'], { env: process.env, stdio: ['pipe', 'pipe', 'pipe'] })
+  child.stderr.resume()
+  const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { onRequest: () => ({}) })
+  try {
+    const init = await peer.call('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true } })
+    assert.equal(init.protocolVersion, 1)
+    const session = await peer.call('session/new', { cwd: root, mcpServers: [] })
+    assert.ok(typeof session.sessionId === 'string' && session.sessionId)
+  } finally {
+    const exited = child.exitCode === null ? once(child, 'close') : Promise.resolve()
+    peer.close()
+    stopContained(child)
+    await exited
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-omp-probe-')) await rm(actual, { recursive: true, force: true })
   }
 })

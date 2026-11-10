@@ -72,7 +72,7 @@ The experimental fixtures are not a release and do not satisfy this acceptance c
 
 The prototype deliberately disables or rejects unsupported controller-side tools rather than claiming they execute on the source. The SDK tool aliases expose MCP-prefixed names to hooks; the experimental project hook adapter maps the tested built-in names back before dispatch. No full-parity conclusion follows from these partial results.
 
-With the installed Windows OMP executable supplied explicitly, two previously skipped tests initialized its actual ACP process directly and through the relay. No model call was needed. This is an initialization proof only; OMP's HAPI integration and the feature comparison remain unverified.
+With the installed Windows OMP executable supplied explicitly, tests initialized its actual ACP process directly and through the relay and created an ACP session without invoking a model. In the inspected session response, no `models.availableModels` field or model configuration category was present; mode and thought-level configuration were present. This does not establish that model selection is impossible through other OMP mechanisms. OMP's HAPI integration and the feature comparison remain unverified.
 
 A server-level test verifies two PAC names with distinct agent credentials and separate source scopes, including cross-scope denials and correct routing. This does not replace the required test with two independently authenticated Claude runtimes.
 
