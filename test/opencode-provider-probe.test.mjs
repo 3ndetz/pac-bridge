@@ -16,6 +16,7 @@ test('installed OpenCode can select a local synthetic provider', {
   const requests = []
   let toolIssued = false
   await writeFile(join(root, 'probe.txt'), 'LOCAL_TOOL_FIXTURE')
+  const plugin = new URL('../adapters/opencode-plugin.mjs', import.meta.url).href
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
       response.writeHead(404).end()
@@ -24,6 +25,7 @@ test('installed OpenCode can select a local synthetic provider', {
     let body = ''
     for await (const chunk of request) body += chunk
     const requestBody = JSON.parse(body)
+    requestBody.observedHeaders = { session: request.headers['x-pac-session-id'], message: request.headers['x-pac-message-id'] }
     requests.push(requestBody)
     const chunk = (value) => `data: ${JSON.stringify(value)}\n\n`
     const base = { id: 'local-probe', object: 'chat.completion.chunk', created: 1, model: 'synthetic' }
@@ -42,7 +44,7 @@ test('installed OpenCode can select a local synthetic provider', {
   try {
     server.listen(0, '127.0.0.1')
     await once(server, 'listening')
-    const config = { provider: { pacprobe: { npm: '@ai-sdk/openai-compatible', name: 'PAC local probe',
+    const config = { plugin: [plugin], provider: { pacbridge: { npm: '@ai-sdk/openai-compatible', name: 'PAC local probe',
       options: { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'synthetic' },
       models: { synthetic: { name: 'Synthetic' } } } } }
     const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
@@ -51,7 +53,7 @@ test('installed OpenCode can select a local synthetic provider', {
       XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_DISABLE_MODELS_FETCH: '1',
       OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1' }
-    child = spawnContained(process.env.PAC_OPENCODE_BINARY, ['run', '--format', 'json', '-m', 'pacprobe/synthetic', 'Read the probe file'],
+    child = spawnContained(process.env.PAC_OPENCODE_BINARY, ['run', '--format', 'json', '-m', 'pacbridge/synthetic', 'Read the probe file'],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = ''
     let errors = ''
@@ -61,6 +63,9 @@ test('installed OpenCode can select a local synthetic provider', {
     assert.equal(code, 0, errors.slice(-3000))
     assert.equal(requests[0]?.model, 'synthetic')
     assert.ok(toolIssued)
+    assert.ok(requests.some((request) => request.observedHeaders.session && request.observedHeaders.message))
+    const userRequest = requests.find((request) => request.observedHeaders.session && request.messages.at(-1)?.role === 'user')
+    assert.equal(typeof userRequest?.messages.at(-1)?.content, 'string')
     const toolResult = requests.flatMap((request) => request.messages.filter((message) => message.role === 'tool'))
     assert.match(JSON.stringify(toolResult), /LOCAL_TOOL_FIXTURE/)
     assert.match(output, /probe-read/)
