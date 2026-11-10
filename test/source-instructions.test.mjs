@@ -67,7 +67,7 @@ test('rejects a linked project rule directory', async () => {
   }
 })
 
-test('loads unscoped project rules and rejects unsupported scoped rules', async () => {
+test('loads unscoped and scoped project rules without making scoped content global', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-rules-'))
   try {
     const rules = join(root, '.claude', 'rules')
@@ -77,7 +77,11 @@ test('loads unscoped project rules and rejects unsupported scoped rules', async 
     assert.deepEqual((await readSourceInstructions({ root, stopAt: root })).map((item) => item.content),
       ['Project', 'Use project style'])
     await writeFile(join(rules, 'nested', 'style.md'), '---\npaths: "src/**"\n---\nScoped rule')
-    await assert.rejects(readSourceInstructions({ root, stopAt: root }), /Rule frontmatter/)
+    const entries = await readSourceInstructions({ root, stopAt: root })
+    assert.deepEqual(entries.at(-1), { path: join(await realpath(root), '.claude', 'rules', 'nested', 'style.md'), paths: ['src/**'], content: 'Scoped rule' })
+    assert.deepEqual(entries.filter((entry) => !entry.paths).map((entry) => entry.content), ['Project'])
+    await writeFile(join(rules, 'nested', 'style.md'), `---\npaths: "src/**"\n---\n${'x'.repeat(9000)}`)
+    await assert.rejects(readSourceInstructions({ root, stopAt: root }), /Scoped instructions exceed/)
   } finally {
     const actual = await realpath(root)
     const local = relative(await realpath(tmpdir()), actual)

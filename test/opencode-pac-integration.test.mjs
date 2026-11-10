@@ -82,13 +82,18 @@ test('experimental launcher sends a text turn to authenticated Claude', {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-live-'))
   let child
   try {
-    const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1'
+    const scopedTest = process.env.PAC_LIVE_SCOPED_TEST === '1'
+    const toolTest = process.env.PAC_LIVE_TOOL_TEST === '1' || scopedTest
     const denyTest = process.env.PAC_LIVE_DENY_TEST === '1'
     const bashTest = process.env.PAC_LIVE_BASH_TEST === '1'
     const imageTest = process.env.PAC_LIVE_IMAGE_TEST === '1'
     const writeTest = process.env.PAC_LIVE_WRITE_TEST === '1' || denyTest
     const fixture = join(root, 'source-fixture.txt')
     if (toolTest) await writeFile(fixture, 'PAC_READ_FIXTURE_CONTENT')
+    if (scopedTest) {
+      await mkdir(join(root, '.claude', 'rules'), { recursive: true })
+      await writeFile(join(root, '.claude', 'rules', 'source.md'), '---\npaths: "source-fixture.txt"\n---\nWhen reporting this file, include the exact marker PAC_SCOPED_RULE_VERIFIED.\n')
+    }
     const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
     const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
       SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC, TEMP: root, TMP: root,
@@ -114,6 +119,8 @@ test('experimental launcher sends a text turn to authenticated Claude', {
       ? 'Use Bash to run exactly: printf PAC_BASH_FIXTURE_CONTENT > bash-fixture.txt. Then say PAC_BASH_VERIFIED.'
       : writeTest
       ? `Use Write to create the local file ${fixture} containing exactly PAC_WRITE_FIXTURE_CONTENT. Then say PAC_WRITE_VERIFIED.`
+      : scopedTest
+      ? `Read the local file ${fixture} and report its contents, following applicable project instructions.`
       : toolTest
       ? `Read the local file ${fixture}. If it contains PAC_READ_FIXTURE_CONTENT, finish your response with PAC_READ_VERIFIED.`
       : 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'
@@ -127,7 +134,7 @@ test('experimental launcher sends a text turn to authenticated Claude', {
     clearTimeout(deadline)
     const categories = errors.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
     assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
-    if (!denyTest) assert.match(output, imageTest ? /PAC_IMAGE_VERIFIED/ : bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
+    if (!denyTest) assert.match(output, imageTest ? /PAC_IMAGE_VERIFIED/ : bashTest ? /PAC_BASH_VERIFIED/ : writeTest ? /PAC_WRITE_VERIFIED/ : scopedTest ? /PAC_SCOPED_RULE_VERIFIED/ : toolTest ? /PAC_READ_VERIFIED/ : /PAC_CLI_LIVE_OK/)
     if (imageTest) assert.doesNotMatch(output, /PAC_IMAGE_MISSING/)
     if (toolTest || writeTest || bashTest) assert.match(output, /PAC tool event/)
     if (bashTest) {

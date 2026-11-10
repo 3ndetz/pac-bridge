@@ -99,7 +99,7 @@ test('reports unavailable PACs without hiding native models or exposing configur
     assert.ok(!JSON.stringify(opened).includes('private-test-token'))
     peer.close(); child.kill(); await once(child, 'exit')
     await mkdir(join(root, '.claude', 'rules'), { recursive: true })
-    await writeFile(join(root, '.claude', 'rules', 'scoped.md'), '---\npaths: "src/**"\n---\nprivate-test-content')
+    await writeFile(join(root, '.claude', 'rules', 'scoped.md'), '---\npaths: 42\n---\nprivate-test-content')
     opened = await launch({ PAC_EXPERIMENTAL_INSTRUCTIONS: '1', PAC_TEST_INSTRUCTION_BOUNDARY: 'workspace' })
     assert.deepEqual(opened._meta.pacDiscoveryWarnings, [{ name: 'offline', code: 'rule_frontmatter_unsupported' }])
     assert.ok(opened.models.availableModels.some((model) => model.modelId === 'initial'))

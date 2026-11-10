@@ -26,7 +26,7 @@ export async function discoverPacsDirect({ cwd, env }) {
     if (env.PAC_EXPERIMENTAL_SKILLS === '1') skills = await createSourceSkills({ root: cwd })
     if (env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') instructions = await readSourceInstructions({ root: cwd })
   } catch (error) {
-    const code = error.message === 'Rule frontmatter is not yet supported' ? 'rule_frontmatter_unsupported'
+    const code = ['Unsupported project rule paths', 'Rule aliases are not supported', 'Rule glob expansion exceeds the supported limit'].includes(error.message) ? 'rule_frontmatter_unsupported'
       : error.message === 'External instruction imports require approval and are not supported' ? 'external_import_unsupported' : 'source_setup_failed'
     return { models: [], warnings: records.map(({ name }) => ({ name, code })) }
   }
@@ -35,7 +35,7 @@ export async function discoverPacsDirect({ cwd, env }) {
     try {
       const token = (await readFile(entry.tokenFile, 'utf8')).trim()
       const stream = await connectSource({ ...entry, token })
-      remote = await openPacSession(stream, { cwd: entry.cwd, meta: { pac: { workspaceCwd: cwd, skills: skills?.list || [], instructions: instructions || [] } },
+      remote = await openPacSession(stream, { cwd: entry.cwd, meta: { pac: { workspaceCwd: cwd, skills: skills?.list || [], instructions: (instructions || []).filter((entry) => !entry.paths) } },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {} },
         onRequest: async () => { throw new Error('Discovery cannot approve actions') }, onNotification: () => {} })
       const models = remote.models.models.filter((item) => typeof item.id === 'string' && /^[A-Za-z0-9_.-]+$/.test(item.id))

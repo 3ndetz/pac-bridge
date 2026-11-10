@@ -1,5 +1,6 @@
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { parseProjectRule } from './scoped-rules.mjs'
 
 // Exclude Markdown examples from import discovery. This deliberately leaves
 // unsupported constructs to fail visibly rather than reading external files.
@@ -59,7 +60,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
   }
   const entries = []
   let total = 0
-  async function readInstruction(path, scope, depth, active, allowImports, rule = false) {
+  async function readInstruction(path, scope, depth, active, allowImports, rule = false, inheritedPaths = []) {
     let actual
     try { actual = await realpath(path) } catch (error) {
       if (error.code === 'ENOENT' && depth === 0) return
@@ -83,8 +84,9 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
       total += offset
       text = new TextDecoder('utf8', { fatal: true }).decode(buffer.subarray(0, offset))
     } finally { await file.close() }
-    if (rule && /^---\s*\r?\n/.test(text)) throw new Error('Rule frontmatter is not yet supported')
-    entries.push({ path, content: text })
+    const parsed = rule ? parseProjectRule(text) : { content: text, paths: inheritedPaths }
+    text = parsed.content
+    entries.push({ path, content: text, ...(parsed.paths.length ? { paths: parsed.paths } : {}) })
     if (!allowImports) return
     const imports = instructionImports(text)
     if (imports.length && depth >= 4) throw new Error('Instruction import exceeds the maximum depth')
@@ -99,7 +101,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
         if (inWorkspace === '..' || inWorkspace.startsWith(`..${sep}`) || isAbsolute(inWorkspace)) {
           throw new Error('External instruction imports require approval and are not supported')
         }
-        await readInstruction(target, workspace, depth + 1, active, true)
+        await readInstruction(target, workspace, depth + 1, active, true, false, parsed.paths)
       }
     } finally { active.delete(actual) }
   }
@@ -109,8 +111,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
       await readInstruction(path, directory, 0, new Set(), name !== 'AGENTS.md')
     }
   }
-  // Source project rules without frontmatter apply for the whole workspace.
-  // Scoped rules and links are rejected until their semantics can be routed.
+  // Links are rejected until external-import approval can be routed.
   let ruleDirectories = 0
   async function readRules(directory) {
     if (++ruleDirectories > 256) throw new Error('Too many source rule directories')
@@ -134,5 +135,7 @@ export async function readSourceInstructions({ root, stopAt, maxFileBytes = 256 
     }
   }
   await readRules(join(workspace, '.claude', 'rules'))
+  const scopedContext = entries.filter((entry) => entry.paths).map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
+  if (scopedContext.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
   return entries
 }

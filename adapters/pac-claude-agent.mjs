@@ -227,6 +227,18 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     const meta = params._meta || {}
     const skills = meta.pac?.skills || []
     const instructions = meta.pac?.instructions || []
+    const loadedScopedRules = new Set()
+    const scopedRulesHook = async (input) => {
+      if (meta.pac?.scopedRules !== true || !/^(?:mcp__pac__)?(?:Read|Write|Edit)$/.test(input.tool_name || '') || typeof input.tool_input?.file_path !== 'string') return {}
+      const result = await agent.client.inner.ctx.request('pac/instructions/match', { sessionId, path: input.tool_input.file_path })
+      if (!Array.isArray(result?.instructions) || result.instructions.length > 256 || result.instructions.some((entry) => typeof entry?.path !== 'string' || typeof entry?.content !== 'string')) throw new Error('Invalid scoped instruction response')
+      const next = result.instructions.filter((entry) => !loadedScopedRules.has(entry.path))
+      if (!next.length) return {}
+      const context = next.map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
+      if (context.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
+      for (const entry of next) loadedScopedRules.add(entry.path)
+      return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } }
+    }
     if (!Array.isArray(skills) || skills.length > 100 || skills.some((skill) => typeof skill?.name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(skill.name) || typeof skill?.description !== 'string' || skill.description.length > 1536)) throw new Error('Invalid source skill catalog')
     if (!Array.isArray(instructions) || instructions.length > 256 || instructions.some((entry) => typeof entry?.path !== 'string' || typeof entry?.content !== 'string') ||
         Buffer.byteLength(JSON.stringify(instructions), 'utf8') > 1024 * 1024) throw new Error('Invalid source instructions')
@@ -263,7 +275,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       ...(aliases ? { toolAliases: { Read: 'mcp__pac__Read', Write: 'mcp__pac__Write', Edit: 'mcp__pac__Edit', Bash: 'mcp__pac__Bash', Glob: 'mcp__pac__Glob', Grep: 'mcp__pac__Grep', Skill: 'mcp__pac__Skill', AskUserQuestion: 'mcp__pac__AskUserQuestion' },
         disallowedTools: ['PowerShell', 'NotebookEdit', 'WebFetch', 'WebSearch',
           ...(backgroundEnabled ? [] : ['Agent', 'Task', 'TaskOutput', 'TaskStop'])] } : {}),
-      hooks: { ...options.hooks, PostToolUse: [...(options.hooks?.PostToolUse || []), { hooks: [projectHook] }],
+      hooks: { ...options.hooks, PostToolUse: [...(options.hooks?.PostToolUse || []), { hooks: [projectHook, scopedRulesHook] }],
         PostToolUseFailure: [...(options.hooks?.PostToolUseFailure || []), { hooks: [projectHook] }],
         PreToolUse: [...(options.hooks?.PreToolUse || []), { hooks: [projectHook], onFailure: 'block' }, { hooks: [async (input) => {
         return prototypeToolDecision(input.tool_name, { aliases, allowSubagents: backgroundEnabled, allowQuestions: questionsEnabled,

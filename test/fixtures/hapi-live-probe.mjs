@@ -137,7 +137,7 @@ try {
       const warningCwd = join(workspace, 'warning-case')
       await mkdir(warningCwd)
       await mkdir(join(warningCwd, '.claude', 'rules'), { recursive: true })
-      await writeFile(join(warningCwd, '.claude', 'rules', 'scoped.md'), '---\npaths: "src/**"\n---\nScoped instructions\n')
+      await writeFile(join(warningCwd, '.claude', 'rules', 'scoped.md'), '---\npaths: 42\n---\nUnsupported rule paths\n')
       const discovered = await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(warningCwd)}`)
       if (!discovered.success || !Array.isArray(discovered.availableModels) ||
           !discovered.pacDiscoveryWarnings?.some((warning) => warning.name === 'testpac' && warning.code === 'rule_frontmatter_unsupported')) {

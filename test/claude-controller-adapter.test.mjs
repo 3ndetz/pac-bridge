@@ -23,14 +23,16 @@ test('initializes the Claude controller with project dependencies without signin
 
 test('runs the installed controller against a local synthetic model endpoint', { skip: process.env.PAC_TEST_SYNTHETIC_CLAUDE !== '1', timeout: 120000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-controller-test-'))
-  let requests = 0, answer = '', toolCalls = 0, modelSawSource = false
+  let requests = 0, answer = '', toolCalls = 0, modelSawSource = false, modelSawScopedRule = false, scopedRequests = 0
   const toolTest = process.env.PAC_TEST_SYNTHETIC_TOOL === '1'
+  const scopedTest = process.env.PAC_TEST_SYNTHETIC_SCOPED === '1'
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || !request.url.startsWith('/v1/messages')) { response.writeHead(404).end(); return }
     let body = ''
     for await (const chunk of request) body += chunk
     const parsed = JSON.parse(body), model = parsed.model
     if (JSON.stringify(parsed.messages).includes('SYNTHETIC_SOURCE_CONTENT')) modelSawSource = true
+    if (JSON.stringify(parsed.messages).includes('SYNTHETIC_SCOPED_RULE')) modelSawScopedRule = true
     requests++
     response.writeHead(200, { 'content-type': 'text/event-stream' })
     const emit = (type, value) => response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`)
@@ -62,16 +64,21 @@ test('runs the installed controller against a local synthetic model endpoint', {
     peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { timeoutMs: 60000,
       onNotification: (method, params) => { if (method === 'session/update' && params?.update?.sessionUpdate === 'agent_message_chunk') answer += params.update.content?.text || '' },
       onRequest: async (method, params) => {
+        if (method === 'pac/instructions/match' && scopedTest && params.path === join(root, 'synthetic.txt')) {
+          scopedRequests++
+          return { instructions: [{ path: 'scoped-rule.md', content: 'SYNTHETIC_SCOPED_RULE' }] }
+        }
         if (method !== 'fs/read_text_file' || params.path !== join(root, 'synthetic.txt')) throw new Error('Unexpected source operation')
         toolCalls++
         return { content: 'SYNTHETIC_SOURCE_CONTENT' }
       } })
     await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
-    const session = await peer.call('session/new', { cwd: root, mcpServers: [] })
+    const session = await peer.call('session/new', { cwd: root, mcpServers: [], ...(scopedTest ? { _meta: { pac: { scopedRules: true } } } : {}) })
     await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Reply with the local marker.' }] }, 90000)
     assert.ok(requests > 0)
     assert.match(answer, /LOCAL_SYNTHETIC_CLAUDE_OK/)
     if (toolTest) { assert.ok(requests >= 2); assert.equal(toolCalls, 1); assert.equal(modelSawSource, true) }
+    if (scopedTest) { assert.equal(scopedRequests, 1); assert.equal(modelSawScopedRule, true) }
   } finally {
     peer?.close(); child?.kill(); await new Promise((resolve) => server.close(resolve))
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
