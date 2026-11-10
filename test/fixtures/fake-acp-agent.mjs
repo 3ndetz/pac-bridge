@@ -1,5 +1,5 @@
 import { Duplex } from 'node:stream'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { createAcpPeer } from '../../src/acp-peer.mjs'
 
 const native = process.argv.includes('--native')
@@ -22,6 +22,7 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
     ] }
     if (method === 'session/load') {
       if (params.sessionId !== (native ? 'native-session' : 'remote-session')) throw new Error('Unknown fake session')
+      if (process.env.PAC_TEST_CONVERSATION_FILE) firstPrompt = await readFile(process.env.PAC_TEST_CONVERSATION_FILE, 'utf8')
       return { sessionId: params.sessionId, configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/set_config_option') {
@@ -52,6 +53,7 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       }
       if (process.argv.includes('--conversation')) {
         firstPrompt ??= params.prompt?.find((part) => part.type === 'text')?.text || ''
+        if (process.env.PAC_TEST_CONVERSATION_FILE) await writeFile(process.env.PAC_TEST_CONVERSATION_FILE, firstPrompt)
         const imageCount = params.prompt?.filter((part) => part.type === 'image' && part.mimeType === 'image/png').length || 0
         peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `remembered:${firstPrompt} model:${selected} images:${imageCount}` } } })
         setTimeout(() => { try { peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'session_info_update' } }) } catch {} }, 30)

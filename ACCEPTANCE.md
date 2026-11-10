@@ -61,7 +61,7 @@ An installed OpenCode server displayed two native questions requested by a synth
 
 The experimental controller adapter is now in `adapters/pac-claude-agent.mjs`; the old test entrypoint imports it and retains its test-only delay. An isolated cross-host run reached the remote prompt through the moved adapter but failed at controller authentication. This verifies the exercised startup and routing path, not a successful Claude response after the move.
 
-An installed OpenCode server switched from one synthetic model to another on the same synthetic PAC within one conversation, retaining a context marker. Unit tests cover persistence of that selection and refusal to switch to a different PAC. Model switching with an authenticated controller and after a real restart remains unverified.
+An installed OpenCode server switched from one synthetic model to another on the same synthetic PAC within one conversation, retaining a context marker. A separate test restarted OpenCode and the launcher, restored a synthetic PAC conversation and then switched models with the original context. Unit tests cover persistence of that selection and refusal to switch to a different PAC. Model switching with an authenticated controller remains unverified.
 
 Aborting an active OpenCode server session delivered ACP cancellation to a synthetic PAC while its turn was pending. This does not establish that a real controller's in-progress side effects or descendant processes have stopped; those require separate verification and an interrupted outcome can remain unknown.
 
