@@ -989,7 +989,7 @@ try {
   const realTemp = await realpath(tmpdir())
   const realRoot = await realpath(root)
   const local = relative(realTemp, realRoot)
-  if (!processCleanupUncertain && local && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local) && local.startsWith('pac-hapi-proof-')) await rm(realRoot, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 })
+  if (!processCleanupUncertain && local && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local) && local.startsWith('pac-hapi-proof-')) await rm(realRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
   stage = 'isolated test cleanup finished'
   if (stageTimer) clearInterval(stageTimer)
 }
