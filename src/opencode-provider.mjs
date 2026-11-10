@@ -48,6 +48,18 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       write({ role: 'assistant' })
       const result = await router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], ({ method, params }) => {
         const update = params?.update
+        if (method === 'session/update' && update?.sessionUpdate === 'available_commands_update') {
+          write({ content: '[PAC: remote slash commands are not yet available in OpenCode.]\n' })
+          return
+        }
+        if (method === '_auth/status_update') {
+          write({ content: '[PAC: remote authentication status changed.]\n' })
+          return
+        }
+        if (method === 'session/update' && update?.sessionUpdate === 'usage_update') {
+          write({ content: '[PAC: remote usage metrics are not yet displayed.]\n' })
+          return
+        }
         if (method !== 'session/update' || update?.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') throw new Error('Unsupported PAC event; turn cannot be represented')
         write({ content: update.content.text })
       }, { signal: cancellation.signal })

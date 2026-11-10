@@ -9,6 +9,9 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
   const server = createOpencodeProvider({ token, cwd: '/source', router: {
     async prompt(binding, prompt, update) {
       calls.push({ binding, prompt })
+      update({ method: '_auth/status_update', params: { secret: 'must-not-be-forwarded' } })
+      update({ method: 'session/update', params: { update: { sessionUpdate: 'usage_update' } } })
+      update({ method: 'session/update', params: { update: { sessionUpdate: 'available_commands_update' } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'remote reply' } } } })
       return { stopReason: 'end_turn' }
     }, async cancel() {}
@@ -27,6 +30,9 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
     assert.equal(response.status, 200)
     const stream = await response.text()
     assert.match(stream, /remote reply/)
+    assert.match(stream, /usage metrics are not yet displayed/)
+    assert.match(stream, /remote slash commands are not yet available/)
+    assert.doesNotMatch(stream, /must-not-be-forwarded/)
     assert.match(stream, /\[DONE\]/)
     assert.deepEqual(calls, [{ binding: { sessionId: 'session-1', model: 'PAC_work/sonnet', cwd: '/source' }, prompt: [{ type: 'text', text: 'hello' }] }])
     const replay = await fetch(url, { method: 'POST', headers, body })

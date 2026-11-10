@@ -76,6 +76,41 @@ test('routes an actual OpenCode CLI text turn to a fake PAC', {
   }
 })
 
+test('experimental launcher sends a text turn to authenticated Claude', {
+  skip: !process.env.PAC_LIVE_URL || !process.env.PAC_LIVE_SOURCE_TOKEN_FILE || !process.env.PAC_OPENCODE_BINARY, timeout: 180000
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-opencode-live-'))
+  let child
+  try {
+    const launcher = fileURLToPath(new URL('../adapters/opencode-pac.mjs', import.meta.url))
+    const env = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD',
+      SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC, TEMP: root, TMP: root,
+      HOME: root, USERPROFILE: root, APPDATA: join(root, 'appdata'), LOCALAPPDATA: join(root, 'localappdata'),
+      XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
+      OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+      NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS, PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1',
+      PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
+      PAC_RELAY_URL: process.env.PAC_LIVE_URL, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: process.env.PAC_LIVE_SOURCE_TOKEN_FILE,
+      PAC_CONTROLLER_CWD: process.env.PAC_LIVE_CONTROLLER_CWD }
+    child = spawnContained(process.execPath, [launcher, 'run', '--format', 'json', 'Reply exactly PAC_CLI_LIVE_OK. Do not use tools.'],
+      { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    let output = '', errors = ''
+    const deadline = setTimeout(() => stopContained(child), 150000)
+    child.stdout.on('data', (chunk) => { output += chunk })
+    child.stderr.on('data', (chunk) => { errors += chunk })
+    const [code] = await once(child, 'close')
+    clearTimeout(deadline)
+    const categories = errors.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
+    assert.equal(code, 0, `OpenCode live probe failed: ${categories || 'no diagnostic category'}`)
+    assert.match(output, /PAC_CLI_LIVE_OK/)
+  } finally {
+    if (child && child.exitCode === null) stopContained(child)
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-opencode-live-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+})
+
 test('experimental launcher opens OpenCode against a fake PAC', {
   skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000
 }, async () => {

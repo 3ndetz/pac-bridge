@@ -22,13 +22,12 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
       // Native OpenCode advertises its own command list before session/new
       // returns. It is not a PAC command list and must not be attributed to it.
       if (!id && method === 'session/update' && params?.update?.sessionUpdate === 'available_commands_update') return
-      if (!activeUpdate) {
-        const type = params?.update?.sessionUpdate
-        try { onDiagnostic(`notification:${typeof type === 'string' && /^[a-z_]{1,64}$/.test(type) ? type : 'other'}`) } catch {}
-      }
-      if (params?.sessionId && params.sessionId !== id) throw new Error('ACP update belongs to another session')
-      if (!activeUpdate) throw new Error('ACP update cannot be delivered outside an active turn')
-      activeUpdate({ method, params })
+      const type = params?.update?.sessionUpdate
+      const safeMethod = typeof method === 'string' && /^[a-z_/]{1,64}$/.test(method) ? method.replaceAll('/', 'Z') : 'other'
+      try { onDiagnostic(`notification:${safeMethod}__${typeof type === 'string' && /^[a-z_]{1,64}$/.test(type) ? type : 'none'}`) } catch {}
+      if (params?.sessionId && params.sessionId !== id) { onDiagnostic('bad_session'); throw new Error('ACP update belongs to another session') }
+      if (!activeUpdate) { onDiagnostic('no_active_turn'); throw new Error('ACP update cannot be delivered outside an active turn') }
+      try { activeUpdate({ method, params }) } catch (error) { onDiagnostic('consumer_error'); throw error }
     },
   })
   function close() {
