@@ -67,6 +67,8 @@ Another isolated CLI run used automatic approval for a Bash command from remote 
 
 In a further isolated run, two messages sent through one OpenCode server session reached the same remote Claude conversation: the second response recalled a marker supplied only in the first prompt. This verifies sequential in-process context for that path, not restart, reconnect or active-work recovery.
 
+The same test was repeated after stopping and restarting the isolated OpenCode server and PAC launcher between messages. The saved PAC and ACP session binding restored the completed Claude conversation and its first-turn marker. Recovery of an interrupted operation and reconciliation of uncertain side effects remain open.
+
 | Capability | Evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Session creation and models | Real HAPI runners on two Windows source hosts offered and selected a named PAC model before session creation. Browser tests on both hosts selected OpenCode and the PAC model in HAPI's new-session form, created a session, sent a message and stopped the resulting task; component tests also cover selection and form submission. A separate live session switched from Sonnet to Opus and back; Claude usage events confirmed the actual model family after each switch. | Persistent deployment, live discovery and authorization; independently authenticated PAC identities, all model variants and broader source platforms. |

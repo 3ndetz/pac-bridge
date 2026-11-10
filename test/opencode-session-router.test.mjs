@@ -90,3 +90,26 @@ test('does not start a remote prompt after cancellation during session setup', a
   assert.equal(calls, 0)
   router.close()
 })
+
+test('restores the original ACP identity and rejects mismatched persisted bindings', async () => {
+  const records = new Map()
+  const store = { read: async (id) => records.get(id) || null, write: async (record) => records.set(record.sessionId, record) }
+  const opens = []
+  const openSession = async (options) => {
+    opens.push(options)
+    return { sourceSessionId: 'acp-original', prompt: async () => ({}), cancel() {}, close() {} }
+  }
+  const first = createOpencodeSessionRouter({ openSession, store })
+  await first.prompt(binding, [], () => {})
+  first.close()
+  const second = createOpencodeSessionRouter({ openSession, store })
+  assert.equal(await second.canResume(binding.sessionId), true)
+  await second.prompt(binding, [], () => {}, { mustResume: true })
+  assert.equal(opens[1].resumeSessionId, 'acp-original')
+  second.close()
+  const third = createOpencodeSessionRouter({ openSession, store })
+  await assert.rejects(third.prompt({ ...binding, model: 'PAC_other/opus' }, [], () => {}, { mustResume: true }), /does not match/)
+  await assert.rejects(third.prompt({ ...binding, sessionId: 'missing' }, [], () => {}, { mustResume: true }), /binding is unavailable/)
+  assert.equal(opens.length, 2)
+  third.close()
+})

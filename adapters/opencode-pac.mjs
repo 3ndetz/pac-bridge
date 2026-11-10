@@ -1,9 +1,12 @@
 import { randomBytes } from 'node:crypto'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createOpencodeProvider } from '../src/opencode-provider.mjs'
 import { createOpencodeSessionRouter } from '../src/opencode-session-router.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
+import { createSessionStore } from '../src/session-store.mjs'
 
 // Experimental launcher: text only, unsupported tools/events fail closed.
 const binary = process.env.PAC_OPENCODE_BINARY
@@ -12,12 +15,15 @@ if (process.env.PAC_EXPERIMENTAL !== '1' || !binary || typeof model !== 'string'
   throw new Error('Experimental PAC launcher requires PAC_EXPERIMENTAL=1, PAC_OPENCODE_BINARY and PAC_MODEL')
 }
 const cwd = process.cwd()
+const sessionRoot = resolve(process.env.PAC_SESSION_DIR || join(homedir(), '.pac-bridge', 'sessions'))
 const token = randomBytes(32).toString('hex')
 const routerPath = fileURLToPath(new URL('./pac-opencode-router.mjs', import.meta.url))
 const pluginUrl = new URL('./opencode-plugin.mjs', import.meta.url).href
 let server
-const router = createOpencodeSessionRouter({ openSession: ({ sessionId, model: selected, cwd: workspace }) => openOpencodeAcpSession({
-  command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, env: process.env,
+const router = createOpencodeSessionRouter({ store: createSessionStore(join(sessionRoot, 'opencode')),
+  openSession: ({ sessionId, model: selected, cwd: workspace, resumeSessionId }) => openOpencodeAcpSession({
+  command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId,
+  env: { ...process.env, PAC_SESSION_DIR: join(sessionRoot, 'acp') },
   onPermission: (params) => server.requestPermission(sessionId, params),
   onDiagnostic: (category) => { if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC ACP ${category}\n`) },
 }) })

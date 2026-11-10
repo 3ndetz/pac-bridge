@@ -65,7 +65,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       if (last.role === 'user') {
         if (typeof last.content !== 'string' || !last.content) return fail(400, 'Unsupported user message')
         const hasPriorConversation = body.messages.some((entry) => entry.role === 'assistant' || entry.role === 'tool') || body.messages.filter((entry) => entry.role === 'user').length > 1
-        if (hasPriorConversation && !router.hasSession?.(sessionId)) return fail(400, 'PAC session binding is unavailable; refusing to start a different conversation')
+        if (hasPriorConversation && !router.hasSession?.(sessionId) && !await router.canResume?.(sessionId)) return fail(400, 'PAC session binding is unavailable; refusing to start a different conversation')
         if (messages.has(messageId)) return fail(400, 'Duplicate turn; outcome may be unknown')
         if (turn) return fail(400, 'A PAC turn is already active')
         if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
@@ -74,7 +74,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         const channel = createOpencodeTurnChannel({ sessionId })
         turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false }
         turns.set(sessionId, turn)
-        channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], update, { signal: cancellation.signal }))
+        channel.start((update) => router.prompt({ sessionId, model: body.model, cwd }, [{ type: 'text', text: last.content }], update, { signal: cancellation.signal, mustResume: hasPriorConversation }))
       } else {
         if (!turn || turn.messageId !== messageId || turn.model !== body.model || !turn.pending?.resolved || last.tool_call_id !== turn.pending.id) return fail(400, 'Invalid PAC continuation')
         clearTimeout(turn.timer)

@@ -4,7 +4,7 @@ import { spawnContained, stopContained } from './spawn-contained.mjs'
 
 // Opens a single PAC-bound session through the same ACP router used by HAPI.
 // The caller must present permissions and updates to the originating user.
-export async function openOpencodeAcpSession({ command, args, env, cwd, model, onPermission, onDiagnostic = () => {} }) {
+export async function openOpencodeAcpSession({ command, args, env, cwd, model, resumeSessionId, onPermission, onDiagnostic = () => {} }) {
   if (typeof command !== 'string' || !command || !Array.isArray(args) || typeof onPermission !== 'function') throw new Error('Invalid ACP launcher')
   const child = spawnContained(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
   child.stderr.resume()
@@ -12,7 +12,8 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
   let activeUpdate = null
   const delayed = []
   let delayedBytes = 0
-  let id
+  let id = resumeSessionId
+  let loading = Boolean(resumeSessionId)
   let stopped = false
   let phase = 'initialize'
   const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), {
@@ -21,6 +22,10 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
       return onPermission(params)
     },
     onNotification: (method, params) => {
+      // OpenCode already owns the visible conversation history. ACP load
+      // replays it for synchronization; never replay its old tool actions.
+      if (loading && method === 'session/update' && params?.sessionId === id &&
+          ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(params?.update?.sessionUpdate)) return
       // Native OpenCode advertises its own command list before session/new
       // returns. It is not a PAC command list and must not be attributed to it.
       if (!id && method === 'session/update' && params?.update?.sessionUpdate === 'available_commands_update') return
@@ -49,9 +54,12 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
     const initialized = await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
     if (initialized?.protocolVersion !== 1) throw new Error('Unsupported ACP version')
     phase = 'session-new'
-    const opened = await peer.call('session/new', { cwd, mcpServers: [] })
-    id = opened?.sessionId
+    if (resumeSessionId && initialized.agentCapabilities?.loadSession !== true) throw new Error('ACP session cannot be restored')
+    const opened = await peer.call(resumeSessionId ? 'session/load' : 'session/new', { cwd, mcpServers: [], ...(resumeSessionId ? { sessionId: resumeSessionId } : {}) })
+    id = opened?.sessionId ?? resumeSessionId
+    loading = false
     if (typeof id !== 'string' || !id) throw new Error('ACP session identity is missing')
+    if (resumeSessionId && id !== resumeSessionId) throw new Error('ACP returned a different session identity')
     const option = opened.configOptions?.find((entry) => entry.id === 'model' || entry.category === 'model')
     const available = option?.options?.some((entry) => entry.value === model) || opened.models?.availableModels?.some((entry) => entry.modelId === model)
     if (!available) throw new Error('Selected PAC model is unavailable')
@@ -66,6 +74,7 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, o
       await peer.call('session/set_model', { sessionId: id, modelId: model })
     }
     return {
+      sourceSessionId: id,
       async prompt(prompt, onUpdate) {
         if (stopped || activeUpdate) throw new Error('ACP session is unavailable or busy')
         activeUpdate = onUpdate

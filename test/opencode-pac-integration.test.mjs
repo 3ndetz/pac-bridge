@@ -213,22 +213,27 @@ test('keeps the same PAC conversation across OpenCode messages', {
       HOME: root, USERPROFILE: root, APPDATA: join(root, 'appdata'), LOCALAPPDATA: join(root, 'localappdata'),
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
-      PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
+      PAC_EXPERIMENTAL: '1', PAC_DIAGNOSTICS: '1', PAC_OPENCODE_BINARY: process.env.PAC_OPENCODE_BINARY, PAC_MODEL: 'PAC_testpac/sonnet',
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS,
       PAC_EXPERIMENTAL_HOOKS: live ? '1' : '0', PAC_SOURCE_BASH: live ? join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe') : undefined,
+      PAC_SESSION_DIR: join(root, 'pac-sessions'),
       PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: live ? process.env.PAC_LIVE_CONTROLLER_CWD : root }
-    child = spawnContained(process.execPath, [launcher, 'serve', '--hostname', '127.0.0.1', '--port', String(port)],
-      { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-    child.stdout.resume(); child.stderr.resume()
     const base = `http://127.0.0.1:${port}`
-    const until = Date.now() + 60000
-    let ready = false
-    while (Date.now() < until && !ready) {
-      if (child.exitCode !== null) break
-      try { ready = (await fetch(`${base}/global/health`, { signal: AbortSignal.timeout(2000) })).ok } catch {}
-      if (!ready) await new Promise((resolve) => setTimeout(resolve, 500))
+    let diagnostics = ''
+    async function launch() {
+      child = spawnContained(process.execPath, [launcher, 'serve', '--hostname', '127.0.0.1', '--port', String(port)],
+        { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      child.stdout.resume(); child.stderr.on('data', (chunk) => { diagnostics += chunk })
+      const until = Date.now() + 60000
+      let ready = false
+      while (Date.now() < until && !ready) {
+        if (child.exitCode !== null) break
+        try { ready = (await fetch(`${base}/global/health`, { signal: AbortSignal.timeout(2000) })).ok } catch {}
+        if (!ready) await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      assert.ok(ready, 'OpenCode server did not start')
     }
-    assert.ok(ready, 'OpenCode server did not start')
+    await launch()
     const request = async (path, body) => {
       const response = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(45000) })
       if (!response.ok) throw new Error(`OpenCode HTTP ${response.status}`)
@@ -239,8 +244,15 @@ test('keeps the same PAC conversation across OpenCode messages', {
     const first = await message(live ? 'Remember code PAC_CONTEXT_6184. Reply STORED.' : 'FIRST_PAC_CONTEXT')
     assert.match(JSON.stringify(first.parts), live ? /STORED/i : /remembered:FIRST_PAC_CONTEXT/)
     await new Promise((resolve) => setTimeout(resolve, 300))
+    if (live && process.env.PAC_LIVE_RESUME_TEST === '1') {
+      const ended = once(child, 'close')
+      stopContained(child)
+      await ended
+      await launch()
+    }
     const second = await message(live ? 'What code did I ask you to remember? Reply with the exact code.' : 'What did I say first?')
-    assert.match(JSON.stringify(second.parts), live ? /PAC_CONTEXT_6184/ : /remembered:FIRST_PAC_CONTEXT/)
+    const categories = diagnostics.split(/\r?\n/).filter((line) => /^PAC (?:provider failure: |ACP (?:notification:)?)[a-zA-Z_ ()-]+$/.test(line)).join(', ')
+    assert.match(JSON.stringify(second.parts), live ? /PAC_CONTEXT_6184/ : /remembered:FIRST_PAC_CONTEXT/, categories)
   } finally {
     if (child && child.exitCode === null) { const ended = once(child, 'close'); stopContained(child); await ended }
     agent?.close()
