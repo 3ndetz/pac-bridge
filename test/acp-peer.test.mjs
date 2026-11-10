@@ -106,14 +106,16 @@ test('rejects malformed responses instead of treating them as successful results
   for (const response of [{}, { result: null, error: { code: -1, message: 'error' } }, { error: { message: 'error' } }]) {
     const [firstStream, secondStream] = streams()
     secondStream.on('error', () => {})
-    const first = createAcpPeer(firstStream)
+    const calls = []
+    const first = createAcpPeer(firstStream, { onRequest: (method) => calls.push(method) })
     try {
       const request = once(secondStream, 'data')
       const pending = first.call('side-effect', {}, 1000)
       const [line] = await request
       const { id } = JSON.parse(line.toString())
-      secondStream.write(JSON.stringify({ jsonrpc: '2.0', id, ...response }) + '\n')
+      secondStream.write(JSON.stringify({ jsonrpc: '2.0', id, ...response }) + '\n' + JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'write' }) + '\n')
       await assert.rejects(pending, /outcome may be unknown/)
+      assert.deepEqual(calls, [])
     } finally { first.close(); secondStream.destroy() }
   }
 })

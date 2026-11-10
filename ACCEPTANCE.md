@@ -94,4 +94,6 @@ After fixing Windows process-tree shutdown for HAPI's model-variant catalog serv
 
 A relay test closes a PAC registration while keeping both established channel peers open and verifies that the relay closes those peers without disrupting a different PAC. Registration handling is installed before the handshake completes, and reconnect tests exercise startup and recovery; this does not establish recovery of interrupted in-flight work or complete authorization guarantees.
 
+ACP peer tests bound incoming line length, queued notification bytes and concurrently handled request bytes. Invalid JSON or response envelopes close the connection, reject in-flight calls with an unknown outcome and do not dispatch a later request from the same input chunk. These bounds deliberately reject traffic above the configured limits and do not establish parity for large payloads.
+
 The [OpenCode V1 server API](https://opencode.ai/v1/docs/server/) exposes an experimental tool catalog with schemas. Catalog discovery alone does not prove that arbitrary configured tools can be invoked through the same OpenCode session, or that their permissions and lifecycle can be preserved. The synthetic dynamic MCP proof above does not establish integration with OpenCode-configured MCP servers or plugin tools; these remain separate acceptance requirements.
