@@ -11,6 +11,7 @@ export function attachAcpRelay(server, { authorize, openTimeoutMs = 15000, maxBu
   }
   const websocket = new WebSocketServer({ noServer: true, maxPayload: maxBufferedBytes })
   const agents = new Map()
+  const activeByRegistration = new Map()
   const pending = new Map()
 
   function reject(socket, status) {
@@ -64,9 +65,12 @@ export function attachAcpRelay(server, { authorize, openTimeoutMs = 15000, maxBu
       ws.on('error', () => {})
       if (role === 'register') {
         agents.set(name, ws)
+        activeByRegistration.set(ws, new Set())
         ws.once('close', () => {
           if (agents.get(name) === ws) agents.delete(name)
           for (const [id, entry] of pending) if (entry.name === name) { cleanupPending(id); disconnect(entry.source, 'PAC disconnected'); if (entry.agent) disconnect(entry.agent, 'PAC disconnected') }
+          for (const pair of activeByRegistration.get(ws) || []) { disconnect(pair.source, 'PAC disconnected'); disconnect(pair.agent, 'PAC disconnected') }
+          activeByRegistration.delete(ws)
         })
       } else if (role === 'source') {
         const id = randomUUID()
@@ -83,7 +87,7 @@ export function attachAcpRelay(server, { authorize, openTimeoutMs = 15000, maxBu
           disconnect(ws, 'PAC open timed out')
           if (entry?.agent) disconnect(entry.agent, 'PAC open timed out')
         }, openTimeoutMs)
-        pending.set(id, { name, source: ws, timer, buffered, buffer })
+        pending.set(id, { name, source: ws, timer, buffered, buffer, registration: agents.get(name) })
         ws.once('close', () => {
           const entry = cleanupPending(id)
           if (entry?.agent) disconnect(entry.agent, 'source disconnected')
@@ -97,6 +101,13 @@ export function attachAcpRelay(server, { authorize, openTimeoutMs = 15000, maxBu
           if (binary || data.toString() !== 'ready') return disconnect(ws, 'invalid readiness')
           const entry = cleanupPending(channel)
           if (!entry || entry.source.readyState !== WebSocket.OPEN) return disconnect(ws, 'source unavailable')
+          const active = activeByRegistration.get(entry.registration)
+          if (!active || entry.registration.readyState !== WebSocket.OPEN) { disconnect(entry.source, 'PAC disconnected'); return disconnect(ws, 'PAC disconnected') }
+          const pair = { source: entry.source, agent: ws }
+          active.add(pair)
+          const remove = () => active.delete(pair)
+          entry.source.once('close', remove)
+          ws.once('close', remove)
           entry.source.off('message', entry.buffer)
           forward(ws, entry.source)
           forward(entry.source, ws)

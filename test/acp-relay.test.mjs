@@ -56,6 +56,36 @@ test('relays MCP tool results and dynamic catalog notifications without rewritin
   }
 })
 
+test('closes established channels when their PAC registration disconnects', { timeout: 10000 }, async () => {
+  const hub = await setup()
+  try {
+    const registration = hub.connect('register')
+    const otherRegistration = hub.connect('register', 'pac-two')
+    await Promise.all([once(registration, 'open'), once(otherRegistration, 'open')])
+    const connectPair = async (name, owner) => {
+      const request = once(owner, 'message')
+      const source = hub.connect('source', name)
+      await once(source, 'open')
+      const [message] = await request
+      const agent = hub.connect('agent', name, JSON.parse(message.toString()).channel)
+      await once(agent, 'open')
+      agent.send('ready')
+      const echo = once(source, 'message')
+      agent.send('connected')
+      assert.equal((await echo)[0].toString(), 'connected')
+      return { source, agent }
+    }
+    const first = await connectPair('pac-one', registration)
+    const second = await connectPair('pac-two', otherRegistration)
+    const closed = [once(first.source, 'close'), once(first.agent, 'close')]
+    registration.close()
+    await Promise.all(closed)
+    const message = once(second.source, 'message')
+    second.agent.send('still connected')
+    assert.equal((await message)[0].toString(), 'still connected')
+  } finally { hub.close() }
+})
+
 test('limits pending source connections and releases capacity on disconnect', { timeout: 10000 }, async () => {
   const hub = await setup({ maxPending: 1 })
   try {
