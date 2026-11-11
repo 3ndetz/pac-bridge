@@ -99,6 +99,10 @@ export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 3
       })
     },
     notify(method, params) { send({ jsonrpc: '2.0', method, params }) },
+    // Explicit barrier for callers that own a turn-scoped update handler.
+    // Do not delay every RPC response here: a notification handler may itself
+    // issue an RPC and awaiting that response must remain possible.
+    async drainNotifications() { await notifications },
     close() { failPending(); lines.close(); stream.destroy() },
   }
 }

@@ -464,6 +464,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       selected.compaction = operation
       try {
         await selected.remote.call('session/prompt', { prompt: [{ type: 'text', text: '/compact' }] }, 0)
+        await selected.remote.drainNotifications()
         if (!operation.status) await Promise.race([terminal, new Promise((resolve) => setTimeout(resolve, 3000))])
         if (operation.status !== 'completed') throw new Error('PAC compaction did not report a confirmed successful result')
         return { status: 'completed', summary: operation.summary || operation.chunks || '' }
@@ -476,7 +477,9 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       params = { ...params, prompt: [{ type: 'text', text: `<system-reminder>PAC Bridge source workspace: ${JSON.stringify(session.cwd)}. This is the user's working directory; the remote controller's process directory is internal. Execute project commands and resolve project paths in the source workspace.</system-reminder>` }, ...params.prompt] }
     }
     try {
-      return await selected.remote.call(method, params, method === 'session/prompt' ? 0 : undefined)
+      const result = await selected.remote.call(method, params, method === 'session/prompt' ? 0 : undefined)
+      if (method === 'session/prompt') await selected.remote.drainNotifications()
+      return result
     } catch (error) {
       if (method === 'session/prompt' && error.message === 'Authentication required') {
         client.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'agent_message_chunk',

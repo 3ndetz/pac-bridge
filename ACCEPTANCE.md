@@ -10,6 +10,8 @@ An isolated real Claude session created through HAPI discovered and invoked a si
 
 An isolated real Claude HAPI scenario combined a project OpenCode skill with supported Claude project hooks, including post-tool, denial, hook failure and tool-failure cases. It then compacted the PAC conversation, resumed the session, recalled context, wrote a source file and invoked the skill again. Other hook types and plugin implementations are not covered by this scenario.
 
+Turn completion now waits for already-received ACP notifications to be delivered before releasing its update handler. Unit coverage includes nested RPCs from notification handlers, and the selected-PAC background-event regression passed three repeated runs. The combined real-Claude HAPI hook, skill, compaction and resume scenario passed again after this change.
+
 The existing source runner's 20 PAC session-binding files were moved from the development checkout into its protected persistent HAPI profile and verified by SHA-256. A junction at the former path preserves access for already-running sessions. The runner was restarted gracefully and the existing hub connection was verified. A full Windows reboot and recovery of existing conversations across that reboot remain unverified.
 
 The managed ServerMallAgents kit now supports a profile-specific runtime pin. On the existing `1C-Prog` profile, reinstalling the published `0.34.4-sm4` kit retained the PAC runtime checksum and persistent binding configuration, and the existing hub connection verified successfully. A mismatched base version, missing binary or checksum mismatch stops the update for review. This does not prove automatic recovery after every possible operating-system or network failure.

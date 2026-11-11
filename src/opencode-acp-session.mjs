@@ -87,7 +87,9 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
         activeUpdate = onUpdate
         try {
           while (delayed.length) { const item = delayed.shift(); delayedBytes -= item.bytes; activeUpdate(item.event) }
-          return await peer.call('session/prompt', { sessionId: id, prompt }, 0)
+          const result = await peer.call('session/prompt', { sessionId: id, prompt }, 0)
+          await peer.drainNotifications()
+          return result
         }
         catch (error) { error.pacPhase = 'prompt'; throw error }
         finally { activeUpdate = null }

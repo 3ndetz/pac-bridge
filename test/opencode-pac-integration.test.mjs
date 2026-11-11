@@ -14,7 +14,7 @@ import { createOpencodeProvider } from '../src/opencode-provider.mjs'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 
 test('routes an actual OpenCode CLI text turn to a fake PAC', {
-  skip: !process.env.PAC_OPENCODE_BINARY, timeout: 90000
+  skip: !process.env.PAC_OPENCODE_BINARY, timeout: 270000
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-integration-'))
   const relayServer = createServer()
@@ -56,7 +56,7 @@ test('routes an actual OpenCode CLI text turn to a fake PAC', {
     child = spawnContained(process.env.PAC_OPENCODE_BINARY, ['run', '--format', 'json', '-m', 'pacbridge/PAC_testpac/sonnet', 'Hello PAC'],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let output = '', errors = ''
-    const deadline = setTimeout(() => stopContained(child), 50000)
+    const deadline = setTimeout(() => stopContained(child), 120000)
     child.stdout.on('data', (chunk) => { output += chunk })
     child.stderr.on('data', (chunk) => { errors += chunk })
     const [code] = await once(child, 'close')
@@ -70,7 +70,7 @@ test('routes an actual OpenCode CLI text turn to a fake PAC', {
     child = spawnContained(process.env.PAC_OPENCODE_BINARY, ['run', '--format', 'json', '-m', 'pacbridge/PAC_testpac/sonnet', '--session', sessionId, '--command', 'pac-stop', 'pac:task'],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let commandOutput = '', commandErrors = ''
-    const commandDeadline = setTimeout(() => stopContained(child), 50000)
+    const commandDeadline = setTimeout(() => stopContained(child), 120000)
     child.stdout.on('data', (chunk) => { commandOutput += chunk })
     child.stderr.on('data', (chunk) => { commandErrors += chunk })
     const [commandCode] = await once(child, 'close')

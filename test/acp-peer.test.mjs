@@ -60,6 +60,25 @@ test('preserves notification order when a handler is asynchronous', async () => 
   } finally { first.close(); second.close() }
 })
 
+test('drains turn notifications without blocking nested RPC responses', async () => {
+  const [firstStream, secondStream] = streams()
+  const seen = []
+  let first
+  first = createAcpPeer(firstStream, { onNotification: async () => {
+    const reply = await first.call('nested', {})
+    seen.push(reply.value)
+  } })
+  const second = createAcpPeer(secondStream, { onRequest: (method) => {
+    if (method === 'prompt') { second.notify('update', {}); return { done: true } }
+    return { value: 'delivered' }
+  } })
+  try {
+    assert.deepEqual(await first.call('prompt', {}), { done: true })
+    await first.drainNotifications()
+    assert.deepEqual(seen, ['delivered'])
+  } finally { first.close(); second.close() }
+})
+
 test('bounds queued notifications and reports an uncertain in-flight call', async () => {
   const [firstStream, secondStream] = streams()
   let release

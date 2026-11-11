@@ -37,6 +37,7 @@ export async function openPacSession(stream, { cwd, clientCapabilities = {}, met
       },
       call(method, params = {}, timeout) { return peer.call(method, { ...params, sessionId: opened.sessionId }, timeout) },
       notify(method, params = {}) { peer.notify(method, { ...params, sessionId: opened.sessionId }) },
+      drainNotifications() { return peer.drainNotifications() },
       close() { peer.close() },
     }
   } catch (error) { peer.close(); throw error }
