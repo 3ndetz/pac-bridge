@@ -15,6 +15,11 @@ test('blocks configured OpenCode plugins without mistaking JSONC strings for com
     await assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: {} })
     const bridgePlugin = new URL('../adapters/opencode-plugin.mjs', import.meta.url).href
     await assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ plugin: [bridgePlugin] }) } })
+    const xdg = join(root, 'xdg')
+    await mkdir(join(xdg, 'opencode'), { recursive: true })
+    await writeFile(join(xdg, 'opencode', 'opencode.json'), '{"permission":{"bash":"deny"}}')
+    await assert.rejects(assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: { XDG_CONFIG_HOME: xdg } }), /configuration is not yet supported/)
+    await assert.rejects(assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: { XDG_CONFIG_HOME: 'relative' } }), /Relative XDG/)
     await writeFile(config, '{ "plugin": ["example-plugin", /* comment */], }')
     await assert.rejects(assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: {} }), /plugins and hooks are not yet supported/)
     for (const item of ['"permission": {"bash": "deny"}', '"instructions": ["custom.md"]', '"mcp": {"example": {}}', '"skills": {"paths": ["custom"]}', '"agent": {"build": {"permission": {"bash": "deny"}}}']) {

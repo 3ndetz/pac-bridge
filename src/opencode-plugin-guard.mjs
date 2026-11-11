@@ -52,6 +52,11 @@ export async function assertNoUnsupportedOpenCodePlugins({ root, home, env = pro
   const addPluginDirectory = (dir) => { for (const name of ['plugin', 'plugins']) pluginDirs.add(join(dir, name)) }
   const global = join(userHome, '.config', 'opencode')
   addConfigDirectory(global); addPluginDirectory(global)
+  if (env.XDG_CONFIG_HOME) {
+    if (!isAbsolute(env.XDG_CONFIG_HOME)) throw new Error('Relative XDG configuration directory is unsupported')
+    const xdg = join(env.XDG_CONFIG_HOME, 'opencode')
+    addConfigDirectory(xdg); addPluginDirectory(xdg)
+  }
   let current = workspace
   while (true) {
     addConfigDirectory(current)
