@@ -37,39 +37,43 @@ function parseSkill(text, directoryName) {
 export async function createSourceSkills({ root, maxBytes = 256 * 1024, maxSkills = 100 }) {
   if (!isAbsolute(root) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isSafeInteger(maxSkills) || maxSkills < 1) throw new Error('Invalid skill configuration')
   const workspace = await realpath(root)
-  const skillsPath = join(workspace, '.claude', 'skills')
-  let directory
-  try { directory = await realpath(skillsPath) } catch (error) { if (error.code === 'ENOENT') return { list: [], invoke: async () => { throw new Error('Unknown source skill') } }; throw error }
-  const local = relative(workspace, directory)
-  if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Skill directory resolves outside the workspace')
   const skills = new Map()
-  const entries = await readdir(directory, { withFileTypes: true })
-  if (entries.length > maxSkills) throw new Error('Skill directory exceeds the entry limit')
-  for (const entry of entries) {
-    if (entry.isSymbolicLink()) throw new Error('Symbolic links in the skill directory are unsupported')
-    if (!entry.isDirectory()) continue
-    const folder = join(directory, entry.name)
-    const path = join(folder, 'SKILL.md')
-    try { if ((await lstat(path)).isSymbolicLink()) throw new Error('Symbolic skill files are unsupported') } catch (error) { if (error.code === 'ENOENT') continue; throw error }
-    const actual = await realpath(path)
-    const relativePath = relative(workspace, actual)
-    if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) throw new Error('Skill file resolves outside the workspace')
-    const file = await open(actual, 'r')
-    let text
-    try {
-      const bytes = Buffer.alloc(maxBytes + 1)
-      let offset = 0
-      while (offset < bytes.length) {
-        const result = await file.read(bytes, offset, bytes.length - offset, offset)
-        if (!result.bytesRead) break
-        offset += result.bytesRead
-      }
-      if (offset > maxBytes) throw new Error('Skill exceeds the size limit')
-      text = new TextDecoder('utf8', { fatal: true }).decode(bytes.subarray(0, offset))
-    } finally { await file.close() }
-    const skill = parseSkill(text, entry.name)
-    if (skills.has(skill.name)) throw new Error('Duplicate source skill name')
-    skills.set(skill.name, { ...skill, folder })
+  let entryCount = 0
+  for (const parts of [['.opencode', 'skill'], ['.opencode', 'skills'], ['.agents', 'skills'], ['.claude', 'skills']]) {
+    const skillsPath = join(workspace, ...parts)
+    let directory
+    try { directory = await realpath(skillsPath) } catch (error) { if (error.code === 'ENOENT') continue; throw error }
+    const local = relative(workspace, directory)
+    if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Skill directory resolves outside the workspace')
+    const entries = await readdir(directory, { withFileTypes: true })
+    entryCount += entries.length
+    if (entryCount > maxSkills) throw new Error('Skill directories exceed the entry limit')
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) throw new Error('Symbolic links in the skill directory are unsupported')
+      if (!entry.isDirectory()) continue
+      const folder = join(directory, entry.name)
+      const path = join(folder, 'SKILL.md')
+      try { if ((await lstat(path)).isSymbolicLink()) throw new Error('Symbolic skill files are unsupported') } catch (error) { if (error.code === 'ENOENT') continue; throw error }
+      const actual = await realpath(path)
+      const relativePath = relative(workspace, actual)
+      if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) throw new Error('Skill file resolves outside the workspace')
+      const file = await open(actual, 'r')
+      let text
+      try {
+        const bytes = Buffer.alloc(maxBytes + 1)
+        let offset = 0
+        while (offset < bytes.length) {
+          const result = await file.read(bytes, offset, bytes.length - offset, offset)
+          if (!result.bytesRead) break
+          offset += result.bytesRead
+        }
+        if (offset > maxBytes) throw new Error('Skill exceeds the size limit')
+        text = new TextDecoder('utf8', { fatal: true }).decode(bytes.subarray(0, offset))
+      } finally { await file.close() }
+      const skill = parseSkill(text, entry.name)
+      if (skills.has(skill.name)) throw new Error('Duplicate source skill name')
+      skills.set(skill.name, { ...skill, folder })
+    }
   }
   return {
     list: [...skills.values()].map(({ name, description }) => ({ name, description })),

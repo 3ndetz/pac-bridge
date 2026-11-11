@@ -37,3 +37,26 @@ test('discovers and invokes simple source skills without accepting unsupported f
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
   }
 })
+
+
+test('discovers supported skills from project OpenCode and agents directories and rejects duplicates', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  try {
+    for (const [parent, name] of [['.opencode/skill', 'one'], ['.opencode/skills', 'two'], ['.agents/skills', 'three']]) {
+      const directory = join(root, parent, name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, 'SKILL.md'), `---\nname: ${name}\ndescription: test ${name}\n---\nuse $ARGUMENTS`)
+    }
+    const skills = await createSourceSkills({ root })
+    assert.deepEqual(skills.list.map((item) => item.name).sort(), ['one', 'three', 'two'])
+    assert.match((await skills.invoke({ name: 'two', args: 'source' })).content, /use source/)
+    const duplicate = join(root, '.claude', 'skills', 'one')
+    await mkdir(duplicate, { recursive: true })
+    await writeFile(join(duplicate, 'SKILL.md'), '---\nname: one\ndescription: duplicate\n---\nBody')
+    await assert.rejects(createSourceSkills({ root }), /Duplicate source skill/)
+  } finally {
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
+  }
+})
