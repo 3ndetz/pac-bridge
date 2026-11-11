@@ -77,6 +77,13 @@ export async function assertNoUnsupportedOpenCodePlugins({ root, home, env = pro
     for (const key of ['plugin', 'plugins']) {
       if (config[key] !== undefined && (!Array.isArray(config[key]) || config[key].length)) throw new Error('Configured OpenCode plugins and hooks are not yet supported by PAC Bridge')
     }
+    const nonempty = (value) => value !== undefined && value !== null && (typeof value !== 'object' || Object.keys(value).length > 0)
+    for (const key of ['permission', 'instructions', 'mcp', 'skills']) {
+      if (nonempty(config[key])) throw new Error(`OpenCode ${key} configuration is not yet supported by PAC Bridge`)
+    }
+    if (config.agent && typeof config.agent === 'object' && Object.values(config.agent).some((agent) => agent && typeof agent === 'object' && nonempty(agent.permission))) {
+      throw new Error('OpenCode agent permission configuration is not yet supported by PAC Bridge')
+    }
   }
   if (env.OPENCODE_CONFIG_CONTENT) checkConfig(env.OPENCODE_CONFIG_CONTENT)
   for (const path of configs) {

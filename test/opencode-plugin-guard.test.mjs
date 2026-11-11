@@ -15,6 +15,10 @@ test('blocks configured OpenCode plugins without mistaking JSONC strings for com
     await assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: {} })
     await writeFile(config, '{ "plugin": ["example-plugin", /* comment */], }')
     await assert.rejects(assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: {} }), /plugins and hooks are not yet supported/)
+    for (const item of ['"permission": {"bash": "deny"}', '"instructions": ["custom.md"]', '"mcp": {"example": {}}', '"skills": {"paths": ["custom"]}', '"agent": {"build": {"permission": {"bash": "deny"}}}']) {
+      await writeFile(config, `{ ${item} }`)
+      await assert.rejects(assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: {} }), /configuration is not yet supported/)
+    }
     await writeFile(config, '{ "plugin": [], // trailing comment\n }')
     const plugins = join(workspace, '.opencode', 'plugin')
     await mkdir(plugins, { recursive: true })

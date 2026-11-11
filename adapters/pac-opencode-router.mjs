@@ -433,9 +433,11 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
     }
     if (method === 'session/prompt' || method === 'pac/compact') {
       try { await assertNoUnsupportedOpenCodePlugins({ root: session.cwd, home: homedir() }) } catch (error) {
+        const supportedMessage = /^OpenCode (?:permission|instructions|mcp|skills|agent permission) configuration is not yet supported by PAC Bridge$/.test(error.message)
         const message = error.message === 'Configured OpenCode plugins and hooks are not yet supported by PAC Bridge'
           ? 'PAC Bridge stopped this turn because configured OpenCode plugins and hooks are not yet supported.'
-          : 'PAC Bridge could not verify the OpenCode plugin configuration; the turn was stopped.'
+          : supportedMessage ? `PAC Bridge stopped this turn: ${error.message}.`
+            : 'PAC Bridge could not verify the OpenCode configuration; the turn was stopped.'
         client.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: message } } })
         throw error
       }
