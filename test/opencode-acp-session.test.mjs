@@ -50,8 +50,9 @@ test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 },
     await mkdir(join(root, 'workspace'))
     const discovered = await discoverOpencodePacs({ command: process.execPath, args: [router, fake, '--native'], cwd: join(root, 'workspace'),
       env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url,
-        PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root } })
+        PAC_NAME: 'testpac', PAC_DISPLAY_NAME: '#1', PAC_MODEL_PREFIX: 'Claude', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root } })
     assert.ok(discovered.models.some((model) => model.id === 'PAC_testpac/sonnet'))
+    assert.equal(discovered.models.find((model) => model.id === 'PAC_testpac/sonnet')?.name, 'PAC #1 / Claude Sonnet')
     assert.deepEqual(discovered.warnings, [])
     const endpoints = join(root, 'endpoints.json')
     await writeFile(endpoints, JSON.stringify(['testpac', 'offline'].map((name) => ({ id: name, name, url, tokenFile, cwd: root }))))
@@ -63,6 +64,11 @@ test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 },
     const direct = await discoverPacsDirect({ cwd: join(root, 'workspace'), env: { PAC_ENDPOINTS_FILE: endpoints } })
     assert.ok(direct.models.some((model) => model.id === 'PAC_testpac/sonnet'))
     assert.deepEqual(direct.warnings, [{ name: 'offline', code: 'unavailable' }])
+    await writeFile(endpoints, JSON.stringify([{ id: 'testpac', name: 'testpac', displayName: '#1', modelPrefix: 'Claude', url, tokenFile, cwd: root }]))
+    const labeled = await discoverPacsDirect({ cwd: join(root, 'workspace'), env: { PAC_ENDPOINTS_FILE: endpoints } })
+    assert.equal(labeled.models.find((model) => model.id === 'PAC_testpac/sonnet')?.name, 'PAC #1 / Claude Sonnet')
+    await writeFile(endpoints, JSON.stringify([{ id: 'a', name: 'a', displayName: '#1', url, tokenFile, cwd: root }, { id: 'b', name: 'b', displayName: '#1', url, tokenFile, cwd: root }]))
+    await assert.rejects(discoverPacsDirect({ cwd: join(root, 'workspace'), env: { PAC_ENDPOINTS_FILE: endpoints } }), /duplicate/)
     session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native'], cwd: join(root, 'workspace'),
       env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url,
         PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },

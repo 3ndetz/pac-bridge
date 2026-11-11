@@ -21,16 +21,20 @@ import { matchesProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
 
 const { PAC_OPENCODE_BINARY: binary, PAC_RELAY_URL: url, PAC_NAME: name, PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd } = process.env
 if (process.env.PAC_EXPERIMENTAL !== '1' || !binary) throw new Error('Incomplete experimental OpenCode router configuration')
-const records = process.env.PAC_ENDPOINTS_FILE ? JSON.parse(await readFile(process.env.PAC_ENDPOINTS_FILE, 'utf8')) : [{ id: name, name, url, tokenFile, cwd: remoteCwd }]
+const records = process.env.PAC_ENDPOINTS_FILE ? JSON.parse(await readFile(process.env.PAC_ENDPOINTS_FILE, 'utf8')) : [{ id: name, name, displayName: process.env.PAC_DISPLAY_NAME, modelPrefix: process.env.PAC_MODEL_PREFIX, url, tokenFile, cwd: remoteCwd }]
 if (!Array.isArray(records) || !records.length) throw new Error('At least one PAC endpoint is required')
 const names = new Set()
 const ids = new Set()
+const labels = new Set()
 const endpointResults = await Promise.all(records.map(async (entry) => {
   if (!entry || typeof entry.id !== 'string' || !entry.id || typeof entry.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(entry.name) ||
       typeof entry.url !== 'string' || typeof entry.tokenFile !== 'string' || typeof entry.cwd !== 'string' || !entry.cwd ||
-      names.has(entry.name.toLowerCase()) || ids.has(entry.id)) throw new Error('Invalid or duplicate PAC endpoint')
+      (entry.displayName !== undefined && (typeof entry.displayName !== 'string' || !entry.displayName.trim() || entry.displayName.length > 64 || /[\x00-\x1f\x7f]/.test(entry.displayName))) ||
+      (entry.modelPrefix !== undefined && (typeof entry.modelPrefix !== 'string' || !entry.modelPrefix.trim() || entry.modelPrefix.length > 32 || /[\x00-\x1f\x7f]/.test(entry.modelPrefix))) ||
+      names.has(entry.name.toLowerCase()) || ids.has(entry.id) || labels.has((entry.displayName || entry.name).trim().toLowerCase())) throw new Error('Invalid or duplicate PAC endpoint')
   names.add(entry.name.toLowerCase())
   ids.add(entry.id)
+  labels.add((entry.displayName || entry.name).trim().toLowerCase())
   try {
     const token = (await readFile(entry.tokenFile, 'utf8')).trim()
     if (!token) throw new Error('Empty credential')
@@ -63,7 +67,7 @@ function combined(response, session, current) {
   if (session.discoveryWarnings.length) {
     result._meta = { ...(result._meta || {}), pacDiscoveryWarnings: session.discoveryWarnings }
   }
-  const choices = [...session.remotes.values()].filter((entry) => entry.connected).flatMap((entry) => entry.remote.models.models.map((model) => ({ value: `PAC_${entry.endpoint.name}/${model.id}`, name: `${entry.endpoint.name}: ${model.name}` })))
+  const choices = [...session.remotes.values()].filter((entry) => entry.connected).flatMap((entry) => entry.remote.models.models.map((model) => ({ value: `PAC_${entry.endpoint.name}/${model.id}`, name: `PAC ${entry.endpoint.displayName || entry.endpoint.name} / ${entry.endpoint.modelPrefix ? entry.endpoint.modelPrefix + ' ' : ''}${model.name}` })))
   const option = result.configOptions?.find((entry) => entry.category === 'model' || entry.id === 'model')
   if (option) {
     option.options = [...(option.options || []), ...choices.filter((choice) => !(option.options || []).some((entry) => entry.value === choice.value))]

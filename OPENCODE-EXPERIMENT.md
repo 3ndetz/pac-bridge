@@ -18,6 +18,8 @@ From the source workspace, set the following environment variables to the paths 
 PAC_EXPERIMENTAL=1
 PAC_OPENCODE_BINARY=<absolute path to OpenCode, only if it is not on PATH>
 PAC_NAME=<registered PAC name>
+PAC_DISPLAY_NAME=<optional visible PAC label, for example #1>
+PAC_MODEL_PREFIX=<optional model-family label when every offered model has the same family>
 PAC_RELAY_URL=wss://<relay host>
 PAC_SOURCE_TOKEN_FILE=<absolute path to this source's relay credential file>
 PAC_CONTROLLER_CWD=<absolute working directory on the controller>
@@ -28,7 +30,7 @@ Then run `node <checkout>/adapters/opencode-pac.mjs` from the workspace. The lau
 
 For the experimental HAPI integration, `node adapters/install-hapi-command.mjs <new-absolute-directory>` creates an `opencode` command in a new directory without replacing an existing installation. Put that directory first in the HAPI runner's `PATH`, set `PAC_OPENCODE_BINARY` to the absolute path of the real OpenCode executable, and provide the PAC settings above to the runner. ACP requests use the PAC router; version probes and other commands go to native OpenCode. The runner must use the PAC-enabled HAPI build from [the integration branch](https://github.com/3ndetz/hapi/tree/work/pac-bridge-integration). This installer does not change or restart an existing runner, configure authentication, or constitute a production deployment.
 
-For several provisioned PACs, set `PAC_ENDPOINTS_FILE` to a JSON file containing a nonempty array. Each entry has a stable `id`, a unique `name`, a `url`, a local `tokenFile` path and a controller-side `cwd`. PAC names and model IDs select the remote runtime; they are not credentials. Protect the endpoint file and credential files using the operating system's access controls.
+For several provisioned PACs, set `PAC_ENDPOINTS_FILE` to a JSON file containing a nonempty array. Each entry has a stable `id`, a unique `name`, a `url`, a local `tokenFile` path and a controller-side `cwd`. Optional `displayName` and `modelPrefix` provide visible labels such as `PAC #1 / Claude Opus 5.5`; a prefix is appropriate only when every model from that endpoint has that family. Visible PAC labels must be unique. PAC names and model IDs select the remote runtime; they are not credentials. Protect the endpoint file and credential files using the operating system's access controls.
 
 The launcher currently requires experimental mode and has known gaps, including background and subagent lifecycle, full tool parity, cross-platform acceptance and production service management. Existing sessions remain bound to the selected PAC and workspace; switching models within that PAC is experimental. An interrupted operation can have an unknown outcome; the bridge blocks automatic replay and requires reconciliation. Selecting a different PAC or workspace requires a new session. Do not treat the launcher as a replacement for the complete delivery and acceptance in [REQUIREMENTS.md](REQUIREMENTS.md).
 
