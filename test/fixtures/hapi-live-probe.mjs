@@ -35,9 +35,11 @@ if (process.env.PAC_HAPI_HOOKS === '1') {
     PostToolUseFailure: [{ matcher: '^Read$', hooks: [{ type: 'command', command: process.execPath, args: ['-e', failureScript], timeout: 10 }] }] } }))
 }
 if (process.env.PAC_HAPI_SKILLS === '1') {
-  const skillDirectory = join(workspace, process.env.PAC_HAPI_OPENCODE_SKILLS === '1' ? '.opencode' : '.claude', 'skills', 'pac-test-skill')
+  const globalSkill = process.env.PAC_HAPI_GLOBAL_SKILLS === '1'
+  const skillDirectory = globalSkill ? join(root, 'test-home', '.config', 'opencode', 'skills', 'pac-test-skill') : join(workspace, process.env.PAC_HAPI_OPENCODE_SKILLS === '1' ? '.opencode' : '.claude', 'skills', 'pac-test-skill')
   await mkdir(skillDirectory, { recursive: true })
-  await writeFile(join(skillDirectory, 'SKILL.md'), '---\nname: pac-test-skill\ndescription: Return the PAC skill verification marker with its argument\n---\n\nReply exactly with PAC_SKILL_SUCCESS_$ARGUMENTS.\n')
+  if (globalSkill) await writeFile(join(skillDirectory, 'marker.txt'), 'PAC_SKILL_SUCCESS_HELLO')
+  await writeFile(join(skillDirectory, 'SKILL.md'), `---\nname: pac-test-skill\ndescription: Return the PAC skill verification marker with its argument\n---\n\n${globalSkill ? `Use Read on ${join(skillDirectory, 'marker.txt')}, then reply with the file contents exactly.` : 'Reply exactly with PAC_SKILL_SUCCESS_$ARGUMENTS.'}\n`)
 }
 if (process.env.PAC_HAPI_SCOPED === '1') {
   await mkdir(join(workspace, '.claude', 'rules'), { recursive: true })
@@ -59,6 +61,7 @@ const env = { ...process.env, CLI_API_TOKEN: accessToken, HAPI_HOME: join(root, 
   HAPI_LISTEN_PORT: String(port), HAPI_PUBLIC_URL: url, HAPI_API_URL: url, PATH: bin + delimiter + process.env.PATH,
   PAC_EXPERIMENTAL: '1', HAPI_DISABLE_VERSION_HANDOFF: '1', PAC_SESSION_DIR: join(root, 'bindings'), PAC_OPENCODE_BINARY: opencode, PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac',
   PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd, PAC_TRACE_PATH: join(root, 'trace.ndjson'), PAC_SOURCE_BASH: process.env.PAC_TEST_BASH }
+if (process.env.PAC_HAPI_GLOBAL_SKILLS === '1') env.USERPROFILE = join(root, 'test-home')
 const children = []
 let diagnosticOutput = ''
 let stage = 'starting HAPI hub'
@@ -509,7 +512,8 @@ try {
       const page = await request(`/api/sessions/${id}/messages?limit=100`)
       const agent = (page.messages || []).filter((message) => message.content?.role === 'agent' && message.content.content?.data?.type === 'message')
       const events = (await readFile(env.PAC_TRACE_PATH, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line))
-      return JSON.stringify(agent).includes('PAC_SKILL_SUCCESS_HELLO') && events.some((event) => event.skillInvoked === 'pac-test-skill')
+      return JSON.stringify(agent).includes('PAC_SKILL_SUCCESS_HELLO') && events.some((event) => event.skillInvoked === 'pac-test-skill') &&
+        (process.env.PAC_HAPI_GLOBAL_SKILLS !== '1' || events.some((event) => event.skillResourceRead === true))
     }, 120000)
     summary.sourceSkillVerified = true
   }

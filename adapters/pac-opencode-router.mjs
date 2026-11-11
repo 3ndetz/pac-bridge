@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
 import { Duplex } from 'node:stream'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 import { connectSource } from '../src/acp-transport.mjs'
@@ -117,7 +118,8 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             if (!process.env.PAC_SOURCE_BASH) throw new Error('A source shell is required for project hooks')
             state.hooks = await createProjectHooks({ root: params.cwd, shell: process.env.PAC_SOURCE_BASH })
           }
-          if (process.env.PAC_EXPERIMENTAL_SKILLS === '1') state.skills = await createSourceSkills({ root: params.cwd })
+          if (process.env.PAC_EXPERIMENTAL_SKILLS === '1') state.skills = await createSourceSkills({ root: params.cwd, home: homedir() })
+          state.allowedSkillRoots = new Set()
           if (process.env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') state.instructions = await readSourceInstructions({ root: params.cwd,
             ...(process.env.PAC_TEST_INSTRUCTION_BOUNDARY === 'workspace' ? { stopAt: params.cwd } : {}) })
           sourceReady = true
@@ -142,7 +144,20 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             if (remoteMethod === 'fs/read_text_file') {
               if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ sourceReadPath: isAbsolute(remoteParams.path || '') ? 'absolute' : 'relative' }) + '\n')
               if (process.env.PAC_TRACE_PATH && /hook-(block|error)\.txt$/.test(remoteParams.path || '')) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ blockedFixtureRead: true }) + '\n')
-              return state.workspace.readTextFile(remoteParams)
+              try { return await state.workspace.readTextFile(remoteParams) } catch (error) {
+                if (!isAbsolute(remoteParams.path || '')) throw error
+                const actual = await realpath(remoteParams.path)
+                for (const root of state.allowedSkillRoots) {
+                  const local = relative(root, actual)
+                  if (local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local)) {
+                    if (await realpath(root) !== root) throw new Error('Skill resource directory has changed')
+                    const skillWorkspace = await createWorkspace({ root, sessionId: state.remote.sessionId })
+                    if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ skillResourceRead: true }) + '\n')
+                    return skillWorkspace.readTextFile({ ...remoteParams, path: actual })
+                  }
+                }
+                throw error
+              }
             }
             if (remoteMethod === 'pac/instructions/match') {
               if (remoteParams.sessionId !== state.remote?.sessionId || (typeof remoteParams.path !== 'string' && typeof remoteParams.command !== 'string')) throw new Error('Invalid scoped instruction request')
@@ -180,8 +195,9 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             }
             if (remoteMethod === 'pac/skills/invoke') {
               if (!state.skills || remoteParams.sessionId !== state.remote?.sessionId) throw new Error('Source skills are unavailable for this session')
-              const skills = await createSourceSkills({ root: session.cwd })
+              const skills = await createSourceSkills({ root: session.cwd, home: homedir() })
               const result = await skills.invoke({ name: remoteParams.name, args: remoteParams.args })
+              state.allowedSkillRoots.add(await realpath(skills.rootFor(remoteParams.name)))
               if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ skillInvoked: remoteParams.name }) + '\n')
               return result
             }

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { connectSource } from './acp-transport.mjs'
 import { openPacSession } from './pac-session.mjs'
 import { createProjectHooks } from './project-hooks.mjs'
@@ -23,7 +24,7 @@ export async function discoverPacsDirect({ cwd, env }) {
       if (!env.PAC_SOURCE_BASH) throw new Error('A source shell is required for project hooks')
       await createProjectHooks({ root: cwd, shell: env.PAC_SOURCE_BASH })
     }
-    if (env.PAC_EXPERIMENTAL_SKILLS === '1') skills = await createSourceSkills({ root: cwd })
+    if (env.PAC_EXPERIMENTAL_SKILLS === '1') skills = await createSourceSkills({ root: cwd, home: homedir() })
     if (env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') instructions = await readSourceInstructions({ root: cwd })
   } catch (error) {
     const code = ['Unsupported project rule paths', 'Rule aliases are not supported', 'Rule glob expansion exceeds the supported limit'].includes(error.message) ? 'rule_frontmatter_unsupported'

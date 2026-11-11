@@ -60,3 +60,25 @@ test('discovers supported skills from project OpenCode and agents directories an
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
   }
 })
+
+test('discovers global skills with project precedence and parses folded descriptions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  try {
+    const workspace = join(root, 'workspace'), home = join(root, 'home')
+    const project = join(workspace, '.opencode', 'skills', 'same')
+    const global = join(home, '.config', 'opencode', 'skills', 'same')
+    const extra = join(home, '.agents', 'skills', 'extra')
+    for (const path of [project, global, extra]) await mkdir(path, { recursive: true })
+    await writeFile(join(project, 'SKILL.md'), '---\nname: same\ndescription: project version\n---\nproject')
+    await writeFile(join(global, 'SKILL.md'), '---\nname: same\ndescription: global version\n---\nglobal')
+    await writeFile(join(extra, 'SKILL.md'), '---\nname: extra\ndescription: >\n  Folded skill description.\n---\nextra')
+    const skills = await createSourceSkills({ root: workspace, home })
+    assert.deepEqual(skills.list.map((skill) => skill.name).sort(), ['extra', 'same'])
+    assert.match((await skills.invoke({ name: 'same' })).content, /project/)
+    assert.equal(skills.rootFor('extra'), await realpath(extra))
+  } finally {
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
+  }
+})
