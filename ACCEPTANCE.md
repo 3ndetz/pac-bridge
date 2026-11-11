@@ -6,6 +6,8 @@ The existing `1C-Prog` runner was updated to HAPI 0.34.4 with the PAC ACP text f
 
 This is a live smoke test, not full acceptance: the PAC relay and controller are still temporary processes, restart recovery remains unverified, and the other requirements below remain open wherever not explicitly verified.
 
+In a separate local HAPI 0.34.4 run through the same authenticated controller, real Claude followed source instructions and rules, invoked a source skill, and exercised post-tool hooks, hook denial, hook failure blocking and tool-failure hooks. The independent PAC discovery warning check was not satisfied by that test Hub and was skipped for this feature run; warning visibility in the existing public HAPI remains unverified.
+
 ## Objective
 
 Connect remote agent clients and an authenticated Claude Code runtime through PAC Bridge. Forward commands, tool calls, events and their results rather than relying on a shared filesystem or copying entire workspaces between machines. The bridge must preserve the semantics of the participating agents, including their background work and subagents.

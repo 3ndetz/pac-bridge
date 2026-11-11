@@ -136,7 +136,7 @@ try {
     stage = 'discovering PAC model before creating a session'
     await until(async () => JSON.stringify(await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(workspace)}`)).includes('PAC_testpac/sonnet'), 180000)
     machineModelOffered = true
-    if (process.env.PAC_HAPI_INSTRUCTIONS === '1' || process.env.PAC_HAPI_BROWSER === '1') {
+    if (process.env.PAC_HAPI_SKIP_WARNING_PROBE !== '1' && (process.env.PAC_HAPI_INSTRUCTIONS === '1' || process.env.PAC_HAPI_BROWSER === '1')) {
       stage = 'checking PAC discovery warnings through HAPI'
       const warningCwd = join(workspace, 'warning-case')
       await mkdir(warningCwd)
