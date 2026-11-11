@@ -402,6 +402,12 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
         throw error
       }
     }
+    if (method === 'session/prompt' && Array.isArray(params.prompt)) {
+      // The remote Claude runtime also describes its own process directory in
+      // the environment. Restate the source directory alongside each user
+      // turn so that controller paths are not mistaken for project paths.
+      params = { ...params, prompt: [{ type: 'text', text: `<system-reminder>PAC Bridge source workspace: ${JSON.stringify(session.cwd)}. This is the user's working directory; the remote controller's process directory is internal. Execute project commands and resolve project paths in the source workspace.</system-reminder>` }, ...params.prompt] }
+    }
     return selected.remote.call(method, params, method === 'session/prompt' ? 0 : undefined)
   },
   onNotification: (method, params = {}) => {

@@ -234,6 +234,17 @@ try {
   const visible = JSON.stringify(history)
   const summary = { hapiSession: true, runnerCreatedSession: !!runnerSessionId, machineModelOffered, pacWarningsVerified, browserUnavailableSelectionVerified, modelOffered: true, modelSelected: true, contentsVerified: process.env.PAC_HAPI_FAST_RESUME !== '1',
     readVisible: visible.includes('Read'), writeVisible: visible.includes('Write'), editVisible: visible.includes('Edit') }
+  if (process.env.PAC_HAPI_TEXT === '1') {
+    stage = 'checking that an actual assistant answer reaches HAPI'
+    const before = await request(`/api/sessions/${id}/messages?limit=100`)
+    const known = new Set((before.messages || []).map((message) => message.id))
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: 'Reply with exactly PAC_HAPI_TEXT_643921 and nothing else. Do not use tools.', localId: randomUUID() }) })
+    await until(async () => {
+      const page = await request(`/api/sessions/${id}/messages?limit=100`)
+      return (page.messages || []).some((message) => !known.has(message.id) && message.content?.role === 'agent' && message.content.content?.data?.type === 'message' && JSON.stringify(message).includes('PAC_HAPI_TEXT_643921'))
+    }, 120000)
+    summary.assistantTextVerified = true
+  }
   if (process.env.PAC_HAPI_BROWSER === '1') summary.browserCreatedSession = true
   if (process.env.PAC_HAPI_SCOPED === '1') {
     stage = 'checking a source path-scoped rule through HAPI'
