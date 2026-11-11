@@ -22,6 +22,9 @@ foreach ($file in @('connection.json','hapi-token.txt','pac-source-token.txt','p
   if (!(Test-Path -LiteralPath (Join-Path $keys $file) -PathType Leaf)) { throw "Missing required key file: $file" }
 }
 if (!(Test-Path -LiteralPath (Join-Path $kitWindows 'Install-Runner.ps1') -PathType Leaf)) { throw 'The permanent ServerMallAgents kit is required.' }
+if (!(Test-Path -LiteralPath (Join-Path $kitWindows 'Resolve-RuntimePin.ps1') -PathType Leaf)) { throw 'A ServerMallAgents kit with runtime pin support is required.' }
+$kitRelease=Get-Content -LiteralPath (Join-Path $kit 'runtime-release.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($kitRelease.hapiVersion -ne $manifest.hapiVersion) { throw 'The kit HAPI version is incompatible with the reviewed PAC runtime.' }
 if (!(Test-Path -LiteralPath (Join-Path $sourceRoot 'package-lock.json') -PathType Leaf)) { throw 'Extract the complete PAC Bridge source archive first.' }
 if (!(Test-Path -LiteralPath $opencode -PathType Leaf)) { throw 'OpenCode executable not found.' }
 if ((& $opencode --version).Trim() -ne '1.19.5') { throw 'This integration requires the verified OpenCode version 1.19.5.' }
@@ -69,5 +72,10 @@ $env:PATH=(Join-Path $pacHome 'bin')+';'+$env:PATH
 [IO.File]::WriteAllText($runtime,$runtimeText,[Text.UTF8Encoding]::new($false))
 & (Join-Path $kitWindows 'Install-Runner.ps1') -TokenFile (Join-Path $keys 'hapi-token.txt') -PublicUrl ([string]$config.hapiUrl)
 & (Join-Path $kitWindows 'Install-RuntimeFix.ps1') -BinaryPath $hapiBinary -ExpectedSha256 ([string]$manifest.hapiSha256)
+$installedBinary=Join-Path $homePath ('runtime-fixes/'+$manifest.hapiSha256+'/hapi.exe')
+if ((Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.hapiSha256) { throw 'Installed PAC runtime checksum mismatch.' }
+$pinPath=Join-Path $homePath 'runtime-user-pin.json'
+[IO.File]::WriteAllText(($pinPath+'.new'),(@{baseVersion=[string]$manifest.hapiVersion;sha256=[string]$manifest.hapiSha256} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+Move-Item -LiteralPath ($pinPath+'.new') -Destination $pinPath -Force
 & (Join-Path $kitWindows 'Verify-Connection.ps1')
 Write-Output 'Runner installation finished. Verify model discovery and a real PAC turn in the existing HAPI hub.'
