@@ -1,5 +1,11 @@
 # Acceptance criteria: cross-platform transparent agent bridge
 
+## Latest live verification (11 November 2026)
+
+The existing `1C-Prog` runner was updated to HAPI 0.34.4 with the PAC ACP text forwarding fix ([HAPI commit](https://github.com/3ndetz/hapi/commit/33cc071e)). The existing `/workflow/1/` connection and runner lifecycle readiness passed the kit verification. A disposable session created through that same machine selected PAC Opus and returned a visible assistant response mentioning the `C:` source drive. A separate real Claude ACP check returned the source `C:\` workspace. The test session was archived and existing conversations retained. Existing conversations started on an older executable require a new chat to pick up the fix.
+
+This is a live smoke test, not full acceptance: the PAC relay and controller are still temporary processes, restart recovery remains unverified, and the other requirements below remain open wherever not explicitly verified.
+
 ## Objective
 
 Connect remote agent clients and an authenticated Claude Code runtime through PAC Bridge. Forward commands, tool calls, events and their results rather than relying on a shared filesystem or copying entire workspaces between machines. The bridge must preserve the semantics of the participating agents, including their background work and subagents.
