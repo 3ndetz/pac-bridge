@@ -10,10 +10,11 @@ export function createNativeTaskOutput({ maxChars = 262144, maxTasks = 128 } = {
     const found = [...children].find(([, child]) => child.sessionId === notification.sessionId)
     if (!found) return
     const key = `${rootSessionId}\0${found[0]}`
-    const previous = outputs.get(key) || { text: '', truncated: false }
+    const old = outputs.get(key)
+    const previous = old?.childSessionId === found[1].sessionId ? old : { childSessionId: found[1].sessionId, text: '', truncated: false }
     const text = previous.text + update.content.text
     outputs.delete(key)
-    outputs.set(key, { text: text.slice(0, maxChars), truncated: previous.truncated || text.length > maxChars })
+    outputs.set(key, { childSessionId: found[1].sessionId, text: text.slice(0, maxChars), truncated: previous.truncated || text.length > maxChars })
     while (outputs.size > maxTasks) outputs.delete(outputs.keys().next().value)
   }
   async function get({ rootSessionId, session, taskId, block = true, timeoutMs = 120000, signal }) {
@@ -26,8 +27,10 @@ export function createNativeTaskOutput({ maxChars = 262144, maxTasks = 128 } = {
       await new Promise((resolve) => setTimeout(resolve, Math.min(200, Math.max(1, deadline - Date.now()))))
     }
     if (signal?.aborted) throw new Error('Task output request cancelled')
-    const result = outputs.get(`${rootSessionId}\0${taskId}`) || { text: '', truncated: false }
-    return { taskId, status: child.terminalState ?? 'running', output: result.text, truncated: result.truncated }
+    const found = outputs.get(`${rootSessionId}\0${taskId}`)
+    const result = found?.childSessionId === child.sessionId ? found : null
+    return { taskId, status: child.terminalState ?? 'running', output: result?.text ?? '', truncated: result?.truncated ?? false,
+      outputAvailable: Boolean(result) }
   }
   return { capture, get }
 }

@@ -10,7 +10,9 @@ test('routes subagent output to its own registered task and waits for completion
   ledger.capture('root', session, { sessionId: 'child', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hello' } } })
   const pending = ledger.get({ rootSessionId: 'root', session, taskId: 'task', timeoutMs: 1000 })
   setTimeout(() => { ledger.capture('root', session, { sessionId: 'child', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' world' } } }); child.terminalState = 'completed' }, 10)
-  assert.deepEqual(await pending, { taskId: 'task', status: 'completed', output: 'hello wo', truncated: true })
+  assert.deepEqual(await pending, { taskId: 'task', status: 'completed', output: 'hello wo', truncated: true, outputAvailable: true })
+  session.nativeSubagentsByTaskId.set('task', { sessionId: 'resumed', terminalState: 'completed' })
+  assert.equal((await ledger.get({ rootSessionId: 'root', session, taskId: 'task' })).outputAvailable, false)
   await assert.rejects(ledger.get({ rootSessionId: 'another', session: { nativeSubagentsByTaskId: new Map() }, taskId: 'task' }), /Unknown/)
 })
 
