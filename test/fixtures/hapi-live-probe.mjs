@@ -951,6 +951,31 @@ try {
       summary.pendingBackgroundCancellationVerified = true
     }
   }
+  if (process.env.PAC_HAPI_COMPACT === '1') {
+    stage = 'recording a marker before HAPI compaction'
+    const marker = 'PAC_COMPACT_MARKER_781523'
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
+      text: `Remember ${marker} for a later question. Reply READY.`, localId: randomUUID()
+    }) })
+    await until(async () => {
+      const page = await request(`/api/sessions/${id}/messages?limit=100`)
+      return (page.messages || []).some((message) => message.content?.role === 'agent' && message.content.content?.data?.type === 'message' && /\bREADY\b/.test(message.content.content.data.message || ''))
+    }, 120000)
+    const before = new Set(((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).map((message) => message.id))
+    stage = 'compacting the PAC conversation through HAPI'
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: '/compact', localId: randomUUID() }) })
+    await until(async () => {
+      const page = await request(`/api/sessions/${id}/messages?limit=100`)
+      const fresh = (page.messages || []).filter((message) => !before.has(message.id))
+      if (fresh.some((message) => /compaction failed|not yet supported/i.test(JSON.stringify(message)))) throw new Error('HAPI reported compaction failure for the PAC session')
+      return fresh.some((message) => message.content?.role === 'agent' && message.content.content?.data?.type === 'compact-summary')
+    }, 180000)
+    stage = 'checking remembered context after compaction'
+    const beforeRecall = new Set(((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).map((message) => message.id))
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: 'Repeat the remembered marker exactly.', localId: randomUUID() }) })
+    await until(async () => ((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).some((message) => !beforeRecall.has(message.id) && message.content?.role === 'agent' && message.content.content?.data?.type === 'message' && (message.content.content.data.message || '').includes(marker)), 120000)
+    summary.compactionAndRecallVerified = true
+  }
   if (process.env.PAC_HAPI_RESUME === '1') {
     stage = 'recording context before session restart'
     const before = await request(`/api/sessions/${id}/messages?limit=100`)

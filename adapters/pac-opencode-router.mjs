@@ -408,7 +408,15 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       // turn so that controller paths are not mistaken for project paths.
       params = { ...params, prompt: [{ type: 'text', text: `<system-reminder>PAC Bridge source workspace: ${JSON.stringify(session.cwd)}. This is the user's working directory; the remote controller's process directory is internal. Execute project commands and resolve project paths in the source workspace.</system-reminder>` }, ...params.prompt] }
     }
-    return selected.remote.call(method, params, method === 'session/prompt' ? 0 : undefined)
+    try {
+      return await selected.remote.call(method, params, method === 'session/prompt' ? 0 : undefined)
+    } catch (error) {
+      if (method === 'session/prompt' && error.message === 'Authentication required') {
+        client.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '\n\nPAC Bridge: Claude authentication is required on the selected PAC controller. Sign in there and retry your request.' } } })
+      }
+      throw error
+    }
   },
   onNotification: (method, params = {}) => {
     const session = sessions.get(params.sessionId)
