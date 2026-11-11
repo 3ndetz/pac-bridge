@@ -1,0 +1,27 @@
+$ErrorActionPreference='Stop'
+$sourceRoot=Split-Path -Parent $PSScriptRoot
+$realUser=$env:USERPROFILE
+$tempRoot=(Get-Item -LiteralPath (Join-Path $realUser 'AppData\Local\Temp')).FullName
+$root=Join-Path $tempRoot ('pac-install-proof-'+[guid]::NewGuid().ToString())
+$kit=Join-Path $root 'kit'
+$keys=Join-Path $root 'keys'
+$env:USERPROFILE=Join-Path $root 'profile'
+New-Item -ItemType Directory -Path (Join-Path $kit 'windows'),$keys,$env:USERPROFILE -Force | Out-Null
+'{"hapiUrl":"https://example.test/workflow/1/","relayUrl":"wss://example.test:1234","pacName":"testpac","controllerCwd":"C:\\test","displayName":"#1","modelPrefix":"Claude"}' | Set-Content -Encoding UTF8 (Join-Path $keys 'connection.json')
+foreach($name in @('hapi-token.txt','pac-source-token.txt','pac-relay-ca.pem')) { Set-Content -LiteralPath (Join-Path $keys $name) -Value 'synthetic' }
+@'
+param($TokenFile,$PublicUrl)
+. (Join-Path $PSScriptRoot 'Runtime.ps1')
+if ($PublicUrl -ne 'https://example.test/workflow/1/' -or $env:PAC_NAME -ne 'testpac' -or !(Test-Path $env:PAC_SOURCE_TOKEN_FILE) -or !(Test-Path $env:PAC_OPENCODE_BINARY)) { throw 'Runner did not receive expected configuration' }
+Write-Output 'Synthetic runner received PAC settings.'
+'@ | Set-Content -Encoding UTF8 (Join-Path $kit 'windows\Install-Runner.ps1')
+try {
+  & (Join-Path $sourceRoot 'windows\Install-PacRunner.ps1') -KitPath $kit -KeysPath $keys -OpenCodePath (Join-Path $realUser '.local\bin\opencode.exe')
+  if (!(Test-Path (Join-Path $env:USERPROFILE '.hapi-servermall\pac-bridge\bin\opencode.cmd'))) { throw 'Missing wrapper' }
+  try { & (Join-Path $sourceRoot 'windows\Install-PacRunner.ps1') -KitPath $kit -KeysPath $keys -OpenCodePath (Join-Path $realUser '.local\bin\opencode.exe'); throw 'Unexpected second install' } catch { if ($_.Exception.Message -notmatch 'existing HAPI/PAC') { throw } }
+  Write-Output 'Synthetic isolated installation and repeat protection passed.'
+} finally {
+  $env:USERPROFILE=$realUser
+  $resolved=(Get-Item -LiteralPath $root).FullName
+  if ((Split-Path -Parent $resolved) -eq $tempRoot -and (Split-Path -Leaf $resolved).StartsWith('pac-install-proof-')) { Remove-Item -LiteralPath $resolved -Recurse -Force }
+}
