@@ -27,7 +27,9 @@ test('runs a matching project hook on the source and forwards its decision', { t
     await writeFile(join(config, 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'http', url: 'https://example.invalid' }] }] } }))
     await assert.rejects(createProjectHooks({ root, shell: process.execPath }), /Unsupported project hook handler/)
     await writeFile(join(config, 'settings.json'), JSON.stringify({ permissions: { deny: ['Read'] } }))
-    await assert.rejects(createProjectHooks({ root, shell: process.execPath }), /Project settings other than hooks/)
+    await assert.rejects(createProjectHooks({ root, shell: process.execPath }), /Project permission settings/)
+    await writeFile(join(config, 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(npm test)'], additionalDirectories: ['/outside'] } }))
+    await createProjectHooks({ root, shell: process.execPath })
   } finally {
     const actual = await realpath(root)
     const local = relative(await realpath(tmpdir()), actual)

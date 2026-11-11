@@ -12,6 +12,8 @@ The experimental controller adapter and its pinned SDK dependencies are included
 
 The controller uses source tool aliases by default. For the experimental question, project-hook and shell-streaming paths, set `PAC_ENABLE_QUESTIONS=1`, `PAC_ENABLE_PROJECT_HOOKS=1` and `PAC_ENABLE_SHELL_STREAMING=1` in the controller process environment. `PAC_ENABLE_BACKGROUND=1` additionally enables the incomplete background and subagent path. Set `PAC_AGENT_RECONNECT=1` on the agent process to retry registration after disconnection; this does not replay interrupted work.
 
+Project settings containing only hooks and permission grants (`allow` and `additionalDirectories`) can be loaded. Those grants are not applied: bridge operations still require their normal HAPI approval and remain restricted to the workspace. Deny, ask and other permission settings are rejected until they can be enforced; this is not full Claude settings parity.
+
 From the source workspace, set the following environment variables to the paths and values appropriate to that machine:
 
 ```text

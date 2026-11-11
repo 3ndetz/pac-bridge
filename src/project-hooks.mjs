@@ -30,7 +30,18 @@ export async function createProjectHooks({ root, shell, maxOutputBytes = 1024 * 
     } catch (error) { if (error.code === 'ENOENT') continue; throw error }
     const settings = JSON.parse(file)
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('Invalid project settings')
-    if (Object.keys(settings).some((key) => key !== 'hooks')) throw new Error('Project settings other than hooks are not yet supported')
+    if (Object.keys(settings).some((key) => !['hooks', 'permissions'].includes(key))) throw new Error('Project settings other than hooks are not yet supported')
+    // Ignore only grants that would make the policy more permissive: the PAC
+    // bridge continues asking HAPI for approval and remains confined to the
+    // workspace. Never ignore deny, ask, or unknown permission settings.
+    if (settings.permissions !== undefined) {
+      const permissions = settings.permissions
+      if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions) ||
+          Object.keys(permissions).some((key) => !['allow', 'additionalDirectories'].includes(key)) ||
+          Object.values(permissions).some((value) => !Array.isArray(value) || value.some((item) => typeof item !== 'string'))) {
+        throw new Error('Project permission settings are not yet supported')
+      }
+    }
     if (settings.hooks === undefined) continue
     if (!settings.hooks || typeof settings.hooks !== 'object' || Array.isArray(settings.hooks)) throw new Error('Invalid project hooks')
     for (const [event, groups] of Object.entries(settings.hooks)) {
