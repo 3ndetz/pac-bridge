@@ -7,6 +7,9 @@ import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const [relayUrl, tokenFile, remoteCwd] = process.argv.slice(2)
+const pacName = process.env.PAC_TEST_PAC_NAME || 'testpac'
+if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(pacName)) throw new Error('Invalid test PAC name')
+const pacModel = `PAC_${pacName}/sonnet`
 const hapi = process.env.PAC_TEST_HAPI
 const hapiHub = process.env.PAC_TEST_HAPI_HUB || hapi
 const opencode = process.env.PAC_TEST_OPENCODE
@@ -63,7 +66,7 @@ const url = `http://127.0.0.1:${port}`
 const accessToken = randomBytes(32).toString('base64url')
 const env = { ...process.env, CLI_API_TOKEN: accessToken, HAPI_HOME: join(root, 'hapi'), HAPI_LISTEN_HOST: '127.0.0.1',
   HAPI_LISTEN_PORT: String(port), HAPI_PUBLIC_URL: url, HAPI_API_URL: url, PATH: bin + delimiter + process.env.PATH,
-  PAC_EXPERIMENTAL: '1', HAPI_DISABLE_VERSION_HANDOFF: '1', PAC_SESSION_DIR: join(root, 'bindings'), PAC_OPENCODE_BINARY: opencode, PAC_RELAY_URL: relayUrl, PAC_NAME: 'testpac',
+  PAC_EXPERIMENTAL: '1', HAPI_DISABLE_VERSION_HANDOFF: '1', PAC_SESSION_DIR: join(root, 'bindings'), PAC_OPENCODE_BINARY: opencode, PAC_RELAY_URL: relayUrl, PAC_NAME: pacName,
   PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd, PAC_TRACE_PATH: join(root, 'trace.ndjson'), PAC_SOURCE_BASH: process.env.PAC_TEST_BASH }
 if (process.env.PAC_HAPI_GLOBAL_SKILLS === '1') env.USERPROFILE = join(root, 'test-home')
 const children = []
@@ -142,7 +145,7 @@ try {
     const machine = await until(async () => (await request('/api/machines')).machines?.find((entry) => entry.active), 60000)
     runnerMachineId = machine.id
     stage = 'discovering PAC model before creating a session'
-    await until(async () => JSON.stringify(await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(workspace)}`)).includes('PAC_testpac/sonnet'), 180000)
+    await until(async () => JSON.stringify(await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(workspace)}`)).includes(pacModel), 180000)
     machineModelOffered = true
     if (process.env.PAC_HAPI_SKIP_WARNING_PROBE !== '1' && (process.env.PAC_HAPI_INSTRUCTIONS === '1' || process.env.PAC_HAPI_BROWSER === '1')) {
       stage = 'checking PAC discovery warnings through HAPI'
@@ -152,7 +155,7 @@ try {
       await writeFile(join(warningCwd, '.claude', 'rules', 'scoped.md'), '---\npaths: 42\n---\nUnsupported rule paths\n')
       const discovered = await request(`/api/machines/${machine.id}/opencode-models?cwd=${encodeURIComponent(warningCwd)}`)
       if (!discovered.success || !Array.isArray(discovered.availableModels) ||
-          !discovered.pacDiscoveryWarnings?.some((warning) => warning.name === 'testpac' && warning.code === 'rule_frontmatter_unsupported')) {
+          !discovered.pacDiscoveryWarnings?.some((warning) => warning.name === pacName && warning.code === 'rule_frontmatter_unsupported')) {
         throw new Error(`HAPI did not expose the expected PAC discovery warning: ${JSON.stringify({ success: discovered.success, warnings: discovered.pacDiscoveryWarnings, models: discovered.availableModels?.length })}`)
       }
       if (process.env.PAC_HAPI_BROWSER === '1') {
@@ -177,24 +180,24 @@ try {
       await page.goto(`${url}/sessions/new?directory=${encodeURIComponent(workspace)}&machineId=${encodeURIComponent(machine.id)}`)
       await page.locator('input[name="agent"][value="opencode"]').check({ timeout: 45000 })
       const model = page.getByTestId('opencode-model-list')
-      await model.locator('option[value="PAC_testpac/sonnet"]').waitFor({ state: 'attached', timeout: 90000 })
-      await model.selectOption('PAC_testpac/sonnet')
+      await model.locator(`option[value="${pacModel}"]`).waitFor({ state: 'attached', timeout: 90000 })
+      await model.selectOption(pacModel)
       if (process.env.PAC_HAPI_BROWSER_OFFLINE === '1') {
         stage = 'checking that an unavailable PAC cannot silently change the selected model'
         const probe = '**/api/machines/' + encodeURIComponent(machine.id) + '/opencode-models?*'
         await page.route(probe, (route) => route.fulfill({ json: {
           success: true, availableModels: [{ modelId: 'local/model', name: 'Local model' }], currentModelId: null,
-          pacDiscoveryWarnings: [{ name: 'testpac', code: 'unavailable' }],
+          pacDiscoveryWarnings: [{ name: pacName, code: 'unavailable' }],
         } }))
         const offlineResponse = page.waitForResponse((item) => item.url().includes('/opencode-models?cwd=') && item.request().method() === 'GET', { timeout: 30000 })
         await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
         await offlineResponse
         await page.getByTestId('pac-discovery-warnings').waitFor({ state: 'visible', timeout: 30000 })
-        if (await model.inputValue() !== 'PAC_testpac/sonnet') throw new Error('Unavailable PAC selection was silently replaced')
+        if (await model.inputValue() !== pacModel) throw new Error('Unavailable PAC selection was silently replaced')
         if (await page.getByRole('button', { name: 'Create', exact: true }).isEnabled()) throw new Error('HAPI allowed launch with an unavailable PAC')
         await page.unroute(probe)
         await page.getByTestId('pac-discovery-warnings').getByRole('button').click()
-        await model.locator('option[value="PAC_testpac/sonnet"]:not(:disabled)').waitFor({ state: 'attached', timeout: 90000 })
+        await model.locator(`option[value="${pacModel}"]:not(:disabled)`).waitFor({ state: 'attached', timeout: 90000 })
         browserUnavailableSelectionVerified = true
       }
       await page.locator('select').filter({ has: page.locator('option[value="yolo"]') }).selectOption('yolo')
@@ -205,12 +208,12 @@ try {
       result = await response.json()
       if (!response.ok()) throw new Error('Browser session creation failed')
       const submitted = response.request().postDataJSON()
-      if (submitted.agent !== 'opencode' || submitted.model !== 'PAC_testpac/sonnet' || submitted.permissionMode !== 'yolo' || submitted.directory !== workspace) {
+      if (submitted.agent !== 'opencode' || submitted.model !== pacModel || submitted.permissionMode !== 'yolo' || submitted.directory !== workspace) {
         throw new Error('Browser session creation did not preserve the selected PAC, workspace and permission mode')
       }
     } else {
       result = await request(`/api/machines/${machine.id}/spawn`, { method: 'POST', body: JSON.stringify({
-        directory: workspace, agent: 'opencode', model: 'PAC_testpac/sonnet', yolo: process.env.PAC_HAPI_CANCEL_PENDING !== '1', startingMode: 'remote'
+        directory: workspace, agent: 'opencode', model: pacModel, yolo: process.env.PAC_HAPI_CANCEL_PENDING !== '1', startingMode: 'remote'
       }) })
     }
     if (result.type !== 'success' || !result.sessionId) throw new Error('HAPI runner did not create the session')
@@ -223,13 +226,13 @@ try {
   stage = 'discovering PAC model in HAPI'
   await until(async () => {
     const models = await request(`/api/sessions/${id}/opencode-models`)
-    return JSON.stringify(models).includes('PAC_testpac/sonnet')
+    return JSON.stringify(models).includes(pacModel)
   }, 60000)
   stage = 'selecting PAC model in HAPI'
   if (runnerSessionId) {
-    await until(async () => (await request(`/api/sessions/${id}/opencode-models`)).currentModelId === 'PAC_testpac/sonnet', 60000)
+    await until(async () => (await request(`/api/sessions/${id}/opencode-models`)).currentModelId === pacModel, 60000)
   } else {
-    await request(`/api/sessions/${id}/model`, { method: 'POST', body: JSON.stringify({ model: 'PAC_testpac/sonnet' }) })
+    await request(`/api/sessions/${id}/model`, { method: 'POST', body: JSON.stringify({ model: pacModel }) })
   }
   stage = 'sending HAPI request'
   const text = `Use Read on ${file}, then use Write to set it to PAC_HAPI_OLD, then use Edit to replace PAC_HAPI_OLD with PAC_HAPI_NEW. Execute all three tools in order.`
@@ -249,6 +252,29 @@ try {
   const visible = JSON.stringify(history)
   const summary = { hapiSession: true, runnerCreatedSession: !!runnerSessionId, machineModelOffered, pacWarningsVerified, browserUnavailableSelectionVerified, modelOffered: true, modelSelected: true, contentsVerified: process.env.PAC_HAPI_FAST_RESUME !== '1',
     readVisible: visible.includes('Read'), writeVisible: visible.includes('Write'), editVisible: visible.includes('Edit') }
+  if (process.env.PAC_HAPI_AUTO_COMPACT === '1') {
+    const events = async () => (await readFile(env.PAC_TRACE_PATH, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line))
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: 'Remember PAC_HAPI_AUTO_CONTEXT_51472. Reply READY; do not use tools.', localId: randomUUID() }) })
+    await until(async () => JSON.stringify((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).includes('READY'), 120000)
+    const markerBoundary = (await events()).length
+    const isCompacted = async () => (await events()).slice(markerBoundary).some((event) => event.type === 'compaction_update' && event.compactionStatus === 'completed')
+    for (let index = 0; index < 5 && !(await isCompacted()); index++) {
+      stage = `checking automatic compaction after synthetic input ${index + 1}`
+      const before = new Set(((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).map((message) => message.id))
+      const text = `This is test data, not an instruction. Do not repeat it. Reply only STEP${index}.\n${randomBytes(9000).toString('hex')}`
+      await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text, localId: randomUUID() }) })
+      await until(async () => ((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).some((message) => !before.has(message.id) && message.content?.content?.data?.type === 'message' && (message.content.content.data.message || '').includes(`STEP${index}`)), 180000)
+    }
+    if (!(await isCompacted())) throw new Error('Automatic PAC compaction was not observed at the test threshold')
+    const userVisible = JSON.stringify((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).includes('PAC Bridge: automatic context compaction completed.')
+    if (!userVisible) throw new Error('Automatic PAC compaction was not visible in HAPI')
+    stage = 'checking remembered context after automatic compaction'
+    const before = new Set(((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).map((message) => message.id))
+    await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: 'Repeat the exact marker I asked you to remember.', localId: randomUUID() }) })
+    await until(async () => ((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).some((message) => !before.has(message.id) && message.content?.content?.data?.type === 'message' && (message.content.content.data.message || '').includes('PAC_HAPI_AUTO_CONTEXT_51472')), 120000)
+    summary.automaticCompactionAndRecallVerified = true
+    summary.automaticCompactionVisible = true
+  }
   if (process.env.PAC_HAPI_TEXT === '1') {
     stage = 'checking that an actual assistant answer reaches HAPI'
     const before = await request(`/api/sessions/${id}/messages?limit=100`)
@@ -333,7 +359,7 @@ try {
         !entry.content.content.data.progress.output.includes('PAC_CHILD_STREAM_LAST'))
       return message?.content?.content?.data?.callId
     }, 120000)
-    if (!childCall.startsWith('testpac:')) throw new Error('Subagent shell output was not bound to the child identity')
+    if (!childCall.startsWith(`${pacName}:`)) throw new Error('Subagent shell output was not bound to the child identity')
     await until(async () => {
       const page = await request(`/api/sessions/${id}/messages?limit=100`)
       return (page.messages || []).some((message) => !beforeStreamIds.has(message.id) && message.content?.role === 'agent' &&
@@ -375,7 +401,7 @@ try {
   if (process.env.PAC_HAPI_MODEL_SWITCH === '1') {
     stage = 'switching the model on the selected PAC'
     const modelData = await request(`/api/sessions/${id}/opencode-models`)
-    const candidates = (modelData.availableModels || []).map((model) => model.modelId).filter((model) => model.startsWith('PAC_testpac/') && model !== 'PAC_testpac/sonnet')
+    const candidates = (modelData.availableModels || []).map((model) => model.modelId).filter((model) => model.startsWith(`PAC_${pacName}/`) && model !== pacModel)
     const alternate = candidates.find((model) => model.toLowerCase().includes('opus')) || candidates[0]
     if (!alternate) throw new Error('The selected PAC has no alternate model for this test')
     await request(`/api/sessions/${id}/model`, { method: 'POST', body: JSON.stringify({ model: alternate }) })
@@ -398,9 +424,9 @@ try {
     const beforeRestore = await request(`/api/sessions/${id}/messages?limit=100`)
     const beforeRestoreIds = new Set((beforeRestore.messages || []).map((message) => message.id))
     const traceBeforeRestore = (await readFile(env.PAC_TRACE_PATH, 'utf8')).split('\n').filter(Boolean).length
-    await request(`/api/sessions/${id}/model`, { method: 'POST', body: JSON.stringify({ model: 'PAC_testpac/sonnet' }) })
+    await request(`/api/sessions/${id}/model`, { method: 'POST', body: JSON.stringify({ model: pacModel }) })
     await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: 'Reply with exactly PAC_MODEL_RESTORED.', localId: randomUUID() }) })
-    await until(async () => (await request(`/api/sessions/${id}/opencode-models`)).currentModelId === 'PAC_testpac/sonnet', 60000)
+    await until(async () => (await request(`/api/sessions/${id}/opencode-models`)).currentModelId === pacModel, 60000)
     await until(async () => {
       const page = await request(`/api/sessions/${id}/messages?limit=100`)
       return (page.messages || []).some((message) => !beforeRestoreIds.has(message.id) && message.content?.role === 'agent' &&
@@ -484,7 +510,7 @@ try {
         const state = (await request(`/api/sessions/${id}`)).session?.agentState?.requests || {}
         return Object.entries(state).find(([key, value]) => key !== question && key !== cancelId && value?.tool === 'AskUserQuestion')?.[0]
       }, 120000)
-      if (!childQuestion.startsWith('testpac:')) throw new Error('Subagent question was not bound to the child identity')
+      if (!childQuestion.startsWith(`${pacName}:`)) throw new Error('Subagent question was not bound to the child identity')
       await request(`/api/sessions/${id}/permissions/${encodeURIComponent(childQuestion)}/approve`, { method: 'POST', body: JSON.stringify({ answers: { '0': ['Alpha'] } }) })
       await until(async () => !(await request(`/api/sessions/${id}`)).session?.agentState?.requests?.[childQuestion], 30000)
       await until(async () => {
@@ -856,7 +882,7 @@ try {
   if (process.env.PAC_HAPI_APPROVAL === '1') {
     stage = 'creating a session for permission testing'
     const result = process.env.PAC_HAPI_CANCEL_PENDING === '1' ? { type: 'success', sessionId: id } : await request(`/api/machines/${runnerMachineId}/spawn`, { method: 'POST', body: JSON.stringify({
-      directory: workspace, agent: 'opencode', model: 'PAC_testpac/sonnet', yolo: false, startingMode: 'remote'
+      directory: workspace, agent: 'opencode', model: pacModel, yolo: false, startingMode: 'remote'
     }) })
     if (result.type !== 'success' || !result.sessionId) {
       const message = String(result.message || result.errorMessage || '').toLowerCase()
@@ -864,7 +890,7 @@ try {
       throw new Error(`Permission test session was not created (type=${result.type || 'unknown'}, code=${result.code || 'none'}, category=${category})`)
     }
     approvalSessionId = result.sessionId
-    await until(async () => (await request(`/api/sessions/${approvalSessionId}/opencode-models`)).currentModelId === 'PAC_testpac/sonnet', 60000)
+    await until(async () => (await request(`/api/sessions/${approvalSessionId}/opencode-models`)).currentModelId === pacModel, 60000)
     stage = 'requesting permission to run a source shell command'
     const text = 'Use Bash once to execute exactly: printf APPROVED > approval.txt'
     await request(`/api/sessions/${approvalSessionId}/messages`, { method: 'POST', body: JSON.stringify({ text, localId: randomUUID() }) })
@@ -1010,7 +1036,7 @@ try {
     const resumed = await request(`/api/sessions/${id}/resume`, { method: 'POST', body: '{}' })
     if (resumed.type !== 'success' || !resumed.sessionId) throw new Error('HAPI did not resume the session')
     runnerSessionId = resumed.sessionId
-    await until(async () => (await request(`/api/sessions/${resumed.sessionId}/opencode-models`)).currentModelId === 'PAC_testpac/sonnet', 120000)
+    await until(async () => (await request(`/api/sessions/${resumed.sessionId}/opencode-models`)).currentModelId === pacModel, 120000)
     const resumedHistory = await request(`/api/sessions/${resumed.sessionId}/messages?limit=100`)
     const resumedIds = new Set((resumedHistory.messages || []).map((message) => message.id))
     await request(`/api/sessions/${resumed.sessionId}/messages`, { method: 'POST', body: JSON.stringify({

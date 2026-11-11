@@ -14,9 +14,11 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 
 - [x] Verify manual compaction actually compacts the PAC conversation and retains a deliberately recorded fact in the next turn on the installed working runner. The existing 1C-Prog runner and an isolated HAPI runner both passed with real Claude.
 - [ ] Verify automatic compaction near the real context limit, including subsequent tools, instructions, skills, subagents, and session resume. Record model and limits used.
+- [x] Exercise automatic compaction and context recall through HAPI with an artificially lowered test threshold; verify the completion notice is visible. This does not establish the production model's actual threshold.
 - [ ] Verify session bindings, history, selected PAC and model survive runner, controller, relay, and Windows restarts without switching sessions or duplicating uncertain actions.
 - [ ] Verify disconnection, reconnection, authorization expiry, model unavailability, concurrency, timeouts, and cancellation while actions are running. Confirm failures are explicit and recoverable.
 - [ ] Store durable bindings and installation outside temporary build and checkout paths; preserve existing session bindings during migration.
+- [x] Keep the verified PAC runner selected through a same-version managed kit repair, and reject a damaged pin or an incompatible base version. This was checked on the existing 1C-Prog profile and in isolated installer tests.
 
 ## Instructions, skills and hooks
 

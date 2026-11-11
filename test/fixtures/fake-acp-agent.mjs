@@ -98,7 +98,7 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
         return { stopReason: 'end_turn' }
       }
       if (process.argv.includes('--conversation')) {
-        firstPrompt ??= params.prompt?.find((part) => part.type === 'text')?.text || ''
+        firstPrompt ??= params.prompt?.find((part) => part.type === 'text' && !part.text.startsWith('<system-reminder>PAC Bridge source workspace:'))?.text || ''
         if (process.env.PAC_TEST_CONVERSATION_FILE) await writeFile(process.env.PAC_TEST_CONVERSATION_FILE, firstPrompt)
         if (process.env.PAC_TEST_THOUGHT === '1') peer.notify('session/update', { sessionId: params.sessionId,
           update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'SYNTHETIC_THOUGHT_MARKER' } } })

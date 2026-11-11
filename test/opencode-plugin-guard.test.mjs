@@ -13,6 +13,8 @@ test('blocks configured OpenCode plugins without mistaking JSONC strings for com
     const config = join(home, '.config', 'opencode', 'opencode.jsonc')
     await writeFile(config, '{ "url": "https://example.test/a,//b", "plugin": [], // comment\n }')
     await assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: {} })
+    const bridgePlugin = new URL('../adapters/opencode-plugin.mjs', import.meta.url).href
+    await assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ plugin: [bridgePlugin] }) } })
     await writeFile(config, '{ "plugin": ["example-plugin", /* comment */], }')
     await assert.rejects(assertNoUnsupportedOpenCodePlugins({ root: workspace, home, env: {} }), /plugins and hooks are not yet supported/)
     for (const item of ['"permission": {"bash": "deny"}', '"instructions": ["custom.md"]', '"mcp": {"example": {}}', '"skills": {"paths": ["custom"]}', '"agent": {"build": {"permission": {"bash": "deny"}}}']) {

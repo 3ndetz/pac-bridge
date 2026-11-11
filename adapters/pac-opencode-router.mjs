@@ -107,7 +107,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       const targets = binding ? endpoints.filter((endpoint) => endpoint.id === binding.pacId) : endpoints
       if (binding && targets.length !== 1) throw new Error('The original PAC is unavailable; refusing to switch controllers')
       await Promise.all(targets.map(async (endpoint) => {
-        const state = { endpoint, connected: true }
+        const state = { endpoint, connected: true, automaticCompactions: new Map() }
         let sourceReady = false
         const connectionStarted = Date.now()
         const traceConnection = (stage) => {
@@ -317,11 +317,25 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
               if (['compaction_update', 'compaction_summary_chunk'].includes(update?.sessionUpdate)) return
             }
             if (process.env.PAC_TRACE_PATH && remoteMethod === 'session/update') appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({
-              type: update?.sessionUpdate, title: update?.title, background: update?.rawInput?.run_in_background ?? update?._meta?.pacProbe?.background,
+              type: update?.sessionUpdate, compactionStatus: update?.sessionUpdate === 'compaction_update' ? update.status : undefined,
+              title: update?.title, background: update?.rawInput?.run_in_background ?? update?._meta?.pacProbe?.background,
               scopedInstructionOwner: ['main', 'subagent'].includes(update?._meta?.pacProbe?.scopedInstructionOwner) ? update._meta.pacProbe.scopedInstructionOwner : undefined,
               observedModel: typeof update?._meta?.['_claude/model'] === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(update._meta['_claude/model']) ? update._meta['_claude/model'] : undefined,
               meta: update?._meta ? Object.keys(update._meta) : [],
             }) + '\n')
+            if (session.selected === endpoint.id && !state.compaction && remoteMethod === 'session/update' && remoteParams?.sessionId === state.remote?.sessionId &&
+                ['compaction_update', 'compaction_summary_chunk'].includes(update?.sessionUpdate)) {
+              if (update.sessionUpdate === 'compaction_update' && typeof update.compactionId === 'string' && update.compactionId.length <= 256 &&
+                  ['in_progress', 'completed', 'failed', 'cancelled'].includes(update.status) &&
+                  !['completed', 'failed', 'cancelled'].includes(state.automaticCompactions.get(update.compactionId)) && state.automaticCompactions.get(update.compactionId) !== update.status) {
+                state.automaticCompactions.set(update.compactionId, update.status)
+                if (state.automaticCompactions.size > 100) state.automaticCompactions.delete(state.automaticCompactions.keys().next().value)
+                const label = { in_progress: 'started', completed: 'completed', failed: 'failed', cancelled: 'was cancelled' }[update.status]
+                client.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'agent_message_chunk',
+                  content: { type: 'text', text: `\n\nPAC Bridge: automatic context compaction ${label}.\n\n` } } })
+              }
+              return
+            }
             if (session.selected === endpoint.id) {
               const event = remoteMethod === 'session/update' ? state.translator.translate(remoteParams)
                 : { method: remoteMethod, params: { ...remoteParams, sessionId: session.id } }
