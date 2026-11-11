@@ -12,6 +12,17 @@ This connects a new Windows runner to the existing HAPI hub specified in the pri
 * A separate private directory containing `connection.json`, `hapi-token.txt`, `pac-source-token.txt`, and `pac-relay-ca.pem`. Never put these files into Git, an archive published on GitHub, logs, or chat. The HAPI token grants access to the existing hub and its sessions; only transfer it to a trusted machine and user account.
 * A complete PAC Bridge source archive, extracted into a permanent or temporary directory, with `package-lock.json` and this `windows` directory.
 
+On an x64 machine, an isolated installation of the pinned OpenCode binary can be prepared without replacing an existing version:
+
+```powershell
+$prefix = Join-Path $env:LOCALAPPDATA 'PAC-Bridge\opencode-1.19.5'
+npm.cmd install --prefix $prefix opencode-ai@1.19.5 --no-audit --no-fund
+$openCode = Join-Path $prefix 'node_modules\opencode-windows-x64\bin\opencode.exe'
+& $openCode --version
+```
+
+The last command must report `1.19.5`. Use `$openCode` as the `-OpenCodePath` value below. The example is for x64, not ARM Windows.
+
 For a fresh profile, run from PowerShell as the Windows user who will own the runner:
 
 ```powershell
