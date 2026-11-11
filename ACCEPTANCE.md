@@ -199,3 +199,12 @@ The installed OpenCode CLI also expanded `/pac-stop` in an existing session and 
 In an isolated authenticated Claude run, a background subagent started its shell command, but an OpenCode stop command submitted while the originating response was active timed out after 45 seconds. This scenario did not confirm cancellation and requires an independent control path.
 
 An authenticated cross-host OpenCode test read a file using a relative workspace path. Local tests also verified relative writes and rejection of an attempted parent-directory escape.
+
+
+## Existing HAPI deployment, 2026-11-11
+
+The existing `1C-Prog` machine and HAPI hub expose PAC models through the OpenCode model selector. A persistent controller and TLS relay were used by a real Claude session; no additional HAPI machine or hub is required for the user workflow. The user's existing session was resumed with the same identity and history, and read a source file beneath a combined 23,178 characters of nested instructions after the source limit was raised. The previous 9,000-character limit caused the reported instruction-loading failure.
+
+An isolated hub on the same source machine and persistent controller verified an interactive two-question form with custom and multiple-choice answers, rejection and abort. A separately built HAPI candidate verified background command output, task visibility and cancellation via both the API and the browser, plus background subagent execution and task snapshots. The task controls require the corresponding HAPI hub, web and runner release; successful isolated verification alone does not prove that release has been deployed.
+
+The earlier prototype-era production-delivery entry above predates this deployment. Remaining gaps include full platform and feature parity, multiple independent PAC accounts and controllers, interrupted-operation recovery, and unattended startup across an operating-system restart.
