@@ -17,13 +17,14 @@ test('installed OpenCode reaches the installed Claude SDK and source workspace t
   const root = await mkdtemp(join(tmpdir(), 'pac-full-synthetic-'))
   const relayServer = createServer()
   const relay = attachAcpRelay(relayServer, { authorize: () => true })
-  let requests = 0, sawSource = false, agent, child
+  let requests = 0, sawSource = false, sawWorkspaceContext = false, agent, child
   const agentErrors = []
   const modelServer = createServer(async (request, response) => {
     if (request.method !== 'POST' || !request.url.startsWith('/v1/messages')) { response.writeHead(404).end(); return }
     let body = ''
     for await (const chunk of request) body += chunk
     const parsed = JSON.parse(body)
+    if (JSON.stringify(parsed.system).includes("The user's working directory is") && JSON.stringify(parsed.system).includes('source machine')) sawWorkspaceContext = true
     if (JSON.stringify(parsed.messages).includes('PAC_SOURCE_SYNTHETIC_CONTENT')) sawSource = true
     const tool = requests++ === 0 && parsed.tools?.find((entry) => entry.name === 'mcp__pac__Read' || entry.name === 'Read')
     if (requests === 1 && !tool) { response.destroy(); return }
@@ -72,6 +73,7 @@ test('installed OpenCode reaches the installed Claude SDK and source workspace t
     try { trace = await readFile(join(root, 'trace'), 'utf8') } catch {}
     assert.equal(code, 0, `${errors.slice(-1000)}\n${output.slice(-1000)}\n${trace.slice(-1500)}\nrequests: ${requests}; agent errors: ${agentErrors.join('; ')}`)
     assert.match(output, /PAC_FULL_SYNTHETIC_OK/)
+    assert.ok(sawWorkspaceContext, 'The model did not receive the source workspace context')
     assert.ok(requests >= 2)
     assert.equal(sawSource, true)
   } finally {

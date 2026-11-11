@@ -258,9 +258,12 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     if (meta.systemPrompt !== undefined && typeof meta.systemPrompt !== 'string' &&
         (!meta.systemPrompt || typeof meta.systemPrompt !== 'object' || Array.isArray(meta.systemPrompt) ||
           (meta.systemPrompt.append !== undefined && typeof meta.systemPrompt.append !== 'string'))) throw new Error('Unsupported system prompt format')
+    const sourceCwd = meta.pac?.workspaceCwd
+    if (typeof sourceCwd !== 'string' || !sourceCwd || sourceCwd.length > 4096 || /[\x00-\x1f\x7f]/.test(sourceCwd)) throw new Error('Invalid source workspace directory')
+    const workspacePrompt = `The user's working directory is ${JSON.stringify(sourceCwd)} on the source machine. The controller's working directory is internal to PAC Bridge, not the user's project. Use source workspace tools for project files and commands; resolve project-relative paths against the user's working directory. Do not use the controller path as the user's workspace.`
     const skillPrompt = skills.length ? `Available source workspace skills; invoke them with the Skill tool: ${JSON.stringify(skills)}` : ''
     const instructionPrompt = instructions.map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
-    const sourcePrompt = [instructionPrompt, skillPrompt].filter(Boolean).join('\n\n')
+    const sourcePrompt = [workspacePrompt, instructionPrompt, skillPrompt].filter(Boolean).join('\n\n')
     const systemPrompt = sourcePrompt ? typeof meta.systemPrompt === 'string' ? `${meta.systemPrompt}\n\n${sourcePrompt}` :
       { ...(meta.systemPrompt || {}), append: [meta.systemPrompt?.append, sourcePrompt].filter(Boolean).join('\n\n') } : meta.systemPrompt
     const claudeCode = meta.claudeCode || {}
