@@ -12,7 +12,11 @@ const root = await mkdtemp(join(tempRoot, 'pac-installed-proof-'))
 let jwt, id
 async function request(path, method = 'GET', data) {
   const response = await fetch(base + path, { method, headers: { ...(jwt ? { authorization: `Bearer ${jwt}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) }, ...(data ? { body: JSON.stringify(data) } : {}), signal: AbortSignal.timeout(150000) })
-  if (!response.ok) throw new Error(`HAPI ${method} ${path.split('?')[0]} returned ${response.status}`)
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    const code = typeof payload?.error === 'string' && /^[A-Za-z0-9_ -]{1,120}$/.test(payload.error) ? ` (${payload.error})` : ''
+    throw Object.assign(new Error(`HAPI ${method} ${path.split('?')[0]} returned ${response.status}${code}`), { status: response.status })
+  }
   return response.json()
 }
 async function until(fn, timeout = 120000) {
@@ -21,7 +25,16 @@ async function until(fn, timeout = 120000) {
   throw new Error('Timed out waiting for the installed HAPI result')
 }
 const messages = async () => (await request(`/api/sessions/${id}/messages?limit=100`)).messages || []
-const send = (text) => request(`/api/sessions/${id}/messages`, 'POST', { text, localId: randomUUID() })
+const send = async (text) => {
+  const body = { text, localId: randomUUID() }
+  const deadline = Date.now() + 60000
+  while (true) {
+    try { return await request(`/api/sessions/${id}/messages`, 'POST', body) } catch (error) {
+      if (error.status !== 409 || Date.now() >= deadline) throw error
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+  }
+}
 try {
   jwt = (await request('/api/auth', 'POST', { accessToken: settings.cliApiToken })).token
   if (!jwt) throw new Error('HAPI authentication failed')

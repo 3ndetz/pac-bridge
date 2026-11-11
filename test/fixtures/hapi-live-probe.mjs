@@ -16,6 +16,10 @@ const bin = join(root, 'bin')
 const workspace = join(root, 'workspace')
 await mkdir(bin)
 await mkdir(workspace)
+if (process.env.PAC_HAPI_PLUGIN_GUARD === '1') {
+  await mkdir(join(workspace, '.opencode', 'plugin'), { recursive: true })
+  await writeFile(join(workspace, '.opencode', 'plugin', 'probe.js'), 'export default async () => ({})\n')
+}
 if (process.env.PAC_HAPI_INSTRUCTIONS === '1') {
   await mkdir(join(workspace, 'rules'))
   await mkdir(join(workspace, '.claude', 'rules'), { recursive: true })
@@ -231,6 +235,13 @@ try {
   const text = `Use Read on ${file}, then use Write to set it to PAC_HAPI_OLD, then use Edit to replace PAC_HAPI_OLD with PAC_HAPI_NEW. Execute all three tools in order.`
   if (process.env.PAC_HAPI_FAST_RESUME !== '1') {
     await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ text, localId: randomUUID() }) })
+    if (process.env.PAC_HAPI_PLUGIN_GUARD === '1') {
+      stage = 'checking that an unsupported OpenCode plugin stops the turn with guidance'
+      await until(async () => JSON.stringify((await request(`/api/sessions/${id}/messages?limit=100`)).messages || []).includes('configured OpenCode plugins and hooks are not yet supported'), 120000)
+      if ((await readFile(file, 'utf8')).trim() !== 'PAC_HAPI_INITIAL') throw new Error('Blocked plugin scenario unexpectedly modified the workspace')
+      process.stdout.write(JSON.stringify({ unsupportedOpenCodePluginBlocked: true, guidanceVisible: true, workspaceUnchanged: true }) + '\n')
+      throw Object.assign(new Error('Plugin guard probe completed'), { probeComplete: true })
+    }
     stage = 'waiting for workspace result'
     await until(async () => (await readFile(file, 'utf8')).trim() === 'PAC_HAPI_NEW', 120000)
   }
@@ -1038,6 +1049,9 @@ try {
   }
   process.stdout.write(JSON.stringify(summary) + '\n')
 } catch (error) {
+  if (error.probeComplete) {
+    // The guard scenario intentionally stops before any real tool execution.
+  } else {
   process.stderr.write(`${stage}: ${error.message}\n`)
   try {
     const directory = join(root, 'hapi', 'logs')
@@ -1074,6 +1088,7 @@ try {
     } catch {}
   }
   process.exitCode = 1
+  }
 } finally {
   stage = 'closing the isolated test browser'
   if (browser) await browser.close().catch(() => {})

@@ -19,6 +19,7 @@ import { createBackgroundTerminal } from '../src/background-terminal.mjs'
 import { createSourceSkills } from '../src/source-skills.mjs'
 import { readSourceInstructions } from '../src/source-instructions.mjs'
 import { matchesProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
+import { assertNoUnsupportedOpenCodePlugins } from '../src/opencode-plugin-guard.mjs'
 
 const { PAC_OPENCODE_BINARY: binary, PAC_RELAY_URL: url, PAC_NAME: name, PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd } = process.env
 if (process.env.PAC_EXPERIMENTAL !== '1' || !binary) throw new Error('Incomplete experimental OpenCode router configuration')
@@ -427,6 +428,15 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       } catch (error) {
         const category = ['Unknown or inactive', 'Unknown native', 'unavailable', 'not found', 'not supported', 'timed out'].find((value) => error.message.includes(value)) || 'other'
         if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ taskStopError: category }) + '\n')
+        throw error
+      }
+    }
+    if (method === 'session/prompt' || method === 'pac/compact') {
+      try { await assertNoUnsupportedOpenCodePlugins({ root: session.cwd, home: homedir() }) } catch (error) {
+        const message = error.message === 'Configured OpenCode plugins and hooks are not yet supported by PAC Bridge'
+          ? 'PAC Bridge stopped this turn because configured OpenCode plugins and hooks are not yet supported.'
+          : 'PAC Bridge could not verify the OpenCode plugin configuration; the turn was stopped.'
+        client.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: message } } })
         throw error
       }
     }
