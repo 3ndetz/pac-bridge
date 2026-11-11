@@ -34,3 +34,16 @@ export function createNativeTaskOutput({ maxChars = 262144, maxTasks = 128 } = {
   }
   return { capture, get }
 }
+
+// The SDK stores child transcripts under their owning session. Validate the
+// task against that session before reading; never search another session.
+export async function recoverNativeTaskOutput({ sessionId, taskId, cwd, listSubagents, getSubagentMessages, maxChars = 262144 }) {
+  if (typeof sessionId !== 'string' || !sessionId || typeof taskId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(taskId)) throw new Error('Unknown native subagent task')
+  const ids = await listSubagents(sessionId, { dir: cwd })
+  if (!Array.isArray(ids) || !ids.includes(taskId)) throw new Error('Unknown native subagent task')
+  const messages = await getSubagentMessages(sessionId, taskId, { dir: cwd, limit: 1000 })
+  if (!Array.isArray(messages)) throw new Error('Subagent output is unavailable')
+  const text = messages.filter((entry) => entry?.type === 'assistant' && Array.isArray(entry.message?.content))
+    .flatMap((entry) => entry.message.content.filter((item) => item?.type === 'text' && typeof item.text === 'string').map((item) => item.text)).join('')
+  return { taskId, status: 'restored', output: text.slice(0, maxChars), truncated: text.length > maxChars, outputAvailable: Boolean(text), recovered: true }
+}

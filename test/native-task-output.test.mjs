@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createNativeTaskOutput } from '../src/native-task-output.mjs'
+import { createNativeTaskOutput, recoverNativeTaskOutput } from '../src/native-task-output.mjs'
 
 test('routes subagent output to its own registered task and waits for completion', async () => {
   const ledger = createNativeTaskOutput({ maxChars: 8 })
@@ -22,4 +22,13 @@ test('supports nonblocking output and cancellation', async () => {
   assert.equal((await ledger.get({ rootSessionId: 'root', session, taskId: 'task', block: false })).status, 'running')
   const controller = new AbortController(); controller.abort()
   await assert.rejects(ledger.get({ rootSessionId: 'root', session, taskId: 'task', signal: controller.signal }), /cancelled/)
+})
+
+test('recovers output only from a task listed under the same session', async () => {
+  let reads = 0
+  const args = { sessionId: 'root', taskId: 'task', cwd: '/workspace', listSubagents: async (id) => id === 'root' ? ['task'] : [],
+    getSubagentMessages: async () => { reads++; return [{ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }, { type: 'tool_use', name: 'Read' }] } }] } }
+  assert.equal((await recoverNativeTaskOutput(args)).output, 'done')
+  await assert.rejects(recoverNativeTaskOutput({ ...args, sessionId: 'other' }), /Unknown/)
+  assert.equal(reads, 1)
 })

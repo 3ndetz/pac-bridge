@@ -719,14 +719,34 @@ try {
     await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
       text: `Use Agent to start one background subagent that reads ${source} and returns its exact contents. Use mcp__pac__TaskOutput with the returned task ID and block=true to get its result, then report the contents.`, localId: randomUUID()
     }) })
-    await until(async () => {
+    const nativeOutput = await until(async () => {
       const page = await request(`/api/sessions/${id}/messages?limit=100`)
       const events = (page.messages || []).map((message) => message.content?.content?.data).filter(Boolean)
-      const call = events.find((event) => event.type === 'tool-call' && /^(mcp__pac__)?TaskOutput$/.test(event.name || ''))
+      const call = events.find((event) => event.type === 'tool-call' && /^(mcp__pac__)?TaskOutput$/.test(event.name || '') && typeof event.input?.task_id === 'string')
       const result = call && events.find((event) => event.type === 'tool-call-result' && event.callId === call.callId)
-      return result && !result.is_error && JSON.stringify(result.output).includes('PAC_NATIVE_TASK_OUTPUT')
+      return result && !result.is_error && JSON.stringify(result.output).includes('PAC_NATIVE_TASK_OUTPUT') ? { taskId: call.input.task_id } : null
     }, 180000)
     summary.nativeSubagentOutputVerified = true
+    if (process.env.PAC_HAPI_NATIVE_OUTPUT_RESUME === '1') {
+      stage = 'restarting the session to recover a subagent result'
+      await request(`/api/sessions/${id}/archive`, { method: 'POST' })
+      await until(async () => !(await request(`/api/sessions/${id}`)).session?.active, 60000)
+      const resumed = await request(`/api/sessions/${id}/resume`, { method: 'POST', body: '{}' })
+      if (resumed.type !== 'success' || resumed.sessionId !== id) throw new Error('Original session was not restored')
+      await until(async () => (await request(`/api/sessions/${id}`)).session?.active, 120000)
+      const before = await request(`/api/sessions/${id}/messages?limit=100`)
+      const existing = new Set((before.messages || []).map((message) => message.id))
+      await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
+        text: `Use mcp__pac__TaskOutput with task_id ${nativeOutput.taskId} to retrieve the earlier subagent result, then report it.`, localId: randomUUID()
+      }) })
+      await until(async () => {
+        const page = await request(`/api/sessions/${id}/messages?limit=100`)
+        return (page.messages || []).some((message) => !existing.has(message.id) && message.content?.role === 'agent' &&
+          message.content.content?.data?.type === 'tool-call-result' && !message.content.content.data.is_error &&
+          JSON.stringify(message.content.content.data.output).includes('PAC_NATIVE_TASK_OUTPUT'))
+      }, 180000)
+      summary.nativeSubagentOutputAfterResumeVerified = true
+    }
   }
   if (process.env.PAC_HAPI_AGENT_STOP === '1') {
     stage = 'starting a native background subagent with a running command'

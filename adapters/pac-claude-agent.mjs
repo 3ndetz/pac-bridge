@@ -10,7 +10,7 @@ import { waitForTerminal } from '../src/terminal-wait.mjs'
 import { stopNativeTask } from '../src/native-task-stop.mjs'
 import { createInstructionLedger } from '../src/instruction-ledger.mjs'
 import { MAX_SCOPED_INSTRUCTION_CHARS } from '../src/source-instructions.mjs'
-import { createNativeTaskOutput } from '../src/native-task-output.mjs'
+import { createNativeTaskOutput, recoverNativeTaskOutput } from '../src/native-task-output.mjs'
 
 // Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
 // notification arrives with the long path. Preserve the target, including a
@@ -39,7 +39,7 @@ const require = createRequire(sdkRoot ? join(sdkRoot, 'package.json') : fileURLT
 const acp = await import(pathToFileURL(require.resolve('@agentclientprotocol/claude-agent-acp/dist/acp-agent.js')).href)
 const utils = await import(pathToFileURL(require.resolve('@agentclientprotocol/claude-agent-acp/dist/utils.js')).href)
 const { ndJsonStream, methods } = await import(pathToFileURL(require.resolve('@agentclientprotocol/sdk')).href)
-const { createSdkMcpServer, tool } = await import(pathToFileURL(require.resolve('@anthropic-ai/claude-agent-sdk')).href)
+const { createSdkMcpServer, tool, listSubagents, getSubagentMessages } = await import(pathToFileURL(require.resolve('@anthropic-ai/claude-agent-sdk')).href)
 const { z } = require('zod')
 const questionsEnabled = process.env.PAC_ENABLE_QUESTIONS === '1' || process.env.PAC_TEST_QUESTIONS === '1'
 const backgroundEnabled = process.env.PAC_ENABLE_BACKGROUND === '1' || process.env.PAC_TEST_BACKGROUND === '1'
@@ -221,8 +221,10 @@ const app = acp.v1AgentApp(undefined, (agent) => {
         const result = input.task_id.startsWith('pac-shell-')
           ? await agent.client.inner.ctx.request('pac/terminal/task_output', { sessionId, taskId: input.task_id,
               block: input.block ?? true, ...(input.timeout ? { timeoutMs: input.timeout } : {}) })
-          : await nativeTaskOutput.get({ rootSessionId: sessionId, session: agent.sessions[sessionId], taskId: input.task_id,
-              block: input.block ?? true, timeoutMs: input.timeout ?? 120000, signal: extra?.signal })
+          : agent.sessions[sessionId]?.nativeSubagentsByTaskId?.has(input.task_id)
+            ? await nativeTaskOutput.get({ rootSessionId: sessionId, session: agent.sessions[sessionId], taskId: input.task_id,
+                block: input.block ?? true, timeoutMs: input.timeout ?? 120000, signal: extra?.signal })
+            : await recoverNativeTaskOutput({ sessionId, taskId: input.task_id, cwd: params.cwd, listSubagents, getSubagentMessages })
         return { isError: ['failed', 'timed_out'].includes(result.status), content: [{ type: 'text', text: JSON.stringify(result) }] }
       }),
       tool('TaskStop', 'Request cancellation of a PAC background shell task or native subagent.', { task_id: z.string() }, async (input) => {
