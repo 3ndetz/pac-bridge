@@ -8,6 +8,8 @@ The existing runner was subsequently switched to persistent source files, an ena
 
 In a separate local HAPI 0.34.4 run through the same authenticated controller, real Claude followed source instructions and rules, invoked a source skill, and exercised post-tool hooks, hook denial, hook failure blocking and tool-failure hooks. The installed HAPI runner and web were subsequently updated to preserve and display PAC discovery warnings. A browser check of the existing public HAPI confirmed that an invalid project rule produces a visible warning alongside the native model selector. A closed ACP input pipe was also fixed so an unavailable agent cannot crash the runner; its regression tests and an isolated HAPI run passed.
 
+After deployment, a browser check on the existing machine selected OpenCode, observed the `PAC #1` Opus label, created a session and archived that empty verification session. A separate real-controller HAPI run verified source Glob, Grep and shell output and file effects, then resumed the conversation with the selected PAC model and another source tool call. These checks do not replace the remaining acceptance scenarios.
+
 ## Objective
 
 Connect remote agent clients and an authenticated Claude Code runtime through PAC Bridge. Forward commands, tool calls, events and their results rather than relying on a shared filesystem or copying entire workspaces between machines. The bridge must preserve the semantics of the participating agents, including their background work and subagents.
