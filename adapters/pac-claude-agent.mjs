@@ -10,6 +10,7 @@ import { waitForTerminal } from '../src/terminal-wait.mjs'
 import { stopNativeTask } from '../src/native-task-stop.mjs'
 import { createInstructionLedger } from '../src/instruction-ledger.mjs'
 import { MAX_SCOPED_INSTRUCTION_CHARS } from '../src/source-instructions.mjs'
+import { createNativeTaskOutput } from '../src/native-task-output.mjs'
 
 // Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
 // notification arrives with the long path. Preserve the target, including a
@@ -52,8 +53,10 @@ let activeAgent
 const app = acp.v1AgentApp(undefined, (agent) => {
   activeAgent = agent
   const backgroundCalls = new Map()
+  const nativeTaskOutput = createNativeTaskOutput()
   const publish = agent.client.sessionUpdate.bind(agent.client)
   agent.client.sessionUpdate = async (notification) => {
+    for (const [rootSessionId, session] of Object.entries(agent.sessions)) nativeTaskOutput.capture(rootSessionId, session, notification)
     const update = notification.update
     if (update?.sessionUpdate === 'subagent_spawned') {
       const taskId = update.subagentSessionId
@@ -212,11 +215,14 @@ const app = acp.v1AgentApp(undefined, (agent) => {
           }
         }
       }),
-      tool('TaskOutput', 'Get output and status of a PAC background shell task. This does not handle native subagent tasks.', {
+      tool('TaskOutput', 'Get output and status of a PAC background shell task or native subagent.', {
         task_id: z.string(), block: z.boolean().optional(), timeout: z.number().int().positive().max(120000).optional(),
-      }, async (input) => {
-        const result = await agent.client.inner.ctx.request('pac/terminal/task_output', { sessionId, taskId: input.task_id,
-          block: input.block ?? true, ...(input.timeout ? { timeoutMs: input.timeout } : {}) })
+      }, async (input, extra) => {
+        const result = input.task_id.startsWith('pac-shell-')
+          ? await agent.client.inner.ctx.request('pac/terminal/task_output', { sessionId, taskId: input.task_id,
+              block: input.block ?? true, ...(input.timeout ? { timeoutMs: input.timeout } : {}) })
+          : await nativeTaskOutput.get({ rootSessionId: sessionId, session: agent.sessions[sessionId], taskId: input.task_id,
+              block: input.block ?? true, timeoutMs: input.timeout ?? 120000, signal: extra?.signal })
         return { isError: ['failed', 'timed_out'].includes(result.status), content: [{ type: 'text', text: JSON.stringify(result) }] }
       }),
       tool('TaskStop', 'Request cancellation of a PAC background shell task or native subagent.', { task_id: z.string() }, async (input) => {

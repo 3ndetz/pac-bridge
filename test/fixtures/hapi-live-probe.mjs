@@ -717,12 +717,12 @@ try {
     const source = join(workspace, 'native-output-background.txt')
     await writeFile(source, 'PAC_NATIVE_TASK_OUTPUT')
     await request(`/api/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({
-      text: `Use Agent to start one background subagent that reads ${source} and returns its exact contents. Use the native TaskOutput tool with the returned task ID and block=true to get its result, then report the contents. Do not use mcp__pac__TaskOutput.`, localId: randomUUID()
+      text: `Use Agent to start one background subagent that reads ${source} and returns its exact contents. Use mcp__pac__TaskOutput with the returned task ID and block=true to get its result, then report the contents.`, localId: randomUUID()
     }) })
     await until(async () => {
       const page = await request(`/api/sessions/${id}/messages?limit=100`)
       const events = (page.messages || []).map((message) => message.content?.content?.data).filter(Boolean)
-      const call = events.find((event) => event.type === 'tool-call' && event.name === 'TaskOutput')
+      const call = events.find((event) => event.type === 'tool-call' && /^(mcp__pac__)?TaskOutput$/.test(event.name || ''))
       const result = call && events.find((event) => event.type === 'tool-call-result' && event.callId === call.callId)
       return result && !result.is_error && JSON.stringify(result.output).includes('PAC_NATIVE_TASK_OUTPUT')
     }, 180000)
