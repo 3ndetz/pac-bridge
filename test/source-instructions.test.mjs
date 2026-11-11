@@ -99,7 +99,10 @@ test('loads unscoped and scoped project rules without making scoped content glob
     const entries = await readSourceInstructions({ root, stopAt: root })
     assert.deepEqual(entries.at(-1), { path: join(await realpath(root), '.claude', 'rules', 'nested', 'style.md'), paths: ['src/**'], content: 'Scoped rule' })
     assert.deepEqual(entries.filter((entry) => !entry.paths).map((entry) => entry.content), ['Project'])
-    await writeFile(join(rules, 'nested', 'style.md'), `---\npaths: "src/**"\n---\n${'x'.repeat(9000)}`)
+    await writeFile(join(rules, 'nested', 'style.md'), `---\npaths: "src/**"\n---\n${'x'.repeat(22000)}`)
+    assert.equal((await readSourceInstructions({ root, stopAt: root })).at(-1).content.length, 22000)
+    await writeFile(join(rules, 'nested', 'style.md'), `---\npaths: "src/**"\n---\n${'x'.repeat(140000)}`)
+    await writeFile(join(rules, 'nested', 'extra.md'), `---\npaths: "src/**"\n---\n${'y'.repeat(140000)}`)
     await assert.rejects(readSourceInstructions({ root, stopAt: root }), /Scoped instructions exceed/)
   } finally {
     const actual = await realpath(root)

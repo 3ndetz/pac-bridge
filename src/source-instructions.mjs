@@ -2,6 +2,8 @@ import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parseProjectRule } from './scoped-rules.mjs'
 
+export const MAX_SCOPED_INSTRUCTION_CHARS = 256 * 1024
+
 // Exclude Markdown examples from import discovery. This deliberately leaves
 // unsupported constructs to fail visibly rather than reading external files.
 function instructionImports(text) {
@@ -160,6 +162,6 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
   if (!nestedOnly) await readRules(join(workspace, '.claude', 'rules'))
   for (const directory of nestedDirectories) await readRules(join(directory, '.claude', 'rules'), directory)
   const scopedContext = entries.filter((entry) => nestedOnly || entry.paths).map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
-  if (scopedContext.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
+  if (scopedContext.length > MAX_SCOPED_INSTRUCTION_CHARS) throw new Error('Scoped instructions exceed the supported context size')
   return entries
 }

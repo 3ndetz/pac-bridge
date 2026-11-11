@@ -9,6 +9,7 @@ import { startTerminalOutputPump } from '../src/terminal-stream.mjs'
 import { waitForTerminal } from '../src/terminal-wait.mjs'
 import { stopNativeTask } from '../src/native-task-stop.mjs'
 import { createInstructionLedger } from '../src/instruction-ledger.mjs'
+import { MAX_SCOPED_INSTRUCTION_CHARS } from '../src/source-instructions.mjs'
 
 // Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
 // notification arrives with the long path. Preserve the target, including a
@@ -241,7 +242,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
         const next = loadedInstructions.unseen(input.agent_id, result.instructions)
         if (!next.length) return {}
         const context = next.map((entry) => `Source instructions from ${JSON.stringify(entry.path)}:\n${entry.content}`).join('\n\n')
-        if (context.length > 9000) throw new Error('Scoped instructions exceed the supported context size')
+        if (context.length > MAX_SCOPED_INSTRUCTION_CHARS) throw new Error('Scoped instructions exceed the supported context size')
         loadedInstructions.mark(input.agent_id, next)
         if (process.env.PAC_TEST_SCOPED_TRACE === '1') await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'session_info_update',
           _meta: { pacProbe: { scopedInstructionOwner: input.agent_id === undefined ? 'main' : 'subagent' } } } })

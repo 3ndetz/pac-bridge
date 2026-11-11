@@ -41,7 +41,8 @@ if (process.env.PAC_HAPI_SKILLS === '1') {
 }
 if (process.env.PAC_HAPI_SCOPED === '1') {
   await mkdir(join(workspace, '.claude', 'rules'), { recursive: true })
-  await writeFile(join(workspace, '.claude', 'rules', 'file-rule.md'), '---\npaths: "fixture.txt"\n---\nWhen asked for the scoped marker, reply with PAC_HAPI_SCOPED_492316.\n')
+  const largeContext = process.env.PAC_HAPI_LARGE_INSTRUCTIONS === '1' ? `${'Additional project guidance. '.repeat(850)}\n` : ''
+  await writeFile(join(workspace, '.claude', 'rules', 'file-rule.md'), `---\npaths: "fixture.txt"\n---\n${largeContext}When asked for the scoped marker, reply with PAC_HAPI_SCOPED_492316.\n`)
 }
 const file = join(workspace, 'fixture.txt')
 await writeFile(file, 'PAC_HAPI_INITIAL')
