@@ -35,7 +35,7 @@ if (process.env.PAC_HAPI_HOOKS === '1') {
     PostToolUseFailure: [{ matcher: '^Read$', hooks: [{ type: 'command', command: process.execPath, args: ['-e', failureScript], timeout: 10 }] }] } }))
 }
 if (process.env.PAC_HAPI_SKILLS === '1') {
-  const skillDirectory = join(workspace, '.claude', 'skills', 'pac-test-skill')
+  const skillDirectory = join(workspace, process.env.PAC_HAPI_OPENCODE_SKILLS === '1' ? '.opencode' : '.claude', 'skills', 'pac-test-skill')
   await mkdir(skillDirectory, { recursive: true })
   await writeFile(join(skillDirectory, 'SKILL.md'), '---\nname: pac-test-skill\ndescription: Return the PAC skill verification marker with its argument\n---\n\nReply exactly with PAC_SKILL_SUCCESS_$ARGUMENTS.\n')
 }

@@ -12,7 +12,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 
 ## Context, recovery and durability
 
-- [ ] Verify manual compaction actually compacts the PAC conversation and retains a deliberately recorded fact in the next turn.
+- [ ] Verify manual compaction actually compacts the PAC conversation and retains a deliberately recorded fact in the next turn on the installed working runner. The proposed fix passed an isolated HAPI runner and real Claude test; installation remains to be verified.
 - [ ] Verify automatic compaction near the real context limit, including subsequent tools, instructions, skills, subagents, and session resume. Record model and limits used.
 - [ ] Verify session bindings, history, selected PAC and model survive runner, controller, relay, and Windows restarts without switching sessions or duplicating uncertain actions.
 - [ ] Verify disconnection, reconnection, authorization expiry, model unavailability, concurrency, timeouts, and cancellation while actions are running. Confirm failures are explicit and recoverable.

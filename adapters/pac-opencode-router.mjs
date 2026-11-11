@@ -136,7 +136,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
             skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions) } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
-            clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {} },
+            clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {}, session: { compaction: {} } },
           onRequest: async (remoteMethod, remoteParams) => {
             if (session.selected !== endpoint.id) throw new Error('Request from inactive PAC session')
             if (remoteMethod === 'fs/read_text_file') {
@@ -287,6 +287,18 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           },
           onNotification: (remoteMethod, remoteParams) => {
             const update = remoteParams?.update
+            if (session.selected === endpoint.id && state.compaction && remoteMethod === 'session/update' && remoteParams?.sessionId === state.remote?.sessionId) {
+              if (update?.sessionUpdate === 'compaction_summary_chunk' && update.content?.type === 'text') state.compaction.chunks += update.content.text
+              if (update?.sessionUpdate === 'compaction_update') {
+                if (update.status === 'completed' || update.status === 'failed' || update.status === 'cancelled') {
+                  state.compaction.status = update.status
+                  const text = Array.isArray(update.summary) ? update.summary.filter((block) => block?.type === 'text').map((block) => block.text).join('') : ''
+                  if (text) state.compaction.summary = text
+                  state.compaction.settle()
+                }
+              }
+              if (['compaction_update', 'compaction_summary_chunk'].includes(update?.sessionUpdate)) return
+            }
             if (process.env.PAC_TRACE_PATH && remoteMethod === 'session/update') appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({
               type: update?.sessionUpdate, title: update?.title, background: update?.rawInput?.run_in_background ?? update?._meta?.pacProbe?.background,
               scopedInstructionOwner: ['main', 'subagent'].includes(update?._meta?.pacProbe?.scopedInstructionOwner) ? update._meta.pacProbe.scopedInstructionOwner : undefined,
@@ -401,6 +413,19 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
         if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ taskStopError: category }) + '\n')
         throw error
       }
+    }
+    if (method === 'pac/compact') {
+      if (selected.compaction) throw new Error('PAC compaction is already in progress')
+      let settle
+      const terminal = new Promise((resolve) => { settle = resolve })
+      const operation = { chunks: '', summary: '', status: null, settle }
+      selected.compaction = operation
+      try {
+        await selected.remote.call('session/prompt', { prompt: [{ type: 'text', text: '/compact' }] }, 0)
+        if (!operation.status) await Promise.race([terminal, new Promise((resolve) => setTimeout(resolve, 3000))])
+        if (operation.status !== 'completed') throw new Error('PAC compaction did not report a confirmed successful result')
+        return { status: 'completed', summary: operation.summary || operation.chunks || '' }
+      } finally { if (selected.compaction === operation) selected.compaction = null }
     }
     if (method === 'session/prompt' && Array.isArray(params.prompt)) {
       // The remote Claude runtime also describes its own process directory in

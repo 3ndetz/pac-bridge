@@ -2,6 +2,10 @@
 
 ## Latest live verification (11 November 2026)
 
+An isolated HAPI runner using the PAC compaction extension sent `/compact` to the remote Claude session, received a confirmed compaction result and recalled a marker recorded before compaction. An independent direct ACP test also observed a completed compaction and recalled its marker. These tests do not establish deployment to the existing working runner, automatic compaction near the context limit, or preservation of every instruction and tool after compaction.
+
+An isolated real Claude session created through HAPI discovered and invoked a simple project skill from `.opencode/skills`. Unit tests also cover `.opencode/skill`, `.agents/skills`, and duplicate-name rejection. Global skills, additional frontmatter, skill resources outside the workspace and full OpenCode plugin hook parity remain unverified or unsupported.
+
 The existing `1C-Prog` runner was updated to HAPI 0.34.4 with the PAC ACP text forwarding fix ([HAPI commit](https://github.com/3ndetz/hapi/commit/33cc071e)). The existing `/workflow/1/` connection and runner lifecycle readiness passed the kit verification. A disposable session created through that same machine selected PAC Opus and returned a visible assistant response mentioning the `C:` source drive. A separate real Claude ACP check returned the source `C:\` workspace. The test session was archived and existing conversations retained. Existing conversations started on an older executable require a new chat to pick up the fix.
 
 The existing runner was subsequently switched to persistent source files, an enabled relay service and a controller logon task. A real Claude file-operation and text test passed through the new relay before and after independently restarting the relay and controller. A new session on the existing HAPI machine then returned an Opus answer through this configuration. This is a live smoke test, not full acceptance: operating-system reboot and unattended controller boot have not been verified, and the other requirements below remain open wherever not explicitly verified.
