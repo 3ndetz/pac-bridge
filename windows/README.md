@@ -10,7 +10,7 @@ This connects a new Windows runner to the existing HAPI hub specified in the pri
 * Network access to the existing HAPI gateway, the private PAC relay, npm, and the software download sources. The private relay requires the appropriate corporate network or VPN.
 * The current ServerMallAgents connection kit extracted into a **permanent** directory. Its published download is <https://apps.servermall.ru/workflow/sma-connection-kit.zip>. Its `Install-Runner.ps1` uses the existing hub access token; do not run the new-machine enrollment command.
 * A separate private directory containing `connection.json`, `hapi-token.txt`, `pac-source-token.txt`, and `pac-relay-ca.pem`. Never put these files into Git, an archive published on GitHub, logs, or chat. The HAPI token grants access to the existing hub and its sessions; only transfer it to a trusted machine and user account.
-* A complete PAC Bridge source archive, extracted into a permanent or temporary directory, with `package-lock.json` and this `windows` directory.
+* The Windows preview archive, extracted into a permanent or temporary directory, with `package-lock.json`, `hapi-pac.exe`, and this `windows` directory. The installer checks the bundled binary against `runtime-manifest.json` before installation.
 
 On an x64 machine, an isolated installation of the pinned OpenCode binary can be prepared without replacing an existing version:
 
@@ -32,7 +32,7 @@ For a fresh profile, run from PowerShell as the Windows user who will own the ru
   -OpenCodePath C:\Path\To\opencode.exe
 ```
 
-The installer installs PAC Bridge under the user's `.hapi-servermall` directory, creates a local runtime configuration, and invokes the kit's runner installer for the existing hub. It refuses to overwrite an existing HAPI profile, PAC installation, or local `Runtime.ps1`. An existing installation needs a reviewed merge and restart procedure; do not delete it to force this installer to run. If installation is interrupted, inspect and recover the partial profile before retrying.
+The installer installs PAC Bridge under the user's `.hapi-servermall` directory, creates a local runtime configuration, invokes the kit's runner installer for the existing hub, and installs the bundled PAC-aware HAPI runtime. It refuses to overwrite an existing HAPI profile, PAC installation, or local `Runtime.ps1`. An existing installation needs a reviewed merge and restart procedure; do not delete it to force this installer to run. If installation is interrupted, inspect and recover the partial profile before retrying. The kit's managed runtime update may replace this preview runtime; verify the selected runtime after updates until a coordinated managed release is available.
 
 After installation, open the existing HAPI hub. Select the newly registered machine, create an OpenCode chat in a safe temporary project and select `PAC #1 / Claude ...`. Confirm a real response and a permitted read/write in that project. Reboot the source machine, verify the runner reconnects, reopen the session, and confirm history and another response. Report failures rather than treating model discovery as success.
 

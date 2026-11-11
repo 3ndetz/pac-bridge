@@ -2,13 +2,18 @@
 param(
   [Parameter(Mandatory=$true)][string]$KitPath,
   [Parameter(Mandatory=$true)][string]$KeysPath,
-  [Parameter(Mandatory=$true)][string]$OpenCodePath
+  [Parameter(Mandatory=$true)][string]$OpenCodePath,
+  [string]$HapiBinaryPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'hapi-pac.exe')
 )
 $ErrorActionPreference='Stop'
 $sourceRoot=Split-Path -Parent $PSScriptRoot
 $kit=(Resolve-Path -LiteralPath $KitPath).Path
 $keys=(Resolve-Path -LiteralPath $KeysPath).Path
 $opencode=(Resolve-Path -LiteralPath $OpenCodePath).Path
+$hapiBinary=(Resolve-Path -LiteralPath $HapiBinaryPath).Path
+$manifest=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'runtime-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($manifest.hapiSha256 -notmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $hapiBinary -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.hapiSha256) { throw 'PAC HAPI runtime checksum mismatch.' }
+if ((& $hapiBinary --version) -notmatch ('hapi version: '+[regex]::Escape([string]$manifest.hapiVersion)+'(?:\s|$)')) { throw 'PAC HAPI runtime version mismatch.' }
 $kitWindows=Join-Path $kit 'windows'
 $runtime=Join-Path $kitWindows 'Runtime.ps1'
 $homePath=Join-Path $env:USERPROFILE '.hapi-servermall'
@@ -63,4 +68,6 @@ $env:PATH=(Join-Path $pacHome 'bin')+';'+$env:PATH
 '@
 [IO.File]::WriteAllText($runtime,$runtimeText,[Text.UTF8Encoding]::new($false))
 & (Join-Path $kitWindows 'Install-Runner.ps1') -TokenFile (Join-Path $keys 'hapi-token.txt') -PublicUrl ([string]$config.hapiUrl)
+& (Join-Path $kitWindows 'Install-RuntimeFix.ps1') -BinaryPath $hapiBinary -ExpectedSha256 ([string]$manifest.hapiSha256)
+& (Join-Path $kitWindows 'Verify-Connection.ps1')
 Write-Output 'Runner installation finished. Verify model discovery and a real PAC turn in the existing HAPI hub.'
