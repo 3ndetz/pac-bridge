@@ -1020,6 +1020,8 @@ try {
       process.stderr.write(`Diagnostic tool categories: ${JSON.stringify(Object.fromEntries(['permission', 'denied', 'not found', 'unavailable', 'no tools', 'toolsearch', 'write', 'edit', 'error', 'inactive', 'outside', 'workspace', 'connection', 'session', 'model', 'no such', 'read_text_file', 'unknown', 'failed'].map((word) => [word, syntheticOutput.includes(word)])))}\n`)
       const resultsByCall = (page.messages || []).map((message) => message.content?.content?.data).filter((data) => data?.type === 'tool-call-result')
       process.stderr.write(`Diagnostic tool result flags: ${JSON.stringify(resultsByCall.map((data) => ({ error: data.is_error === true, hasFixture: JSON.stringify(data.output).includes('PAC_HAPI_INITIAL') })))}\n`)
+      const questionErrors = ['PAC interactive questions are disabled', 'PAC question has no valid originating tool identity', 'PAC question owner cannot be determined', 'PAC question owner is no longer active', 'PAC question was cancelled', 'Invalid PAC question request']
+      process.stderr.write(`Diagnostic question errors: ${JSON.stringify(questionErrors.filter((value) => JSON.stringify(resultsByCall).includes(value)))}\n`)
     } catch {}
   }
   process.exitCode = 1
