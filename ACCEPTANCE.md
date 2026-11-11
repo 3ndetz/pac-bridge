@@ -6,7 +6,7 @@ The existing `1C-Prog` runner was updated to HAPI 0.34.4 with the PAC ACP text f
 
 The existing runner was subsequently switched to persistent source files, an enabled relay service and a controller logon task. A real Claude file-operation and text test passed through the new relay before and after independently restarting the relay and controller. A new session on the existing HAPI machine then returned an Opus answer through this configuration. This is a live smoke test, not full acceptance: operating-system reboot and unattended controller boot have not been verified, and the other requirements below remain open wherever not explicitly verified.
 
-In a separate local HAPI 0.34.4 run through the same authenticated controller, real Claude followed source instructions and rules, invoked a source skill, and exercised post-tool hooks, hook denial, hook failure blocking and tool-failure hooks. The independent PAC discovery warning check was not satisfied by that test Hub and was skipped for this feature run; warning visibility in the existing public HAPI remains unverified.
+In a separate local HAPI 0.34.4 run through the same authenticated controller, real Claude followed source instructions and rules, invoked a source skill, and exercised post-tool hooks, hook denial, hook failure blocking and tool-failure hooks. The installed HAPI runner and web were subsequently updated to preserve and display PAC discovery warnings. A browser check of the existing public HAPI confirmed that an invalid project rule produces a visible warning alongside the native model selector. A closed ACP input pipe was also fixed so an unavailable agent cannot crash the runner; its regression tests and an isolated HAPI run passed.
 
 ## Objective
 
