@@ -3,6 +3,22 @@ import { once } from 'node:events'
 import test from 'node:test'
 import { createOpencodeProvider } from '../src/opencode-provider.mjs'
 
+test('routes a named provider and its model to the corresponding PAC', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let binding
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt(value, prompt, update) { binding = value; return { stopReason: 'end_turn' } },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  try {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 'session', 'x-pac-message-id': 'message', 'x-pac-provider-id': 'PAC_work' }
+    const body = JSON.stringify({ model: 'sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'hello' }] })
+    const result = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', headers, body })
+    assert.equal(result.status, 200); await result.text()
+    assert.deepEqual(binding, { sessionId: 'session', model: 'PAC_work/sonnet', cwd: '/source' })
+  } finally { await new Promise(resolve => server.close(resolve)) }
+})
+
 test('returns confirmed PAC compaction once without a second model turn', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   let calls = 0, prompts = 0

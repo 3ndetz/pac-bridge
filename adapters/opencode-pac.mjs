@@ -22,6 +22,7 @@ if (process.env.PAC_EXPERIMENTAL !== '1' || (model && !/^PAC_[A-Za-z0-9_.-]+\/[A
 const cwd = process.cwd()
 const args = process.argv.slice(2)
 const acpMode = args[0] === 'acp'
+const namedProviders = process.env.PAC_NAMED_PROVIDERS_EXPERIMENT === '1'
 const startedAt = Date.now()
 const sessionRoot = resolve(process.env.PAC_SESSION_DIR || join(homedir(), '.pac-bridge', 'sessions'))
 const token = randomBytes(32).toString('hex')
@@ -70,16 +71,24 @@ let child
 try {
   let config = {}
   if (process.env.OPENCODE_CONFIG_CONTENT) config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT)
-  if (!config || typeof config !== 'object' || Array.isArray(config) || config.provider?.pacbridge || config.command?.['pac-stop'] || (config.plugin && !Array.isArray(config.plugin))) throw new Error('PAC provider conflicts with existing OpenCode configuration')
-  config = { ...config, command: { ...(config.command || {}), 'pac-stop': { description: 'Stop a PAC background task by ID', template: 'PAC_BRIDGE_STOP_TASK $ARGUMENTS' } }, plugin: [...(config.plugin || []), pluginUrl], provider: { ...(config.provider || {}), pacbridge: {
-    npm: '@ai-sdk/openai-compatible', name: 'PAC Bridge (experimental)',
-    options: { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: token },
-    models: Object.fromEntries(catalog.models.map((entry) => [entry.id, { name: entry.name,
-      ...(process.env.PAC_EXPERIMENTAL_IMAGE_INPUT === '1' ? { modalities: { input: ['text', 'image'], output: ['text'] } } : {}) }])),
-  } } }
-  child = spawnContained(binary, args[0] === 'serve' || acpMode ? args : ['--model', `pacbridge/${model}`, ...args], {
+  if (!config || typeof config !== 'object' || Array.isArray(config) || config.command?.['pac-stop'] || (config.plugin && !Array.isArray(config.plugin))) throw new Error('PAC provider conflicts with existing OpenCode configuration')
+  const providers = {}
+  const options = { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: token }
+  for (const entry of catalog.models) {
+    const index = entry.id.indexOf('/')
+    const providerId = namedProviders ? entry.id.slice(0, index) : 'pacbridge'
+    const modelId = namedProviders ? entry.id.slice(index + 1) : entry.id
+    if (config.provider?.[providerId]) throw new Error('PAC provider conflicts with existing OpenCode configuration')
+    const [displayProvider, ...displayModel] = entry.name.split(' / ')
+    providers[providerId] ??= { npm: '@ai-sdk/openai-compatible', name: namedProviders ? displayProvider : 'PAC Bridge (experimental)', options, models: {} }
+    providers[providerId].models[modelId] = { name: namedProviders ? displayModel.join(' / ') || modelId : entry.name,
+      ...(process.env.PAC_EXPERIMENTAL_IMAGE_INPUT === '1' ? { modalities: { input: ['text', 'image'], output: ['text'] } } : {}) }
+  }
+  config = { ...config, command: { ...(config.command || {}), 'pac-stop': { description: 'Stop a PAC background task by ID', template: 'PAC_BRIDGE_STOP_TASK $ARGUMENTS' } }, plugin: [...(config.plugin || []), pluginUrl], provider: { ...(config.provider || {}), ...providers } }
+  child = spawnContained(binary, args[0] === 'serve' || acpMode ? args : ['--model', namedProviders ? model : `pacbridge/${model}`, ...args], {
     cwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
-      PAC_PROVIDER_URL: `http://127.0.0.1:${server.address().port}`, PAC_PROVIDER_TOKEN: token }, stdio: 'inherit', windowsHide: false,
+      PAC_PROVIDER_URL: `http://127.0.0.1:${server.address().port}`, PAC_PROVIDER_TOKEN: token,
+      PAC_NAMED_PROVIDER_IDS: JSON.stringify(namedProviders ? Object.keys(providers) : []) }, stdio: 'inherit', windowsHide: false,
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   })
   process.once('SIGINT', () => { if (child) stopContained(child) })

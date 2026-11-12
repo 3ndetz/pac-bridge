@@ -3,6 +3,10 @@ import { z } from 'zod'
 // Only tag calls to this provider. Auxiliary model calls that bypass this
 // hook lack identities and are rejected by the bridge.
 export default async function pacBridgePlugin() {
+  let namedIds
+  try { namedIds = JSON.parse(process.env.PAC_NAMED_PROVIDER_IDS || '[]') } catch { throw new Error('Invalid PAC provider identities') }
+  if (!Array.isArray(namedIds) || namedIds.some(id => typeof id !== 'string' || !/^PAC_[A-Za-z0-9_.-]+$/.test(id))) throw new Error('Invalid PAC provider identities')
+  const isPacProvider = id => id === 'pacbridge' || namedIds.includes(id)
   const questionCalls = new Map()
   async function cancelQuestion(entry) {
     const base = process.env.PAC_PROVIDER_URL, token = process.env.PAC_PROVIDER_TOKEN
@@ -52,7 +56,7 @@ export default async function pacBridgePlugin() {
       }
     },
     'chat.message': async (input, output) => {
-      if ((input.model?.providerID ?? output.message?.model?.providerID) === 'pacbridge' && process.env.PAC_EXPERIMENTAL_IMAGE_INPUT !== '1' &&
+      if (isPacProvider(input.model?.providerID ?? output.message?.model?.providerID) && process.env.PAC_EXPERIMENTAL_IMAGE_INPUT !== '1' &&
           output.parts?.some((part) => part.type === 'file' && typeof part.mime === 'string' && part.mime.startsWith('image/'))) {
         process.stderr.write('PAC image capability is unknown; the attachment cannot be sent safely.\n')
         throw new Error('PAC image capability is unknown; the attachment cannot be sent safely')
@@ -89,10 +93,11 @@ export default async function pacBridgePlugin() {
       },
     },
     'chat.headers': async (input, output) => {
-      if (input.model?.providerID !== 'pacbridge') return
+      if (!isPacProvider(input.model?.providerID)) return
       if (typeof input.sessionID !== 'string' || typeof input.message?.id !== 'string') throw new Error('PAC session identity is unavailable')
       output.headers['x-pac-session-id'] = input.sessionID
       output.headers['x-pac-message-id'] = input.message.id
+      if (input.model.providerID !== 'pacbridge') output.headers['x-pac-provider-id'] = input.model.providerID
     },
     'tool.execute.after': async (input, output) => {
       if (input.tool !== 'question' || !Array.isArray(output.metadata?.answers)) return

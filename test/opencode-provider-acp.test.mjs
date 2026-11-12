@@ -29,7 +29,7 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
     const env = { ...process.env, HOME: root, USERPROFILE: root, APPDATA: join(root, 'appdata'), LOCALAPPDATA: join(root, 'localappdata'),
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
-      PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile,
+      PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_NAMED_PROVIDERS_EXPERIMENT: '1', PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile,
       PAC_CONTROLLER_CWD: root, PAC_SESSION_DIR: join(root, 'sessions'), PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH }
     delete env.PAC_MODEL
     child = spawnContained(process.execPath, [launcher, 'acp'], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
@@ -44,6 +44,7 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
     const option = session.configOptions?.find(item => item.category === 'model')
     const selected = option?.options?.find(item => String(item.value).endsWith('PAC_testpac/sonnet'))
     assert.ok(option && selected, 'PAC model must be selectable through standard ACP')
+    assert.equal(selected.value, 'PAC_testpac/sonnet')
     await peer.call('session/set_config_option', { sessionId: session.sessionId, configId: option.id, value: selected.value }, 30000)
     const response = await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Hello PAC' }] }, 90000)
     assert.equal(response.stopReason, 'end_turn')

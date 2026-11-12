@@ -108,6 +108,11 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         return response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
       }
       const last = Array.isArray(body.messages) ? body.messages.at(-1) : undefined
+      const providerId = request.headers['x-pac-provider-id']
+      if (providerId !== undefined) {
+        if (typeof providerId !== 'string' || !/^PAC_[A-Za-z0-9_.-]+$/.test(providerId) || typeof body.model !== 'string' || !body.model) return fail(400, 'Invalid PAC provider identity')
+        body.model = `${providerId}/${body.model}`
+      }
       if (body.stream !== true || typeof body.model !== 'string' || !body.model.startsWith('PAC_') || !last || !['user', 'tool'].includes(last.role)) return fail(400, 'Unsupported provider request')
       const pendingCompaction = compacted.get(sessionId)
       const compactText = typeof last.content === 'string' ? last.content : Array.isArray(last.content) ? last.content.filter(part => part?.type === 'text').map(part => part.text).join('\n') : ''
