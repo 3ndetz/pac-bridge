@@ -25,7 +25,7 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
       // OpenCode already owns the visible conversation history. ACP load
       // replays it for synchronization; never replay its old tool actions.
       if (loading && method === 'session/update' && params?.sessionId === id &&
-          ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(params?.update?.sessionUpdate)) return
+          ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'compaction_update'].includes(params?.update?.sessionUpdate)) return
       // Native OpenCode advertises its own command list before session/new
       // returns. It is not a PAC command list and must not be attributed to it.
       if (!id && method === 'session/update' && params?.update?.sessionUpdate === 'available_commands_update') return
