@@ -12,14 +12,31 @@ export function createOpencodeTurnJournal(directory) {
     if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 512) throw new Error('Invalid session identity')
     return join(directory, `${createHash('sha256').update(sessionId).digest('hex')}.pending`)
   }
+  async function exists(filename) {
+    try { const file = await open(filename, 'r'); await file.close(); return true }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error }
+  }
+  function assertStopped(value, legacyOwnerStopped, kind) {
+    if (Buffer.byteLength(value, 'utf8') > 1024) throw new Error(`Invalid PAC ${kind} record`)
+    let record
+    try { record = JSON.parse(value) } catch {}
+    if (record?.version === 1 && typeof record.id === 'string' && uuid.test(record.id) && Number.isSafeInteger(record.pid) && record.pid > 0) {
+      try { process.kill(record.pid, 0); throw new Error(`The PAC ${kind} process is still running; stop it first`) }
+      catch (error) { if (error.code !== 'ESRCH') throw error }
+    } else if (!legacyOwnerStopped || !uuid.test(value)) {
+      throw new Error(`The legacy ${kind} has no process identity; stop its process and explicitly confirm it`)
+    }
+  }
   async function withLock(sessionId, action) {
     await mkdir(directory, { recursive: true, mode: 0o700 })
-    const filename = `${path(sessionId)}.lock`, owner = randomUUID()
+    const filename = `${path(sessionId)}.lock`, repair = `${filename}.repair`, owner = JSON.stringify({ version: 1, id: randomUUID(), pid: process.pid })
     let file
     try {
+      if (await exists(repair)) throw new Error('PAC journal is locked; do not alter an active or unreviewed session')
       try { file = await open(filename, 'wx', 0o600) }
       catch (error) { if (error.code === 'EEXIST') throw new Error('PAC journal is locked; do not alter an active or unreviewed session'); throw error }
       await file.writeFile(owner, 'utf8'); await file.sync(); await file.close(); file = undefined
+      if (await exists(repair)) throw new Error('PAC journal is locked; do not alter an active or unreviewed session')
       return await action()
     } finally {
       await file?.close()
@@ -36,7 +53,7 @@ export function createOpencodeTurnJournal(directory) {
       const filename = path(sessionId)
       const owner = JSON.stringify({ version: 1, id: randomUUID(), pid: process.pid })
       await mkdir(directory, { recursive: true, mode: 0o700 })
-      const locked = async () => { try { const file = await open(`${filename}.lock`, 'r'); await file.close(); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error } }
+      const locked = async () => await exists(`${filename}.lock`) || await exists(`${filename}.lock.repair`)
       if (await locked()) throw new Error('PAC journal is locked; do not alter an active or unreviewed session')
       let file
       try {
@@ -68,17 +85,30 @@ export function createOpencodeTurnJournal(directory) {
         const filename = path(sessionId)
         let value
         try { value = await readFile(filename, 'utf8') } catch (error) { if (error.code === 'ENOENT') return false; throw error }
-        let record
-        try { record = JSON.parse(value) } catch {}
-        if (record?.version === 1 && typeof record.id === 'string' && uuid.test(record.id) && Number.isSafeInteger(record.pid) && record.pid > 0) {
-          try { process.kill(record.pid, 0); throw new Error('The PAC session process is still running; archive the chat first') }
-          catch (error) { if (error.code !== 'ESRCH') throw error }
-        } else if (!legacyOwnerStopped || !uuid.test(value)) {
-          throw new Error('The legacy marker has no process identity; stop its session and explicitly confirm it')
-        }
+        assertStopped(value, legacyOwnerStopped, 'marker')
         await unlink(filename)
         return true
       })
+    },
+    async clearStaleLock(sessionId, { outcomeReviewed = false, sessionStopped = false, legacyOwnerStopped = false } = {}) {
+      if (!outcomeReviewed || !sessionStopped) throw new Error('Review the outcome and explicitly confirm the session is stopped before clearing a lock')
+      await mkdir(directory, { recursive: true, mode: 0o700 })
+      const filename = `${path(sessionId)}.lock`, repair = `${filename}.repair`, owner = randomUUID()
+      let file
+      try {
+        try { file = await open(repair, 'wx', 0o600) }
+        catch (error) { if (error.code === 'EEXIST') throw new Error('Another lock repair is active or its repair lock needs review'); throw error }
+        await file.writeFile(owner, 'utf8'); await file.sync(); await file.close(); file = undefined
+        let value
+        try { value = await readFile(filename, 'utf8') } catch (error) { if (error.code === 'ENOENT') return false; throw error }
+        assertStopped(value, legacyOwnerStopped, 'lock')
+        await unlink(filename)
+        return true
+      } finally {
+        await file?.close()
+        try { if (await readFile(repair, 'utf8') === owner) await unlink(repair) }
+        catch (error) { if (error.code !== 'ENOENT') throw error }
+      }
     },
   }
 }

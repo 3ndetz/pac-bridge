@@ -99,7 +99,10 @@ test('recovery command clears only a reviewed stopped session marker', async () 
     const args = [fileURLToPath(command), '--journal-dir', root, '--session-id', 'ses_test']
     await assert.rejects(exec(process.execPath, args), /explicitly confirm/)
     assert.equal(await journal.isPending('ses_test'), true)
-    const result = await exec(process.execPath, [...args, '--confirm-reviewed'])
+    const lock = join(root, createHash('sha256').update('ses_test').digest('hex') + '.pending.lock')
+    await exec(process.execPath, ['-e', `const fs=require('node:fs'),crypto=require('node:crypto');fs.writeFileSync(${JSON.stringify(lock)},JSON.stringify({version:1,id:crypto.randomUUID(),pid:process.pid}))`])
+    await assert.rejects(exec(process.execPath, [...args, '--confirm-reviewed', '--clear-stale-lock']), /explicitly confirm the session is stopped/)
+    const result = await exec(process.execPath, [...args, '--confirm-reviewed', '--clear-stale-lock', '--confirm-session-stopped'])
     assert.match(result.stdout, /earlier turn was not replayed/)
     assert.equal(await journal.isPending('ses_test'), false)
   } finally {
@@ -139,6 +142,29 @@ test('concurrent reconciliation never clears a live owner marker', async () => {
         await begin.value()
       }
     }
+  } finally {
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-journal-test-')) await rm(actual, { recursive: true, force: true })
+  }
+})
+
+test('stale recovery locks require review and reject a live lock owner', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-journal-test-'))
+  try {
+    const journal = createOpencodeTurnJournal(root), id = 'locked', lock = join(root, createHash('sha256').update(id).digest('hex') + '.pending.lock')
+    await writeFile(lock, JSON.stringify({ version: 1, id: randomUUID(), pid: process.pid }))
+    await assert.rejects(journal.clearStaleLock(id), /explicitly confirm/)
+    await assert.rejects(journal.clearStaleLock(id, { outcomeReviewed: true, sessionStopped: true }), /still running/)
+    await assert.rejects(journal.begin(id), /journal is locked/)
+    const competing = await Promise.allSettled([journal.clearStaleLock(id, { outcomeReviewed: true, sessionStopped: true }), journal.begin(id)])
+    assert.ok(competing.every(item => item.status === 'rejected'))
+    const child = `const fs=require('node:fs'),crypto=require('node:crypto');fs.writeFileSync(${JSON.stringify(lock)},JSON.stringify({version:1,id:crypto.randomUUID(),pid:process.pid}))`
+    await exec(process.execPath, ['-e', child])
+    assert.equal(await journal.clearStaleLock(id, { outcomeReviewed: true, sessionStopped: true }), true)
+    const finish = await journal.begin(id); await finish()
+    await writeFile(lock, randomUUID())
+    await assert.rejects(journal.clearStaleLock(id, { outcomeReviewed: true, sessionStopped: true }), /legacy lock/)
+    assert.equal(await journal.clearStaleLock(id, { outcomeReviewed: true, sessionStopped: true, legacyOwnerStopped: true }), true)
   } finally {
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-journal-test-')) await rm(actual, { recursive: true, force: true })
