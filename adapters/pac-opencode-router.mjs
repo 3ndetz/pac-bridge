@@ -54,7 +54,16 @@ let failedResume = false
 let client
 const native = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), {
   onRequest: (method, params) => client.call(method, params),
-  onNotification: (method, params) => { if (!sessions.get(params?.sessionId)?.selected) client.notify(method, params) },
+  onNotification: (method, params) => {
+    const session = sessions.get(params?.sessionId)
+    if (!session?.selected) {
+      const update = params?.update
+      if (session?.nativeCompletionCapture && method === 'session/update' && update?.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') {
+        session.nativeCompletionCapture.text = (session.nativeCompletionCapture.text + update.content.text).slice(-1800)
+      }
+      client.notify(method, params)
+    }
+  },
 })
 
 function publishBackground(session, state) {
@@ -432,7 +441,19 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
     await session.modelQueue
     if (session.modelError) throw new Error(`PAC model selection failed: ${session.modelError.message}`)
     if (selection && session.selected) throw new Error('Start a new session to switch away from a PAC')
-    if (!session.selected) return native.call(method, params, method === 'session/prompt' ? 0 : undefined)
+    if (!session.selected) {
+      const capture = method === 'session/prompt' && process.env.PAC_TURN_NOTIFY_SCRIPT ? { id: randomUUID(), text: '' } : null
+      if (capture) session.nativeCompletionCapture = capture
+      try {
+        const result = await native.call(method, params, method === 'session/prompt' ? 0 : undefined)
+        if (capture) {
+          await native.drainNotifications()
+          if (result?.stopReason === 'end_turn') notifyTurnComplete({ script: process.env.PAC_TURN_NOTIFY_SCRIPT,
+            sessionId: session.id, turnId: capture.id, cwd: session.cwd, message: capture.text })
+        }
+        return result
+      } finally { if (capture && session.nativeCompletionCapture === capture) session.nativeCompletionCapture = null }
+    }
     if (method === 'session/set_mode') params = { ...params, modeId: ({ build: 'default', yolo: 'bypassPermissions', plan: 'plan' })[params.modeId] || params.modeId }
     const selected = session.remotes.get(session.selected)
     if (!selected?.connected) throw new Error('PAC disconnected; the last operation outcome may be unknown')

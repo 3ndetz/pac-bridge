@@ -6,4 +6,4 @@ The bridge supports source project command hooks in `.claude/settings.json` and 
 
 On the existing Windows HAPI runner, real-Claude checks have exercised a project OpenCode skill and its resource, a pre-tool denial, a successful post-tool hook, and a post-tool failure hook. These are scenario-specific results, not proof that every installed skill, plugin, event, or platform is supported. The complete matrix is tracked in [RELIABILITY-CHECKLIST.md](../RELIABILITY-CHECKLIST.md).
 
-An optional source-side completion notification is documented separately in [telegram-notifications.md](telegram-notifications.md). It is a PAC Bridge completion callback; it does not claim general compatibility with OpenCode plugin hooks.
+An optional source-side completion notification is documented separately in [telegram-notifications.md](telegram-notifications.md). It is a bridge completion callback; it does not claim general compatibility with OpenCode plugin hooks.

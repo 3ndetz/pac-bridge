@@ -1,6 +1,6 @@
 # Telegram completion notifications
 
-The optional source-side sender runs after a successful PAC turn and sends an excerpt of the answer to the configured Telegram chat. It does not run for cancelled or failed turns. Messages are subject to the sender's redaction and length limits; the chat receives answer content, so use a trusted destination. Delivery failure is recorded locally and does not make a completed model turn fail or retry the turn.
+The optional source-side sender runs after a successful OpenCode turn routed through the bridge, including PAC and native model turns, and sends an excerpt of the answer to the configured Telegram chat. It does not run for cancelled or failed turns. Messages are subject to the sender's redaction and length limits; the chat receives answer content, so use a trusted destination. Delivery failure is recorded locally and does not make a completed model turn fail or retry the turn.
 
 For an installed Windows PAC Bridge profile, prepare a private UTF-8 file containing `TG_BOT_TOKEN` and `TG_CHAT_ID` in `NAME=value` form. Obtain those values through a secure channel; never commit them, place them in a public release, or paste them into chat. Run under the account that owns the profile:
 

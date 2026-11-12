@@ -120,3 +120,33 @@ test('notifies the configured sender with the completed PAC reply', { timeout: 3
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-notify-router-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
 })
+
+test('also notifies on a completed native OpenCode reply', { timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-notify-native-'))
+  const server = createServer(), relay = attachAcpRelay(server, { authorize: () => true })
+  let agent, session
+  try {
+    server.listen(0, '127.0.0.1'); await once(server, 'listening')
+    const url = `ws://127.0.0.1:${server.address().port}`
+    const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
+    const router = fileURLToPath(new URL('../adapters/pac-opencode-router.mjs', import.meta.url))
+    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake] })
+    const tokenFile = join(root, 'token'), sender = join(root, 'sender.cjs'), output = join(root, 'event.json')
+    await writeFile(tokenFile, 'test-token')
+    await writeFile(sender, `let s='';process.stdin.on('data',v=>s+=v);process.stdin.on('end',()=>require('fs').writeFileSync(${JSON.stringify(output)},s));`)
+    session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native', '--text-response'], cwd: root,
+      env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url,
+        PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root, PAC_TURN_NOTIFY_SCRIPT: sender },
+      model: 'initial', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
+    assert.deepEqual(await session.prompt([{ type: 'text', text: 'hello' }], () => {}), { stopReason: 'end_turn' })
+    let event
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try { event = JSON.parse(await readFile(output, 'utf8')); break } catch { await new Promise((resolve) => setTimeout(resolve, 50)) }
+    }
+    assert.equal(event.last_assistant_message, 'fake PAC initial response')
+  } finally {
+    session?.close(); agent?.close(); relay.close(); server.close()
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-notify-native-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+})
