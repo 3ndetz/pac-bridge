@@ -17,8 +17,8 @@ function userPrompt(content) {
 
 // Experimental transport. Unsupported events and permissions terminate the
 // turn rather than being translated into a successful text answer.
-export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {} }) {
-  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1) throw new Error('Invalid provider configuration')
+export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {} }) {
+  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
   const turns = new Map()
@@ -41,9 +41,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
     try {
       let size = 0
       const chunks = []
+      const bodyLimit = request.url === '/v1/chat/completions' ? maxBodyBytes : Math.min(maxBodyBytes, 1024 * 1024)
       for await (const chunk of request) {
         size += chunk.length
-        if (size > maxBodyBytes) return fail(413, 'Request too large')
+        if (size > bodyLimit) return fail(413, 'Request too large')
         chunks.push(chunk)
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))

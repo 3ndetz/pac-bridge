@@ -3,6 +3,36 @@ import { once } from 'node:events'
 import test from 'node:test'
 import { createOpencodeProvider } from '../src/opencode-provider.mjs'
 
+test('accepts a multi-megabyte history while forwarding only the new turn', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let received
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    hasSession: () => true,
+    async prompt(_binding, prompt) { received = prompt; return { stopReason: 'end_turn' } },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  try {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 'session', 'x-pac-message-id': 'large' }
+    const body = JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [
+      { role: 'assistant', content: 'x'.repeat(2 * 1024 * 1024) }, { role: 'user', content: 'new turn only' },
+    ] })
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', headers, body })
+    assert.equal(response.status, 200); await response.text()
+    assert.deepEqual(received, [{ type: 'text', text: 'new turn only' }])
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('rejects requests exceeding the configured body limit', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  const server = createOpencodeProvider({ token, cwd: '/source', maxBodyBytes: 1024, router: { async prompt() { throw new Error('Unexpected prompt') } } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  try {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 'session', 'x-pac-message-id': 'large' }
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ data: 'x'.repeat(2048) }) })
+    assert.equal(response.status, 413)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
 test('routes a named provider and its model to the corresponding PAC', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   let binding
