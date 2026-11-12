@@ -1,6 +1,6 @@
 # Windows setup from a Git checkout
 
-This is the reviewed **fresh-profile preview** for Windows x64. For a profile already connected to HAPI, do not overwrite its settings or run the fresh installer: its existing hub, runner, credentials, workspace roots, and sessions need a reviewed in-place integration. A second Windows profile can have a different hub and key. Never substitute the key of another hub.
+This is the **Windows x64 preview**. A second Windows profile can have a different hub and key. Never substitute the key of another hub.
 
 1. Install Git for Windows, Node.js 24 with npm, and OpenCode 1.19.5. The pinned OpenCode command below installs it separately for this user:
 
@@ -31,5 +31,19 @@ This is the reviewed **fresh-profile preview** for Windows x64. For a profile al
    The script downloads the reviewed Windows HAPI executable as an individual release asset, verifies its SHA-256 against `windows/runtime-manifest.json`, and then invokes `windows/Install-PacRunner.ps1` from this checkout. To use an already downloaded reviewed binary, pass `-HapiBinaryPath`; its checksum is still required to match. No PAC Bridge archive is needed.
 
 5. Open the intended existing HAPI, create an OpenCode chat in an allowed test directory, select the PAC model, and verify a real answer and permitted source file operations. Verify reconnection and session continuity after a planned restart. The installer does not prove those scenarios by itself.
+
+## Integrating an existing HAPI profile
+
+Do not run the fresh installer against an existing profile. Review the current kit, local `Runtime.ps1`, runtime pin, hub, credentials, workspace roots, and running sessions first. The profile must use a compatible managed kit with runtime pin support, Node 24, Git Bash, and the pinned OpenCode version. Preserve the kit's local settings and backups. Where the profile has no existing PAC integration, no local `Runtime.ps1`, and no user runtime pin, the repository provides this preview script:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Install-ExistingProfile.ps1 `
+  -KitPath C:\Tools\ServerMallAgents `
+  -KeysPath C:\Private\PAC-Bridge-keys `
+  -OpenCodePath $openCode `
+  -HapiBinaryPath C:\Private\hapi-pac.exe
+```
+
+The binary can be downloaded as [a single release asset](https://github.com/3ndetz/pac-bridge/releases/download/windows-preview-ffd08bd/hapi-pac.exe); the script verifies its checksum. The target hub URL and machine identity come from the existing profile, not from the supplied source connection file. The script preserves an existing runtime pointer backup, sets a user runtime pin, and invokes the kit's reviewed runtime installer. If an existing runtime customization or pin is present, it stops for a reviewed merge. If interrupted or unsuccessful, inspect the profile and restore service before retrying; do not delete the profile or existing sessions. This script has an isolated synthetic-profile test; individual real deployments require verification.
 
 Detailed installer behavior and a copyable agent prompt are in [windows/README.md](../windows/README.md). Current acceptance gaps are in [RELIABILITY-CHECKLIST.md](../RELIABILITY-CHECKLIST.md).
