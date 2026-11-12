@@ -18,7 +18,8 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [x] Exercise automatic compaction and context recall through HAPI with an artificially lowered test threshold; verify the completion notice is visible. This does not establish the production model's actual threshold.
 - [ ] Verify session bindings, history, selected PAC and model survive runner, controller, relay, and Windows restarts without switching sessions or duplicating uncertain actions.
 - [x] Diagnose the connection reset observed while loading a compacted session, and resume the same real-Claude session on each Windows machine with its skill, hook events, and remembered fact. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
-- [ ] Provide a safe reconciliation path for turns with genuinely unknown outcomes, without silently replaying actions.
+- [x] Provide reviewed reconciliation for uncertain turns and verify on the first Windows machine that the original session resumes without replaying a deliberately interrupted one-line action. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
+- [ ] Repeat reviewed uncertain-turn recovery on machine 4 and address stale journal locks and other interrupted background or remote actions.
 - [ ] Investigate the machine 4 ACP initialization that took approximately 168 seconds during a real HAPI session startup.
 - [ ] Verify disconnection, reconnection, authorization expiry, model unavailability, concurrency, timeouts, and cancellation while actions are running. Confirm failures are explicit and recoverable.
 - [ ] Resolve and retest slow HAPI archive acknowledgement on both installed runners. The HAPI session and all 17 observed child processes exited in about one second on the first machine, but the archive API returned 200 after 45 seconds; the second machine took 22 seconds. Inspect the runner confirmation path without weakening process ownership checks or patching HAPI for PAC.

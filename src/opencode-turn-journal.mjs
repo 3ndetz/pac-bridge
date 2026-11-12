@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
 // An exclusive marker survives process death. It is cleared only after a
 // confirmed completed turn; interrupted effects must be reconciled by a human.
 export function createOpencodeTurnJournal(directory) {
@@ -63,10 +65,10 @@ export function createOpencodeTurnJournal(directory) {
         try { value = await readFile(filename, 'utf8') } catch (error) { if (error.code === 'ENOENT') return false; throw error }
         let record
         try { record = JSON.parse(value) } catch {}
-        if (record?.version === 1 && typeof record.id === 'string' && /^[0-9a-f-]{36}$/.test(record.id) && Number.isSafeInteger(record.pid) && record.pid > 0) {
+        if (record?.version === 1 && typeof record.id === 'string' && uuid.test(record.id) && Number.isSafeInteger(record.pid) && record.pid > 0) {
           try { process.kill(record.pid, 0); throw new Error('The PAC session process is still running; archive the chat first') }
           catch (error) { if (error.code !== 'ESRCH') throw error }
-        } else if (!legacyOwnerStopped || !/^[0-9a-f-]{36}$/.test(value)) {
+        } else if (!legacyOwnerStopped || !uuid.test(value)) {
           throw new Error('The legacy marker has no process identity; stop its session and explicitly confirm it')
         }
         await unlink(filename)

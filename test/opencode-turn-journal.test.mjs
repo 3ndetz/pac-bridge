@@ -81,6 +81,8 @@ test('legacy markers require separate confirmation that the session was stopped'
     await writeFile(join(root, name), randomUUID())
     await assert.rejects(journal.reconcile(id, { outcomeReviewed: true }), /legacy marker/)
     assert.equal(await journal.reconcile(id, { outcomeReviewed: true, legacyOwnerStopped: true }), true)
+    await writeFile(join(root, name), '-'.repeat(36))
+    await assert.rejects(journal.reconcile(id, { outcomeReviewed: true, legacyOwnerStopped: true }), /legacy marker/)
   } finally {
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-journal-test-')) await rm(actual, { recursive: true, force: true })
