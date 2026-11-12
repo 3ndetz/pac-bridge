@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, rmdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
@@ -122,6 +122,48 @@ test('exposes built-in skill content without granting a filesystem root', async 
     assert.equal(overridden.rootFor('built-in'), await realpath(folder))
   } finally {
     const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
+  }
+})
+
+test('loads nearest ancestor project skills up to the git boundary', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  try {
+    const project = join(root, 'project'), child = join(project, 'nested', 'work')
+    for (const [base, name, text] of [[root, 'outside', 'Outside'], [project, 'parent', 'Parent'], [project, 'same', 'Parent version'], [child, 'same', 'Child version']]) {
+      const folder = join(base, '.opencode', 'skills', name)
+      await mkdir(folder, { recursive: true })
+      await writeFile(join(folder, 'SKILL.md'), `---\nname: ${name}\ndescription: Test ${name}\n---\n${text}`)
+    }
+    await mkdir(join(project, '.git'))
+    const skills = await createSourceSkills({ root: child })
+    assert.deepEqual(skills.list.map((item) => item.name).sort(), ['parent', 'same'])
+    assert.match((await skills.invoke({ name: 'same' })).content, /Child version/)
+    assert.equal(skills.rootFor('parent'), await realpath(join(project, '.opencode', 'skills', 'parent')))
+    await rmdir(join(project, '.git'))
+    const noGit = await createSourceSkills({ root: child })
+    assert.ok(noGit.list.some((item) => item.name === 'outside'))
+  } finally {
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
+  }
+})
+
+test('treats home compatibility directories as global when home is the workspace', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  try {
+    for (const parent of ['.agents', '.claude']) {
+      const folder = join(home, parent, 'skills', 'same')
+      await mkdir(folder, { recursive: true })
+      await writeFile(join(folder, 'SKILL.md'), `---\nname: same\ndescription: ${parent}\n---\n${parent}`)
+    }
+    const skills = await createSourceSkills({ root: home, home })
+    assert.equal(skills.list.length, 1)
+    assert.match((await skills.invoke({ name: 'same' })).content, /\.agents/)
+  } finally {
+    const actual = await realpath(home)
     const local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
   }

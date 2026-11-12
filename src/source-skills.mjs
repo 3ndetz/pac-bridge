@@ -1,5 +1,6 @@
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { isMap, isScalar, parseDocument } from 'yaml'
 
 const namePattern = /^[a-z0-9][a-z0-9-]{0,63}$/
@@ -46,14 +47,28 @@ export async function createSourceSkills({ root, home, builtins = [], maxBytes =
   if (!Array.isArray(builtins) || builtins.length > maxSkills) throw new Error('Invalid built-in skills')
   const workspace = await realpath(root)
   const homeRoot = home ? await realpath(home) : null
+  const systemHome = await realpath(homedir())
   const skills = new Map()
+  const ranks = new Map()
   const seenDirectories = new Set()
   let entryCount = 0
+  const ancestors = []
+  let current = workspace
+  while (true) {
+    ancestors.push(current)
+    let gitBoundary = false
+    try { await lstat(join(current, '.git')); gitBoundary = true } catch (error) { if (error.code !== 'ENOENT') throw error }
+    const parent = dirname(current)
+    if (gitBoundary || parent === current || parent === systemHome || parent === homeRoot) break
+    current = parent
+  }
   const roots = [
-    ...[['.opencode', 'skill'], ['.opencode', 'skills'], ['.agents', 'skills'], ['.claude', 'skills']].map((parts) => ({ base: workspace, parts, global: false })),
-    ...(homeRoot ? [['.config', 'opencode', 'skill'], ['.config', 'opencode', 'skills'], ['.agents', 'skills'], ['.claude', 'skills']].map((parts) => ({ base: homeRoot, parts, global: true })) : []),
+    ...ancestors.flatMap((base, rank) => [['.opencode', 'skill'], ['.opencode', 'skills'], ['.agents', 'skills'], ['.claude', 'skills']]
+      .filter((parts) => (base !== systemHome && base !== homeRoot) || parts[0] === '.opencode')
+      .map((parts) => ({ base, parts, rank, global: false }))),
+    ...(homeRoot ? [['.config', 'opencode', 'skill'], ['.config', 'opencode', 'skills'], ['.agents', 'skills'], ['.claude', 'skills']].map((parts) => ({ base: homeRoot, parts, rank: ancestors.length, global: true })) : []),
   ]
-  for (const { base, parts, global } of roots) {
+  for (const { base, parts, rank, global } of roots) {
     const skillsPath = join(base, ...parts)
     let directory
     try { directory = await realpath(skillsPath) } catch (error) { if (error.code === 'ENOENT') continue; throw error }
@@ -95,10 +110,11 @@ export async function createSourceSkills({ root, home, builtins = [], maxBytes =
       } finally { await file.close() }
       const skill = parseSkill(text, folder.slice(folder.lastIndexOf(sep) + 1))
       if (skills.has(skill.name)) {
-        if (global) return
+        if (global || rank > ranks.get(skill.name)) return
         throw new Error('Duplicate source skill name')
       }
       skills.set(skill.name, { ...skill, folder })
+      ranks.set(skill.name, rank)
     }
     await visit(directory, 0)
   }
