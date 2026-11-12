@@ -40,7 +40,10 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
         const metadata = method === '_auth/status_update' || method === 'opencode/session/child_update' || method === 'pac/background_tasks_changed' ||
           (method === 'session/update' && ['session_info_update', 'usage_update', 'available_commands_update'].includes(type))
         const bytes = Buffer.byteLength(JSON.stringify({ method, params }))
-        if (!metadata || delayed.length >= 64 || delayedBytes + bytes > 1024 * 1024) { onDiagnostic('no_active_turn'); throw new Error('ACP update cannot be delivered outside an active turn') }
+        if (!metadata || delayed.length >= 64 || delayedBytes + bytes > 1024 * 1024) {
+          onDiagnostic(`no_active_turn:${safeMethod}__${typeof type === 'string' && /^[a-z_]{1,64}$/.test(type) ? type : 'none'}`)
+          throw new Error('ACP update cannot be delivered outside an active turn')
+        }
         delayed.push({ event: { method, params }, bytes })
         delayedBytes += bytes
         return

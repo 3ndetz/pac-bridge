@@ -20,7 +20,7 @@ test('finishes replaying restored history before accepting a new turn', { timeou
     onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
   try {
     assert.equal((await session.prompt([], () => {})).stopReason, 'end_turn')
-    assert.ok(!diagnostics.includes('no_active_turn'))
+    assert.ok(!diagnostics.some(value => value.startsWith('no_active_turn:')))
   } finally { session.close() }
 })
 

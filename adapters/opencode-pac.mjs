@@ -71,7 +71,7 @@ const router = createOpencodeSessionRouter({ store: createSessionStore(join(sess
   command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId,
   env: { ...routerEnv, PAC_SESSION_DIR: join(sessionRoot, legacyMode ? 'legacy-acp' : 'acp') },
   onPermission: (params) => server.requestPermission(sessionId, params),
-  onDiagnostic: (category) => { if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC ACP ${category}\n`) },
+  onDiagnostic: (category) => { if (process.env.PAC_DIAGNOSTICS === '1' || category.startsWith('no_active_turn:')) process.stderr.write(`PAC ACP ${category}\n`) },
 }) } })
 server = createOpencodeProvider({ router, token, cwd, onFailure: (category) => {
   if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC provider failure: ${category}\n`)
