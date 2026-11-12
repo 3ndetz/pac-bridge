@@ -1,14 +1,29 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { createServer as createHttpServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
 import { WebSocketServer } from 'ws'
 import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 import { connectSource } from '../src/acp-transport.mjs'
+
+test('does not advertise PAC when a workspace has unsupported OpenCode hooks', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-policy-discovery-'))
+  try {
+    const plugins = join(root, '.opencode', 'plugins')
+    await mkdir(plugins, { recursive: true })
+    await writeFile(join(plugins, 'example.js'), 'export default async () => ({})')
+    const result = await discoverPacsDirect({ cwd: root, env: { PAC_NAME: 'testpac', PAC_RELAY_URL: 'ws://127.0.0.1:1',
+      PAC_SOURCE_TOKEN_FILE: join(root, 'missing-token'), PAC_CONTROLLER_CWD: root } })
+    assert.deepEqual(result, { models: [], warnings: [{ name: 'testpac', code: 'opencode_policy_unsupported' }] })
+  } finally {
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-policy-discovery-')) await rm(actual, { recursive: true, force: true })
+  }
+})
 
 test('cancelled relay discovery closes an unresponsive handshake', { timeout: 5000 }, async () => {
   const server = createServer(socket => socket.resume())
