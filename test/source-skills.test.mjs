@@ -22,6 +22,11 @@ test('discovers and invokes simple source skills without accepting unsupported f
     const expanded = (await escaped.invoke({ name: 'demo', args: '$ARGUMENTS value' })).content
     assert.match(expanded, /Literal \$ARGUMENTS, expanded \$ARGUMENTS value, other \$ARGUMENTS_suffix/)
     await assert.rejects(skills.invoke({ name: 'missing' }), /Unknown/)
+    await writeFile(path, '---\nname: demo\ndescription: A skill\nmetadata:\n  audience: maintainers\n  workflow: github\n---\nMetadata skill body')
+    const withMetadata = await createSourceSkills({ root })
+    assert.match((await withMetadata.invoke({ name: 'demo' })).content, /Metadata skill body/)
+    await writeFile(path, '---\nname: demo\ndescription: A skill\nmetadata:\n  nested: [unsupported]\n---\nBody')
+    await assert.rejects(createSourceSkills({ root }), /Unsupported skill frontmatter/)
     await writeFile(path, '---\nname: demo\ndescription: A skill\ncontext: fork\n---\nBody')
     await assert.rejects(createSourceSkills({ root }), /Unsupported skill frontmatter/)
     await writeFile(path, '---\nname: demo\ndescription: A skill\n---\n!`echo hidden`')

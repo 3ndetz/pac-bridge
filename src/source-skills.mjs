@@ -32,6 +32,15 @@ function parseSkill(text, directoryName) {
   if (document.errors.length || document.warnings.length || !isMap(document.contents)) throw new Error('Unsupported skill frontmatter')
   const fields = {}
   for (const pair of document.contents.items) {
+    if (isScalar(pair.key) && pair.key.value === 'metadata') {
+      if (fields.metadata !== undefined || !isMap(pair.value) || pair.value.items.some((entry) =>
+        !isScalar(entry.key) || typeof entry.key.value !== 'string' || !isScalar(entry.value) || typeof entry.value.value !== 'string')) {
+        throw new Error('Unsupported skill frontmatter')
+      }
+      // OpenCode V1 accepts string-to-string metadata but does not interpret it.
+      fields.metadata = true
+      continue
+    }
     if (!isScalar(pair.key) || !isScalar(pair.value) || !['name', 'description', 'license', 'compatibility'].includes(pair.key.value) ||
         typeof pair.value.value !== 'string' || !pair.value.value.trim() || fields[pair.key.value] !== undefined) throw new Error('Unsupported skill frontmatter')
     fields[pair.key.value] = pair.value.value

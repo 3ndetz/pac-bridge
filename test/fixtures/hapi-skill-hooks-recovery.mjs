@@ -10,7 +10,7 @@ new Function(hook) // Validate the generated fixture before opening a live test 
 await writeFile(join(root,'hook.cjs'),hook)
 const handler={type:'command',command:process.execPath,args:['${CLAUDE_PROJECT_DIR}/hook.cjs'],timeout:15}
 await writeFile(join(config,'settings.json'),JSON.stringify({hooks:{PreToolUse:[{matcher:'Skill|Read',hooks:[handler]}],PostToolUse:[{matcher:'Skill|Read',hooks:[handler]}]}}))
-await writeFile(join(skill,'SKILL.md'),'---\nname: pac-proof\ndescription: Read the proof resource when explicitly requested\n---\nRead proof-resource.txt from this skill base directory and report its exact contents.\n')
+await writeFile(join(skill,'SKILL.md'),'---\nname: pac-proof\ndescription: Read the proof resource when explicitly requested\nmetadata:\n  audience: test\n  workflow: verification\n---\nRead proof-resource.txt from this skill base directory and report its exact contents.\n')
 await writeFile(join(skill,'proof-resource.txt'),'PAC_CONTEXT_SKILL_RESOURCE_74193')
 const profile=process.env.PAC_TEST_HAPI_HOME || join(home,'.hapi-servermall'), model=process.env.PAC_TEST_MODEL || 'PAC_testpac/sonnet',json=async f=>JSON.parse((await readFile(join(profile,f),'utf8')).replace(/^\uFEFF/,'')),settings=await json('settings.json'),connection=await json('connection.json'),base=`http://127.0.0.1:${connection.relayPort}`
 const waitMs=Number(process.env.PAC_TEST_TIMEOUT_MS || 180000)
