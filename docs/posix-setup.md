@@ -1,13 +1,17 @@
-# Linux and macOS development setup
+# Linux and macOS source-side setup
 
-Clone the repository and prepare its locked dependencies:
+Install Git, Node.js 24 or later, npm, Bash and a compatible native OpenCode. Keep the existing HAPI hub and runner. Transfer the private connection directory separately: it must contain `connection.json`, `pac-source-token.txt` and `pac-relay-ca.pem`. Do not copy the Claude login from the controller.
+
+Clone this repository to a permanent location and stage a versioned launcher:
 
 ```sh
 git clone https://github.com/3ndetz/pac-bridge.git
 cd pac-bridge
-sh scripts/prepare-posix.sh
+sh scripts/install-posix.sh "$HOME/Downloads/PAC-Bridge-keys" "$(command -v opencode)"
 ```
 
-The script requires Node.js 24 or later, npm and Git. It does not alter an existing HAPI profile. The relay, controller, and source adapters are in `adapters/`; their development setup, credential separation, TLS requirements, and launcher commands are documented in [OPENCODE-EXPERIMENT.md](../OPENCODE-EXPERIMENT.md).
+The installer uses the committed Git revision and the locked source-only dependencies. It stores the version, launcher and session bindings under `~/.local/share/pac-bridge`; connection files remain in their private directory. Existing installations with a different connection directory or native OpenCode path are rejected for review. The installer does not start or restart HAPI, create a hub, or modify its source or profile.
 
-There is currently no reviewed unattended installer for an existing Linux or macOS HAPI profile. The native primitive tests and the authenticated Windows deployment do not establish end-to-end support on those systems. Provisioning, startup, upgrades, and the full tool, hook and skill matrix on each platform remain acceptance work. Do not copy Claude authentication from the controller to a source machine.
+Start the **existing** HAPI runner with `~/.local/share/pac-bridge/bin` first in its `PATH`, preserving its existing profile, other environment and machine identity. For a service-managed runner, set this in the service's environment and apply it only at an appropriate time: a running process cannot inherit a changed `PATH`. Do not start a second hub or runner as a substitute. Then create an OpenCode chat on that existing machine and verify its PAC model, a real reply, tools, permissions, skills and hooks. If `NODE_EXTRA_CA_CERTS` is already set to a different file, the launcher stops for review rather than overriding the user's CA configuration.
+
+The source launcher can be staged and checked on Linux, but authenticated end-to-end HAPI installation, restart, update and rollback have not yet been verified on Linux or macOS. macOS execution is also unverified. These are acceptance items, not completed platform support. The development-only dependency setup is still available with `sh scripts/prepare-posix.sh`; see [OPENCODE-EXPERIMENT.md](../OPENCODE-EXPERIMENT.md) for runtime limitations.
