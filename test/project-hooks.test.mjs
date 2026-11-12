@@ -5,6 +5,26 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
 import { createProjectHooks } from '../src/project-hooks.mjs'
 
+test('does not treat global Claude settings as project hooks when the workspace is home', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'pac-hooks-'))
+  try {
+    const globalConfig = join(home, '.claude'), project = join(home, 'project'), projectConfig = join(project, '.claude')
+    await mkdir(globalConfig)
+    await mkdir(projectConfig, { recursive: true })
+    await writeFile(join(globalConfig, 'settings.json'), JSON.stringify({ theme: 'dark', hooks: { Stop: [] } }))
+    const hooks = await createProjectHooks({ root: home, home, shell: process.execPath })
+    assert.deepEqual(await hooks.dispatch({ hook_event_name: 'PreToolUse', tool_name: 'Read' }), {})
+    await assert.rejects(hooks.dispatch({ hook_event_name: 'Stop', tool_name: 'Read' }), /Unsupported project hook event/)
+    await writeFile(join(globalConfig, 'settings.local.json'), JSON.stringify({ hooks: { Stop: [] } }))
+    await assert.rejects(createProjectHooks({ root: home, home, shell: process.execPath }), /Unsupported project hook event/)
+    await writeFile(join(projectConfig, 'settings.json'), JSON.stringify({ hooks: { Stop: [] } }))
+    await assert.rejects(createProjectHooks({ root: project, home, shell: process.execPath }), /Unsupported project hook event/)
+  } finally {
+    const actual = await realpath(home), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-hooks-')) await rm(actual, { recursive: true, force: true })
+  }
+})
+
 test('runs a matching project hook on the source and forwards its decision', { timeout: 10000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-hooks-'))
   try {

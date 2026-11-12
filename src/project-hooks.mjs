@@ -1,14 +1,19 @@
 import { open, realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { spawnContained, stopContained } from './spawn-contained.mjs'
 
 const supportedEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure'])
 
-export async function createProjectHooks({ root, shell, maxOutputBytes = 1024 * 1024 }) {
+export async function createProjectHooks({ root, shell, home = homedir(), maxOutputBytes = 1024 * 1024 }) {
   if (!isAbsolute(root) || typeof shell !== 'string' || !shell || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('Invalid project hook configuration')
   const workspace = await realpath(root)
   const hooks = new Map()
+  // ~/.claude/settings.json is Claude Code's global configuration, not an
+  // OpenCode project setting. Project-local settings still require validation.
+  const isHome = workspace === await realpath(home)
   for (const name of ['settings.json', 'settings.local.json']) {
+    if (isHome && name === 'settings.json') continue
     const path = join(workspace, '.claude', name)
     let file
     try {
