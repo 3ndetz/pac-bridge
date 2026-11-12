@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { Duplex, PassThrough } from 'node:stream'
 import test from 'node:test'
 import { createAcpPeer } from '../src/acp-peer.mjs'
-import { mergeProbeModels, startHapiModelProbe } from '../src/hapi-model-probe.mjs'
+import { mergeProbeModels, nativeModels, startHapiModelProbe } from '../src/hapi-model-probe.mjs'
+
+test('shares the native model probe deadline between initialize and session creation', { timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-native-deadline-'))
+  try {
+    await writeFile(join(root, 'acp'), `const r=require('node:readline').createInterface({input:process.stdin});r.on('line',line=>{const x=JSON.parse(line);setTimeout(()=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:x.id,result:x.method==='initialize'?{protocolVersion:1}:{sessionId:'native'}})+'\\n'),100)})`)
+    const options = { binary: process.execPath, cwd: root, init: { protocolVersion: 1 }, params: { cwd: root, mcpServers: [] }, env: process.env }
+    assert.equal((await nativeModels({ ...options, timeoutMs: 3000 })).sessionId, 'native')
+    await assert.rejects(nativeModels({ ...options, timeoutMs: 150 }), /timed out/)
+  } finally {
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-native-deadline-')) await rm(actual, { recursive: true, force: true })
+  }
+})
 
 test('merges PAC models without hiding native providers or duplicating IDs', () => {
   const result = mergeProbeModels({ sessionId: 'native', models: { currentModelId: 'native/model', availableModels: [{ modelId: 'native/model' }] },

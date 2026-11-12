@@ -25,16 +25,21 @@ export function mergeProbeModels(native, catalog) {
   return result
 }
 
-async function nativeModels({ binary, cwd, init, params, env }) {
+export async function nativeModels({ binary, cwd, init, params, env, timeoutMs = 27000 }) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 27000) throw new Error('Invalid native model probe timeout')
   const child = spawnContained(binary, ['acp'], { cwd, env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true })
   child.on('error', () => {})
   const native = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), {
     onRequest: async () => { throw new Error('Model discovery cannot approve actions') }, onNotification: () => {},
   })
   try {
-    const initialized = await native.call('initialize', init, 13000)
+    // HAPI gives the complete session/new probe 30 seconds. Share a bounded
+    // budget between native initialization and model listing instead of
+    // failing a cold native startup after only 13 seconds.
+    const deadline = Date.now() + timeoutMs
+    const initialized = await native.call('initialize', init, Math.max(1, deadline - Date.now()))
     if (initialized?.protocolVersion !== 1) throw new Error('Unsupported native OpenCode ACP version')
-    return await native.call('session/new', params, 13000)
+    return await native.call('session/new', params, Math.max(1, deadline - Date.now()))
   } finally { native.close(); try { stopContained(child) } catch {} }
 }
 
