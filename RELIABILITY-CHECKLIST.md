@@ -17,6 +17,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [x] Exercise automatic compaction and context recall through HAPI with an artificially lowered test threshold; verify the completion notice is visible. This does not establish the production model's actual threshold.
 - [ ] Verify session bindings, history, selected PAC and model survive runner, controller, relay, and Windows restarts without switching sessions or duplicating uncertain actions.
 - [ ] Verify disconnection, reconnection, authorization expiry, model unavailability, concurrency, timeouts, and cancellation while actions are running. Confirm failures are explicit and recoverable.
+- [ ] With the PAC relay unavailable, verify native OpenCode model discovery still works and the unavailable PAC is not advertised. This passed with the actual OpenCode ACP and an isolated synthetic native provider. The fix is staged for the next runner start on both Windows profiles; it is not yet verified in the running profiles.
 - [ ] Store durable bindings and installation outside temporary build and checkout paths; preserve existing session bindings during migration.
 - [x] Keep the verified PAC runner selected through a same-version managed kit repair, and reject a damaged pin or an incompatible base version. This was checked on the existing 1C-Prog profile and in isolated installer tests.
 
@@ -37,6 +38,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [ ] Integrate with each machine's existing hub and runner without creating another hub, overwriting an unrelated configuration, or copying machine identity; verify the target profile and PAC model discovery.
 - [ ] Prepare only the necessary connection credentials separately in a private Downloads directory. Never publish them or copy the controller's Claude login. Explain the access granted and safe transfer.
 - [ ] Provide a copyable prompt for an agent on the other PC and test it on a second machine.
+- [ ] Publish and verify the Windows prompt, required private-file names and existing-profile bootstrap from Git. These are published, and the bootstrap passed an isolated synthetic Windows profile test; a fresh real profile remains to be tested.
 - [ ] Test startup, update, rollback, health diagnostics, credential rotation, and disaster recovery without losing conversations.
 
 ## Tracking
