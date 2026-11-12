@@ -98,9 +98,17 @@ try {
   child = spawnContained(binary, args[0] === 'serve' || acpMode ? args : ['--model', namedProviders ? model : `pacbridge/${model}`, ...args], {
     cwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
       PAC_PROVIDER_URL: `http://127.0.0.1:${server.address().port}`, PAC_PROVIDER_TOKEN: token,
-      PAC_NAMED_PROVIDER_IDS: JSON.stringify(namedProviders ? Object.keys(providers) : []) }, stdio: 'inherit', windowsHide: false,
+      PAC_NAMED_PROVIDER_IDS: JSON.stringify(namedProviders ? Object.keys(providers) : []) }, stdio: acpMode ? ['pipe', 'pipe', 'inherit'] : 'inherit', windowsHide: false,
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   })
+  if (acpMode) {
+    // The wrapper may have peeked at the first ACP request. Pipe the Node
+    // stream so its replay buffer reaches OpenCode along with subsequent bytes.
+    child.stdin.on('error', () => {})
+    child.stdout.on('error', () => {})
+    process.stdin.pipe(child.stdin)
+    child.stdout.pipe(process.stdout)
+  }
   process.once('SIGINT', () => { if (child) stopContained(child) })
   process.once('SIGTERM', () => { if (child) stopContained(child) })
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve) })

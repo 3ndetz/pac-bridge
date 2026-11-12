@@ -1,6 +1,7 @@
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 import { accessSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import { isHapiModelProbe } from '../src/acp-probe-detection.mjs'
 
 // HAPI invokes `opencode acp`; other commands, including its version probe,
 // must continue to reach the actual OpenCode executable.
@@ -18,8 +19,12 @@ if (process.argv[2] === 'acp') {
     }
   }
   for (const name of ['PAC_EXPERIMENTAL_HOOKS', 'PAC_EXPERIMENTAL_SKILLS', 'PAC_EXPERIMENTAL_INSTRUCTIONS']) process.env[name] ??= '1'
-  if (process.env.PAC_HAPI_PROVIDER_EXPERIMENT === '1') await import('./opencode-pac.mjs')
-  else await import('./pac-opencode-router.mjs')
+  if (process.env.PAC_HAPI_PROVIDER_EXPERIMENT === '1') {
+    if (await isHapiModelProbe(process.stdin)) {
+      const { startHapiModelProbe } = await import('../src/hapi-model-probe.mjs')
+      startHapiModelProbe({ input: process.stdin, output: process.stdout, binary })
+    } else await import('./opencode-pac.mjs')
+  } else await import('./pac-opencode-router.mjs')
 } else {
   const child = spawnContained(binary, process.argv.slice(2), { stdio: 'inherit', windowsHide: false,
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY) })

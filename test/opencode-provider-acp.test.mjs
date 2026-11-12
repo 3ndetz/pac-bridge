@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { Duplex } from 'node:stream'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,43 @@ import { attachAcpRelay } from '../src/acp-relay.mjs'
 import { startAgent } from '../src/acp-transport.mjs'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
+
+test('HAPI model probe keeps native models and checks the requested workspace', { skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-model-probe-'))
+  const server = createServer(), relay = attachAcpRelay(server, { authorize: () => true })
+  let agent
+  try {
+    server.listen(0, '127.0.0.1'); await once(server, 'listening')
+    const url = `ws://127.0.0.1:${server.address().port}`
+    const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
+    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--text-response'] })
+    const tokenFile = join(root, 'token'), allowed = join(root, 'allowed'), rejected = join(root, 'rejected')
+    await writeFile(tokenFile, 'test-token')
+    await mkdir(allowed); await mkdir(join(rejected, '.claude'), { recursive: true })
+    await writeFile(join(rejected, '.claude', 'settings.json'), JSON.stringify({ permissions: { deny: ['Read'] } }))
+    const launcher = fileURLToPath(new URL('../adapters/pac-hapi-opencode.mjs', import.meta.url))
+    const env = { ...process.env, OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+      OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider: { native_test: { npm: '@ai-sdk/openai-compatible', name: 'Native test', options: { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'test' }, models: { 'native-model': { name: 'Native model' } } } } }),
+      PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_NAMED_PROVIDERS_EXPERIMENT: '1', PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile,
+      PAC_CONTROLLER_CWD: root, PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH }
+    for (const [cwd, expectPac, offline] of [[allowed, true, false], [rejected, false, false], [allowed, false, true]]) {
+      const child = spawnContained(process.execPath, [launcher, 'acp'], { cwd: root, env: offline ? { ...env, PAC_RELAY_URL: 'ws://127.0.0.1:1' } : env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      child.stderr.resume()
+      const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { onNotification() {}, onRequest: async () => ({}) })
+      try {
+        await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'hapi-opencode-models', version: '0.34.4' } }, 30000)
+        const response = await peer.call('session/new', { cwd, mcpServers: [] }, 30000)
+        const models = response.models?.availableModels || []
+        assert.ok(models.some((item) => item.modelId === 'native_test/native-model'), 'native provider remains available')
+        assert.equal(models.some((item) => item.modelId === 'PAC_testpac/sonnet'), expectPac)
+      } finally { peer.close(); if (child.exitCode === null) try { stopContained(child) } catch {} }
+    }
+  } finally {
+    agent?.close(); relay.close(); server.close()
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-model-probe-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+})
 
 test('unmodified OpenCode ACP exposes PAC provider models without preselection', { skip: !process.env.PAC_OPENCODE_BINARY, timeout: 180000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-provider-acp-'))
