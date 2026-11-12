@@ -62,3 +62,31 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
     relayServer.close()
   }
 })
+
+test('unavailable PAC leaves native OpenCode providers usable', { skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-offline-acp-'))
+  const tokenFile = join(root, 'token')
+  await writeFile(tokenFile, 'test-token')
+  const launcher = fileURLToPath(new URL('../adapters/pac-hapi-opencode.mjs', import.meta.url))
+  const env = { ...process.env, HOME: root, USERPROFILE: root, APPDATA: join(root, 'appdata'), LOCALAPPDATA: join(root, 'localappdata'),
+    XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
+    OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider: { native_test: { npm: '@ai-sdk/openai-compatible', name: 'Native test', options: { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'test' }, models: { 'native-model': { name: 'Native model' } } } } }),
+    PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_NAMED_PROVIDERS_EXPERIMENT: '1', PAC_RELAY_URL: 'ws://127.0.0.1:1', PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile,
+    PAC_CONTROLLER_CWD: root, PAC_SESSION_DIR: join(root, 'sessions'), PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH }
+  delete env.PAC_MODEL
+  const child = spawnContained(process.execPath, [launcher, 'acp'], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  let errors = ''
+  child.stderr.on('data', chunk => { errors += chunk })
+  try {
+    const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { onNotification() {}, onRequest: async () => ({}) })
+    await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} }, 60000).catch(error => { throw new Error(`${error.message}: ${errors.slice(-2000)}`) })
+    const session = await peer.call('session/new', { cwd: root, mcpServers: [] }, 60000)
+    const models = session.models?.availableModels || session.configOptions?.find(item => item.category === 'model')?.options || []
+    assert.ok(models.some(item => String(item.modelId || item.value).includes('native_test/native-model')), JSON.stringify(models).slice(0, 1000))
+    assert.ok(!models.some(item => String(item.modelId || item.value).includes('PAC_testpac')))
+    assert.match(errors, /PAC testpac: unavailable/)
+  } finally {
+    if (child.exitCode === null) { try { stopContained(child) } catch {} }
+  }
+})

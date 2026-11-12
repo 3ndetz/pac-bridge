@@ -43,7 +43,9 @@ const catalog = process.env.PAC_DISCOVERY_ACP === '1'
   : await discoverPacsDirect({ cwd, env: routerEnv })
 if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC discovery time: ${Date.now() - startedAt}ms\n`)
 for (const warning of catalog.warnings) process.stderr.write(`PAC ${warning.name}: ${warning.code}\n`)
-if (!catalog.models.length) throw new Error('No authorized PAC models are available')
+// A disconnected PAC must not prevent HAPI from starting OpenCode with its
+// other providers. A specifically selected PAC model still fails closed.
+if (!catalog.models.length && (!acpMode || model)) throw new Error('No authorized PAC models are available')
 if (model && !catalog.models.some((entry) => entry.id === model)) throw new Error('The selected PAC model is unavailable')
 if (!model && !acpMode) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Select a PAC model with PAC_MODEL in non-interactive mode')
