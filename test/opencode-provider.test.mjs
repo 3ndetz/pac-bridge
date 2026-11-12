@@ -68,6 +68,28 @@ test('routes a stop command once without prompting the model', async () => {
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
+test('does not claim that a finished or unknown task accepted a stop', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let status = 'completed'
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    hasSession: () => true,
+    async prompt() { throw new Error('Unexpected model prompt') },
+    async stopTask() { return { status } },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+    const request = (id) => fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 'session', 'x-pac-message-id': id },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'PAC_BRIDGE_STOP_TASK pac:task' }] }) })
+    const finished = await request('completed')
+    assert.equal(finished.status, 200)
+    assert.match(await finished.text(), /task already completed/)
+    status = 'unknown'
+    const unknown = await request('unknown')
+    assert.notEqual(unknown.status, 200)
+  } finally { await new Promise(resolve => server.close(resolve)) }
+})
+
 test('routes a distinct user turn to its selected PAC and refuses replay', async () => {
   const calls = []
   const token = 'local-test-token-with-at-least-32-characters'
