@@ -277,4 +277,6 @@ OpenCode V1 skill metadata is accepted as a string-to-string map in [this change
 
 The same metadata-bearing skill, resource, project hook, compaction and same-chat resume scenario also passed with real Claude through the existing machine 4 HAPI: four hook events were observed at each of the three stages, the remembered marker survived, and the disposable chat was archived. The first stage was slow to start; this does not resolve the cold-start investigation.
 
+The [ACP working-directory fix](https://github.com/3ndetz/pac-bridge/commit/f320458) uses `--cwd` for PAC discovery and normalizes a relative argument before spawning OpenCode. In a real OpenCode test with a synthetic PAC, the inherited process directory contained a deny rule while the requested project did not; model discovery and responses succeeded for the requested project. After installation, a real HAPI first-turn check on machine 4 still took about 106 seconds, so the slow-start issue remains open and its cause is not established.
+
 In the first machine's current bridge checkout, direct source-skill discovery found 18 file-backed project and user skills, and loading each one's instructions succeeded. This is a read-only loading check; it does not establish that a model can apply every skill correctly or that its external dependencies work.
