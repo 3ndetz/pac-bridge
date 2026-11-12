@@ -22,6 +22,11 @@ try {
   $record=Get-Content -LiteralPath (Join-Path $pac 'provider-current.json') -Raw | ConvertFrom-Json
   . $runtime
   $command=Join-Path $pac ('provider-versions/'+$record.revision+'/bin/opencode.cmd')
+  $versionDir=Join-Path $pac ('provider-versions/'+$record.revision)
+  foreach($dependency in @('ws','yaml','zod','minimatch')) {
+    if(!(Test-Path -LiteralPath (Join-Path $versionDir ('node_modules/'+$dependency+'/package.json')) -PathType Leaf)){throw 'Source provider dependency is missing.'}
+  }
+  if(Test-Path -LiteralPath (Join-Path $versionDir 'node_modules/@anthropic-ai')){throw 'Controller-only Claude dependencies must not be installed on the source.'}
   if($env:PAC_HAPI_PROVIDER_EXPERIMENT -ne '1' -or !(Test-Path -LiteralPath $command -PathType Leaf)){throw 'Provider environment is incomplete.'}
   if($env:PAC_NAMED_PROVIDERS_EXPERIMENT -ne '1' -or $env:PAC_LEGACY_MIGRATION_EXPERIMENT -ne '1'){throw 'Provider migration settings were not retained.'}
   $wrapper=[IO.File]::ReadAllText($command)

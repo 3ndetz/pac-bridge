@@ -23,9 +23,11 @@ Push-Location -LiteralPath $source
 try {
   $revision=(& git.exe rev-parse HEAD).Trim()
   if($LASTEXITCODE -ne 0 -or $revision -cnotmatch '^[0-9a-f]{40}$'){throw 'A Git checkout with a valid commit is required.'}
-  & git.exe diff --quiet HEAD -- adapters src package.json package-lock.json
+  & git.exe diff --quiet HEAD -- adapters src source-package
   if($LASTEXITCODE -ne 0){throw 'Commit or discard source changes before installing; the revision must match the files.'}
-  $files=@(& git.exe ls-files -- adapters src package.json package-lock.json)
+  & git.exe ls-files --error-unmatch -- source-package/package.json source-package/package-lock.json | Out-Null
+  if($LASTEXITCODE -ne 0){throw 'The source dependency manifest and lockfile must be tracked.'}
+  $files=@(& git.exe ls-files -- adapters src)
   if($LASTEXITCODE -ne 0 -or !$files.Count){throw 'Could not list tracked source files.'}
   $versions=Join-Path $pac 'provider-versions'
   $target=Join-Path $versions $revision
@@ -38,6 +40,9 @@ try {
       $dest=Join-Path $stage $file
       New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force | Out-Null
       Copy-Item -LiteralPath (Join-Path $source $file) -Destination $dest
+    }
+    foreach($file in @('package.json','package-lock.json')) {
+      Copy-Item -LiteralPath (Join-Path $source ('source-package/'+$file)) -Destination (Join-Path $stage $file)
     }
     Push-Location -LiteralPath $stage
     try {
