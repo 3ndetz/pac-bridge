@@ -82,3 +82,25 @@ test('discovers global skills with project precedence and parses folded descript
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
   }
 })
+
+test('discovers nested skills and accepts literal examples without executing substitutions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  try {
+    const folder = join(root, '.claude', 'skills', 'synced', '123', 'nested')
+    await mkdir(folder, { recursive: true })
+    const path = join(folder, 'SKILL.md')
+    await writeFile(path, '---\nname: nested\ndescription: Nested skill\nlicense: MIT\ncompatibility: OpenCode\n---\n`$2`\n```sh\n!`echo example`\n${HOME}\n```\n')
+    const skills = await createSourceSkills({ root })
+    assert.deepEqual(skills.list.map((skill) => skill.name), ['nested'])
+    assert.match((await skills.invoke({ name: 'nested' })).content, /\$2/)
+    await writeFile(path, '---\nname: nested\ndescription: Nested skill\n---\nRun !`echo unsafe`')
+    await assert.rejects(createSourceSkills({ root }), /Unsupported dynamic/)
+    await writeFile(path, '---\nname: nested\ndescription: Nested skill\n---\nValue $2')
+    await assert.rejects(createSourceSkills({ root }), /Unsupported dynamic/)
+    await assert.rejects(createSourceSkills({ root, maxSkills: 2 }), /entry limit/)
+  } finally {
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
+  }
+})
