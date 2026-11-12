@@ -23,6 +23,8 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 
 ## Instructions, skills and hooks
 
+- [x] Discover file-backed skills nested in source directories and from ancestor project directories, respecting the nearest Git boundary and nearer project definition. Compare against the installed OpenCode and verify an ancestor skill invocation with real Claude. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
+- [x] Discover and invoke the installed OpenCode built-in `customize-opencode` skill with real Claude without granting a filesystem root. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
 - [ ] Inventory the actual installed OpenCode version's project and global instructions, skill search paths, metadata, plugin and hook events, tool permissions, and precedence.
 - [ ] Implement and test each supported capability end to end on the source machine, including skill resources and before/after tool hooks. Explicitly reject or clearly warn about unsupported security-relevant configurations rather than silently skipping them.
 - [ ] Verify project instructions, scoped rules, hooks and skills before and after compaction and resume, for main agents and subagents, with allow, deny, and failure cases.
