@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createOpencodeTurnChannel } from './opencode-turn-channel.mjs'
 import { mapQuestionAnswers } from './question-answers.mjs'
@@ -22,6 +22,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
   const turns = new Map()
+  const compacted = new Map()
   function cancelTurn(sessionId, turn) {
     clearTimeout(turn.timer)
     turn.cancellation.abort()
@@ -32,10 +33,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
     const fail = (status, message) => { if (!response.headersSent) response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { message } })); else response.destroy() }
     const auth = Buffer.from(request.headers.authorization || '')
     if (auth.length !== expected.length || !timingSafeEqual(auth, expected)) return fail(401, 'Unauthorized')
-    if (request.method !== 'POST' || !['/v1/chat/completions', '/pac/approval'].includes(request.url)) return fail(404, 'Not found')
+    if (request.method !== 'POST' || !['/v1/chat/completions', '/pac/approval', '/pac/compact'].includes(request.url)) return fail(404, 'Not found')
     const sessionId = request.headers['x-pac-session-id']
     const messageId = request.headers['x-pac-message-id']
-    if (request.url !== '/pac/approval' && (typeof sessionId !== 'string' || typeof messageId !== 'string' || !sessionId || !messageId || sessionId.length > 512 || messageId.length > 512 || /[\x00-\x1f]/.test(sessionId + messageId))) return fail(400, 'Missing OpenCode session or message identity')
+    if (request.url === '/v1/chat/completions' && (typeof sessionId !== 'string' || typeof messageId !== 'string' || !sessionId || !messageId || sessionId.length > 512 || messageId.length > 512 || /[\x00-\x1f]/.test(sessionId + messageId))) return fail(400, 'Missing OpenCode session or message identity')
     let messages
     try {
       let size = 0
@@ -46,6 +47,15 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
         chunks.push(chunk)
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if (request.url === '/pac/compact') {
+        if (typeof body.sessionId !== 'string' || !body.sessionId || body.sessionId.length > 512 || /[\x00-\x1f]/.test(body.sessionId) || typeof router.compact !== 'function') return fail(400, 'Invalid compaction request')
+        if (compacted.has(body.sessionId)) return fail(409, 'PAC compaction result is already pending')
+        const result = await router.compact(body.sessionId)
+        if (!result) return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ handled: false }))
+        const nonce = randomUUID()
+        compacted.set(body.sessionId, { nonce, summary: result.summary || 'The PAC conversation was compacted; its retained context remains on the controller.' })
+        return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ handled: true, nonce }))
+      }
       if (request.url === '/pac/approval') {
         const turn = turns.get(body.sessionId)
         const permission = turn?.pending
@@ -99,6 +109,14 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 1024
       }
       const last = Array.isArray(body.messages) ? body.messages.at(-1) : undefined
       if (body.stream !== true || typeof body.model !== 'string' || !body.model.startsWith('PAC_') || !last || !['user', 'tool'].includes(last.role)) return fail(400, 'Unsupported provider request')
+      const pendingCompaction = compacted.get(sessionId)
+      const compactText = typeof last.content === 'string' ? last.content : Array.isArray(last.content) ? last.content.filter(part => part?.type === 'text').map(part => part.text).join('\n') : ''
+      if (pendingCompaction && compactText.startsWith(`PAC_BRIDGE_COMPACT_RESULT:${pendingCompaction.nonce}`)) {
+        compacted.delete(sessionId)
+        const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: messageId, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+        response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+        return response.end(chunk({ role: 'assistant', content: pendingCompaction.summary }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
+      }
       // OpenCode also sends auxiliary requests with the same message id and
       // no tools (for example title generation). Never send those to Claude.
       // A real turn with tools disabled is intentionally unsupported for now.

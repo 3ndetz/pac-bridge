@@ -14,6 +14,17 @@ export default async function pacBridgePlugin() {
     } catch {}
   }
   return {
+    'experimental.session.compacting': async (input, output) => {
+      const base = process.env.PAC_PROVIDER_URL, token = process.env.PAC_PROVIDER_TOKEN
+      if (!base || !token || typeof input.sessionID !== 'string') return
+      const response = await fetch(`${base}/pac/compact`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: input.sessionID }) })
+      if (!response.ok) throw new Error('PAC compaction failed or its outcome is unknown')
+      const result = await response.json()
+      if (result.handled) {
+        if (typeof result.nonce !== 'string' || !/^[a-f0-9-]{36}$/.test(result.nonce)) throw new Error('PAC compaction result is invalid')
+        output.prompt = `PAC_BRIDGE_COMPACT_RESULT:${result.nonce}`
+      }
+    },
     event: async ({ event }) => {
       const props = event?.properties
       if (event?.type === 'question.asked' && typeof props?.id === 'string' && typeof props?.sessionID === 'string' && typeof props?.tool?.callID === 'string') {

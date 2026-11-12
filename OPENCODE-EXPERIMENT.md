@@ -2,7 +2,9 @@
 
 This describes the current development launcher for an already provisioned PAC and relay. It is not a release or a complete installation procedure. See [ACCEPTANCE.md](ACCEPTANCE.md) for verified behavior and outstanding requirements.
 
-The experimental provider launcher also accepts `acp` without preselecting a model. A synthetic test with the installed, unmodified OpenCode 1.19.5 verifies standard ACP model discovery, model selection, and a text response through a fake PAC. This does not yet verify an unmodified HAPI runner, compaction, hooks, upgrades, or live Claude. Do not replace an existing HAPI deployment on the strength of this test.
+The experimental provider launcher also accepts `acp` without preselecting a model. A synthetic test with the installed, unmodified OpenCode 1.19.5 verifies standard ACP model discovery, model selection, and a text response through a fake PAC. Do not replace an existing HAPI deployment on the strength of this test.
+
+In a separate live check on TS-1CDEV, an unmodified HAPI 0.34.4 client attached to the existing hub selected a PAC model, received a Claude answer, performed compaction and recalled a marker. The existing runner and hub were not replaced, so this is not yet an end-to-end deployment of unmodified HAPI. OpenCode's compaction hook now requests confirmed compaction of the bound PAC session; a session-bound one-use result feeds the OpenCode summary. Interrupted or unconfirmed PAC compaction is not replayed automatically. Automatic near-limit compaction, upgrades, session migration and the complete tool, skill and hook matrix remain unverified in this mode.
 
 The source machine needs Node.js, this checkout with its npm dependencies installed, an OpenCode executable and a local Bash executable. The PAC must already be registered with the relay and have a separately authenticated Claude runtime. Remote relay connections require `wss://`; a source credential is supplied as a file and Claude credentials stay on the controller.
 

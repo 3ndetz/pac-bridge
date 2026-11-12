@@ -95,6 +95,10 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
         finally { activeUpdate = null }
       },
       cancel() { if (!stopped) peer.notify('session/cancel', { sessionId: id }) },
+      compact() {
+        if (stopped || activeUpdate) throw new Error('ACP session is unavailable or busy')
+        return peer.call('pac/compact', { sessionId: id }, 0)
+      },
       stopTask(taskId) {
         if (stopped) throw new Error('ACP session is unavailable')
         return peer.call('pac/tasks/stop', { sessionId: id, taskId })

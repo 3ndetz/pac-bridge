@@ -9,6 +9,24 @@ function deferred() {
 }
 const binding = { sessionId: 'session-a', model: 'PAC_work/sonnet', cwd: '/workspace' }
 
+test('compacts only a bound PAC session and refuses overlapping turns', async () => {
+  const pending = deferred()
+  let calls = 0
+  const router = createOpencodeSessionRouter({ openSession: async () => ({
+    prompt: async () => ({ stopReason: 'end_turn' }), cancel() {}, close() {},
+    compact: async () => { calls++; return pending.promise },
+  }) })
+  assert.equal(await router.compact('native-session'), null)
+  await router.prompt(binding, [], () => {})
+  const compact = router.compact(binding.sessionId)
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(router.prompt(binding, [], () => {}), /already running/)
+  pending.resolve({ status: 'completed', summary: 'retained context' })
+  assert.equal((await compact).summary, 'retained context')
+  assert.equal(calls, 1)
+  router.close()
+})
+
 test('stops tasks only in their existing live bound session', async () => {
   const stopped = []
   const router = createOpencodeSessionRouter({ openSession: async ({ sessionId }) => ({

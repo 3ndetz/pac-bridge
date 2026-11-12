@@ -93,6 +93,26 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
       await state.session.cancel()
       return true
     },
+    async compact(sessionId) {
+      identity(sessionId, 'OpenCode session identity')
+      const existing = sessions.get(sessionId)
+      const saved = existing ? null : await store?.read(sessionId)
+      if (!existing && !saved) return null
+      const binding = existing ? { sessionId, model: existing.model, cwd: existing.cwd }
+        : { sessionId, model: saved.model, cwd: saved.workspace }
+      const { state, session } = await getSession(binding, true)
+      if (state.busy || typeof session.compact !== 'function') throw new Error('PAC session is unavailable or busy')
+      state.busy = true
+      let clearMarker
+      try {
+        clearMarker = await journal?.begin(sessionId)
+        const result = await session.compact()
+        if (result?.status !== 'completed' || typeof result.summary !== 'string') throw new Error('PAC compaction was not confirmed')
+        await clearMarker?.()
+        return result
+      } catch (error) { state.lost = true; throw error }
+      finally { state.busy = false }
+    },
     async stopTask(binding, taskId) {
       identity(binding.sessionId, 'OpenCode session identity')
       identity(taskId, 'task identity')

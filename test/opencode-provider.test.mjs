@@ -3,6 +3,31 @@ import { once } from 'node:events'
 import test from 'node:test'
 import { createOpencodeProvider } from '../src/opencode-provider.mjs'
 
+test('returns confirmed PAC compaction once without a second model turn', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let calls = 0, prompts = 0
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt() { prompts++ },
+    async compact(id) { calls++; return id === 'pac-session' ? { status: 'completed', summary: 'retained context' } : null },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const base = `http://127.0.0.1:${server.address().port}`
+  const auth = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+  try {
+    const native = await fetch(base + '/pac/compact', { method: 'POST', headers: auth, body: JSON.stringify({ sessionId: 'native' }) })
+    assert.equal((await native.json()).handled, false)
+    const result = await (await fetch(base + '/pac/compact', { method: 'POST', headers: auth, body: JSON.stringify({ sessionId: 'pac-session' }) })).json()
+    assert.equal(result.handled, true)
+    const headers = { ...auth, 'x-pac-session-id': 'pac-session', 'x-pac-message-id': 'compact-1' }
+    const body = JSON.stringify({ model: 'PAC_work/sonnet', stream: true, messages: [{ role: 'user', content: `PAC_BRIDGE_COMPACT_RESULT:${result.nonce}\nThe following is the conversation history:` }] })
+    const reply = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body })
+    assert.equal(reply.status, 200)
+    assert.match(await reply.text(), /retained context/)
+    assert.equal((await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body })).status, 400)
+    assert.equal(calls, 2); assert.equal(prompts, 0)
+  } finally { await new Promise(resolve => server.close(resolve)) }
+})
+
 test('routes a stop command once without prompting the model', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   const stops = []
