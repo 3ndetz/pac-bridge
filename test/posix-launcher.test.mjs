@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -22,6 +22,7 @@ test('POSIX launcher configures the existing runner without exposing token conte
       writeFile(join(base, 'opencode-path'), process.execPath), writeFile(join(bin, 'opencode'), 'wrapper'),
       writeFile(join(keys, 'connection.json'), JSON.stringify({ relayUrl: 'wss://example.invalid:443', pacName: 'testpac', controllerCwd: '/controller', displayName: '#1' })),
       writeFile(join(keys, 'pac-source-token.txt'), 'PRIVATE_TOKEN_MUST_NOT_APPEAR'), writeFile(join(keys, 'pac-relay-ca.pem'), 'test-certificate'),
+      writeFile(join(root, 'acp'), "process.stdout.write('native-acp-fallback')"),
       writeFile(join(base, 'versions', revision, 'adapters', 'pac-hapi-opencode.mjs'),
         `process.stdout.write(JSON.stringify({args:process.argv.slice(2),name:process.env.PAC_NAME,tokenPath:process.env.PAC_SOURCE_TOKEN_FILE,sessionPath:process.env.PAC_SESSION_DIR,named:process.env.PAC_NAMED_PROVIDERS_EXPERIMENT}))`),
     ])
@@ -34,7 +35,12 @@ test('POSIX launcher configures the existing runner without exposing token conte
     assert.equal(value.sessionPath, join(base, 'bindings'))
     assert.equal(value.named, '1')
     assert.doesNotMatch(result.stdout + result.stderr, /PRIVATE_TOKEN_MUST_NOT_APPEAR/)
-    await assert.rejects(exec(process.execPath, [launcher, 'acp'], { env: { ...env, NODE_EXTRA_CA_CERTS: join(root, 'other-ca') } }), /conflicts with the PAC relay CA/)
+    const fallback = await exec(process.execPath, [launcher, 'acp'], { cwd: root, env: { ...env, NODE_EXTRA_CA_CERTS: join(root, 'other-ca') } })
+    assert.equal(fallback.stdout, 'native-acp-fallback')
+    assert.match(fallback.stderr, /starting native OpenCode/)
+    await unlink(join(keys, 'connection.json'))
+    assert.match((await exec(process.execPath, [launcher, '--version'], { env })).stdout, /^v\d+/)
+    assert.equal((await exec(process.execPath, [launcher, 'acp'], { cwd: root, env })).stdout, 'native-acp-fallback')
     await writeFile(join(base, 'opencode-path'), join(bin, 'opencode'))
     await assert.rejects(exec(process.execPath, [launcher, 'acp'], { env }), /Invalid PAC Bridge installation/)
   } finally {

@@ -7,9 +7,24 @@ import { isAbsolute, join, resolve } from 'node:path'
 // does not create, replace, restart, or configure a HAPI hub or runner.
 const base = join(homedir(), '.local', 'share', 'pac-bridge')
 const readText = async name => (await readFile(join(base, name), 'utf8')).trim()
-const [revision, keys, binary] = await Promise.all(['current', 'connection-directory', 'opencode-path'].map(readText))
-if (!/^[a-f0-9]{40}$/.test(revision) || !isAbsolute(keys) || !isAbsolute(binary) || resolve(binary) === resolve(join(base, 'bin', 'opencode')) ||
+const binary = await readText('opencode-path')
+if (!isAbsolute(binary) || resolve(binary) === resolve(join(base, 'bin', 'opencode')) ||
     await realpath(binary) === await realpath(join(base, 'bin', 'opencode'))) throw new Error('Invalid PAC Bridge installation')
+async function launch(command, args, env) {
+  const child = spawn(command, args, { env, stdio: 'inherit' })
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
+  process.exitCode = await new Promise((resolveExit, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code, signal) => resolveExit(code ?? (signal ? 1 : 0)))
+  })
+}
+if (process.argv[2] !== 'acp') {
+  await launch(binary, process.argv.slice(2), process.env)
+} else {
+let prepared
+try {
+const [revision, keys] = await Promise.all(['current', 'connection-directory'].map(readText))
+if (!/^[a-f0-9]{40}$/.test(revision) || !isAbsolute(keys)) throw new Error('Invalid PAC Bridge installation')
 const config = JSON.parse((await readFile(join(keys, 'connection.json'), 'utf8')).replace(/^\uFEFF/, ''))
 if (!config || typeof config.relayUrl !== 'string' || !/^wss:\/\/[^/]+$/.test(config.relayUrl) ||
     typeof config.pacName !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(config.pacName) ||
@@ -25,9 +40,12 @@ const env = { ...process.env, PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMEN
   PAC_SOURCE_TOKEN_FILE: token, NODE_EXTRA_CA_CERTS: cert, PAC_SESSION_DIR: join(base, 'bindings') }
 if (config.displayName) env.PAC_DISPLAY_NAME = config.displayName; else delete env.PAC_DISPLAY_NAME
 if (config.modelPrefix) env.PAC_MODEL_PREFIX = config.modelPrefix; else delete env.PAC_MODEL_PREFIX
-const child = spawn(process.execPath, [adapter, ...process.argv.slice(2)], { env, stdio: 'inherit' })
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
-process.exitCode = await new Promise((resolveExit, reject) => {
-  child.once('error', reject)
-  child.once('exit', (code, signal) => resolveExit(code ?? (signal ? 1 : 0)))
-})
+prepared = { adapter, env }
+} catch {
+  // Native OpenCode remains available if the PAC profile or CA is missing or
+  // invalid. No PAC model is exposed and no user operation is replayed.
+  process.stderr.write('PAC Bridge configuration is unavailable; starting native OpenCode.\n')
+}
+if (prepared) await launch(process.execPath, [prepared.adapter, ...process.argv.slice(2)], prepared.env)
+else await launch(binary, process.argv.slice(2), process.env)
+}
