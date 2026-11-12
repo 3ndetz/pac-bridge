@@ -17,6 +17,7 @@ import { createSessionStore } from '../src/session-store.mjs'
 import { createProjectHooks } from '../src/project-hooks.mjs'
 import { createBackgroundTerminal } from '../src/background-terminal.mjs'
 import { createSourceSkills } from '../src/source-skills.mjs'
+import { loadOpenCodeBuiltins } from '../src/opencode-builtins.mjs'
 import { readSourceInstructions } from '../src/source-instructions.mjs'
 import { matchesProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
 import { assertNoUnsupportedOpenCodePlugins } from '../src/opencode-plugin-guard.mjs'
@@ -113,6 +114,17 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       const result = (await native.call(method, params)) || {}
       const session = { id: result.sessionId || params.sessionId, cwd: params.cwd, native: result, selected: binding?.pacId || null,
         remotes: new Map(), discoveryWarnings: [...endpointWarnings], modelQueue: Promise.resolve(), modelError: null }
+      const builtinSkills = process.env.PAC_EXPERIMENTAL_SKILLS === '1' && isAbsolute(binary)
+        ? (async () => {
+            // Do not execute a diagnostic OpenCode process if unsupported user plugins could run.
+            try {
+              await assertNoUnsupportedOpenCodePlugins({ root: params.cwd, home: homedir() })
+              return await loadOpenCodeBuiltins({ binary, cwd: params.cwd })
+            } catch {
+              process.stderr.write('PAC Bridge could not load built-in OpenCode skills; file-backed skills remain available.\n')
+              return []
+            }
+          })() : Promise.resolve([])
       sessions.set(session.id, session)
       const targets = binding ? endpoints.filter((endpoint) => endpoint.id === binding.pacId) : endpoints
       if (binding && targets.length !== 1) throw new Error('The original PAC is unavailable; refusing to switch controllers')
@@ -129,7 +141,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             if (!process.env.PAC_SOURCE_BASH) throw new Error('A source shell is required for project hooks')
             state.hooks = await createProjectHooks({ root: params.cwd, shell: process.env.PAC_SOURCE_BASH })
           }
-          if (process.env.PAC_EXPERIMENTAL_SKILLS === '1') state.skills = await createSourceSkills({ root: params.cwd, home: homedir() })
+          if (process.env.PAC_EXPERIMENTAL_SKILLS === '1') state.skills = await createSourceSkills({ root: params.cwd, home: homedir(), builtins: await builtinSkills })
           state.allowedSkillRoots = new Set()
           if (process.env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') state.instructions = await readSourceInstructions({ root: params.cwd,
             ...(process.env.PAC_TEST_INSTRUCTION_BOUNDARY === 'workspace' ? { stopAt: params.cwd } : {}) })
@@ -206,9 +218,10 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             }
             if (remoteMethod === 'pac/skills/invoke') {
               if (!state.skills || remoteParams.sessionId !== state.remote?.sessionId) throw new Error('Source skills are unavailable for this session')
-              const skills = await createSourceSkills({ root: session.cwd, home: homedir() })
+              const skills = await createSourceSkills({ root: session.cwd, home: homedir(), builtins: await builtinSkills })
               const result = await skills.invoke({ name: remoteParams.name, args: remoteParams.args })
-              state.allowedSkillRoots.add(await realpath(skills.rootFor(remoteParams.name)))
+              const skillRoot = skills.rootFor(remoteParams.name)
+              if (skillRoot) state.allowedSkillRoots.add(await realpath(skillRoot))
               if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ skillInvoked: remoteParams.name }) + '\n')
               return result
             }

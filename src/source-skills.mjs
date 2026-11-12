@@ -41,8 +41,9 @@ function parseSkill(text, directoryName) {
   return { name, description: fields.description, body: match[2] }
 }
 
-export async function createSourceSkills({ root, home, maxBytes = 256 * 1024, maxSkills = 100 }) {
+export async function createSourceSkills({ root, home, builtins = [], maxBytes = 256 * 1024, maxSkills = 100 }) {
   if (!isAbsolute(root) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isSafeInteger(maxSkills) || maxSkills < 1) throw new Error('Invalid skill configuration')
+  if (!Array.isArray(builtins) || builtins.length > maxSkills) throw new Error('Invalid built-in skills')
   const workspace = await realpath(root)
   const homeRoot = home ? await realpath(home) : null
   const skills = new Map()
@@ -101,6 +102,10 @@ export async function createSourceSkills({ root, home, maxBytes = 256 * 1024, ma
     }
     await visit(directory, 0)
   }
+  for (const skill of builtins) {
+    if (!skill || typeof skill.name !== 'string' || !namePattern.test(skill.name) || typeof skill.description !== 'string' || !skill.description.trim() || skill.description.length > 1536 || typeof skill.content !== 'string' || Buffer.byteLength(skill.content, 'utf8') > maxBytes) throw new Error('Invalid built-in skill')
+    if (!skills.has(skill.name)) skills.set(skill.name, { name: skill.name, description: skill.description, body: skill.content, folder: null, builtin: true })
+  }
   return {
     list: [...skills.values()].map(({ name, description }) => ({ name, description })),
     rootFor(name) {
@@ -113,6 +118,7 @@ export async function createSourceSkills({ root, home, maxBytes = 256 * 1024, ma
       if (typeof name !== 'string' || typeof args !== 'string' || args.length > 16384) throw new Error('Invalid skill invocation')
       const skill = skills.get(name.startsWith('/') ? name.slice(1) : name)
       if (!skill) throw new Error('Unknown source skill')
+      if (skill.builtin) return { content: `Built-in OpenCode skill: ${skill.name}\n\n${skill.body}${args ? `\n\nARGUMENTS: ${args}` : ''}` }
       let received = false
       const expanded = skill.body.replace(/(\\*)(\$ARGUMENTS)(?![A-Za-z0-9_\[])/g, (_match, slashes, token) => {
         if (slashes.length === 1) return token

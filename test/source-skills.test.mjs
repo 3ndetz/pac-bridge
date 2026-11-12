@@ -104,3 +104,25 @@ test('discovers nested skills and accepts literal examples without executing sub
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
   }
 })
+
+test('exposes built-in skill content without granting a filesystem root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  try {
+    const builtins = [{ name: 'built-in', description: 'Built-in skill', content: 'Literal $ARGUMENTS and !`example`' }]
+    const skills = await createSourceSkills({ root, builtins })
+    assert.deepEqual(skills.list, [{ name: 'built-in', description: 'Built-in skill' }])
+    assert.equal(skills.rootFor('built-in'), null)
+    assert.match((await skills.invoke({ name: 'built-in', args: 'request' })).content, /Literal \$ARGUMENTS and !`example`[\s\S]*ARGUMENTS: request/)
+    await assert.rejects(createSourceSkills({ root, builtins: [{ ...builtins[0], name: '../outside' }] }), /Invalid built-in/)
+    const folder = join(root, '.opencode', 'skills', 'built-in')
+    await mkdir(folder, { recursive: true })
+    await writeFile(join(folder, 'SKILL.md'), '---\nname: built-in\ndescription: Local override\n---\nLocal content')
+    const overridden = await createSourceSkills({ root, builtins })
+    assert.match((await overridden.invoke({ name: 'built-in' })).content, /Local content/)
+    assert.equal(overridden.rootFor('built-in'), await realpath(folder))
+  } finally {
+    const actual = await realpath(root)
+    const local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
+  }
+})
