@@ -62,6 +62,13 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
     agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--text-response', '--nested-model'] })
     const tokenFile = join(root, 'token')
     await writeFile(tokenFile, 'test-token')
+    // HAPI V1 supplies --cwd but its ACP child inherits the runner's cwd.
+    // Deny PAC in that inherited directory so this test catches discovery
+    // accidentally using it instead of the requested project.
+    const workspace = join(root, 'workspace')
+    await mkdir(workspace)
+    await mkdir(join(root, '.claude'))
+    await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify({ permissions: { deny: ['Read'] } }))
     const launcher = fileURLToPath(new URL('../adapters/pac-hapi-opencode.mjs', import.meta.url))
     const env = { ...process.env, HOME: root, USERPROFILE: root, APPDATA: join(root, 'appdata'), LOCALAPPDATA: join(root, 'localappdata'),
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
@@ -70,13 +77,13 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
       PAC_CONTROLLER_CWD: root, PAC_SESSION_DIR: join(root, 'sessions'), PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH,
       PAC_DISPLAY_NAME: '#1', PAC_MODEL_PREFIX: 'Claude' }
     delete env.PAC_MODEL
-    child = spawnContained(process.execPath, [launcher, 'acp'], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    child = spawnContained(process.execPath, [launcher, 'acp', '--cwd', workspace], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     let errors = ''
     child.stderr.on('data', chunk => { errors += chunk })
     const updates = []
     const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { onNotification(method, params) { updates.push({ method, params }) }, onRequest: async () => ({}) })
     await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} }, 60000).catch(error => { throw new Error(`${error.message}: ${errors.slice(-2000)}`) })
-    const session = await peer.call('session/new', { cwd: root, mcpServers: [] }, 90000)
+    const session = await peer.call('session/new', { cwd: workspace, mcpServers: [] }, 90000)
     const models = session.models?.availableModels || session.configOptions?.find(item => item.category === 'model')?.options || []
     assert.ok(models.some(item => String(item.modelId || item.value).includes('PAC_testpac')), `${JSON.stringify(models).slice(0, 1000)} ${errors.slice(-1000)}`)
     const option = session.configOptions?.find(item => item.category === 'model')

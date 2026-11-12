@@ -12,6 +12,7 @@ import { createSessionStore } from '../src/session-store.mjs'
 import { createOpencodeTurnJournal } from '../src/opencode-turn-journal.mjs'
 import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
+import { normalizeOpencodeWorkingDirectory, opencodeWorkingDirectory } from '../src/opencode-working-directory.mjs'
 
 // Experimental launcher: text only, unsupported tools/events fail closed.
 const binary = process.env.PAC_OPENCODE_BINARY || (process.platform === 'win32' ? 'opencode.exe' : 'opencode')
@@ -19,8 +20,8 @@ let model = process.env.PAC_MODEL
 if (process.env.PAC_EXPERIMENTAL !== '1' || (model && (model.length > 384 || !/^PAC_[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:@/-]+$/.test(model)))) {
   throw new Error('Experimental PAC launcher requires PAC_EXPERIMENTAL=1 and a valid PAC_MODEL if specified')
 }
-const cwd = process.cwd()
 const args = process.argv.slice(2)
+const cwd = opencodeWorkingDirectory(args, process.cwd())
 const acpMode = args[0] === 'acp'
 const namedProviders = process.env.PAC_NAMED_PROVIDERS_EXPERIMENT === '1'
 const startedAt = Date.now()
@@ -95,7 +96,7 @@ try {
       ...(process.env.PAC_EXPERIMENTAL_IMAGE_INPUT === '1' ? { modalities: { input: ['text', 'image'], output: ['text'] } } : {}) }
   }
   config = { ...config, command: { ...(config.command || {}), 'pac-stop': { description: 'Stop a PAC background task by ID', template: 'PAC_BRIDGE_STOP_TASK $ARGUMENTS' } }, plugin: [...(config.plugin || []), pluginUrl], provider: { ...(config.provider || {}), ...providers } }
-  child = spawnContained(binary, args[0] === 'serve' || acpMode ? args : ['--model', namedProviders ? model : `pacbridge/${model}`, ...args], {
+  child = spawnContained(binary, args[0] === 'serve' || acpMode ? normalizeOpencodeWorkingDirectory(args, cwd) : ['--model', namedProviders ? model : `pacbridge/${model}`, ...args], {
     cwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
       PAC_PROVIDER_URL: `http://127.0.0.1:${server.address().port}`, PAC_PROVIDER_TOKEN: token,
       PAC_NAMED_PROVIDER_IDS: JSON.stringify(namedProviders ? Object.keys(providers) : []) }, stdio: acpMode ? ['pipe', 'pipe', 'inherit'] : 'inherit', windowsHide: false,
