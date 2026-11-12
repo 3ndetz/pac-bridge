@@ -56,13 +56,21 @@ if (!model && !acpMode) {
   } finally { prompt.close() }
 }
 let server
+const legacyAcpStore = createSessionStore(join(sessionRoot, 'legacy-acp'))
 const router = createOpencodeSessionRouter({ store: createSessionStore(join(sessionRoot, 'opencode')), journal: createOpencodeTurnJournal(join(sessionRoot, 'pending')),
-  openSession: ({ sessionId, model: selected, cwd: workspace, resumeSessionId }) => openOpencodeAcpSession({
+  legacyStore: process.env.PAC_LEGACY_MIGRATION_EXPERIMENT === '1' ? createSessionStore(sessionRoot) : undefined,
+  openSession: async ({ sessionId, model: selected, cwd: workspace, resumeSessionId, legacyBinding, legacyMode }) => {
+  if (legacyBinding) {
+    const existing = await legacyAcpStore.read(legacyBinding.sessionId)
+    if (existing && JSON.stringify(existing) !== JSON.stringify(legacyBinding)) throw new Error('Existing migrated PAC binding does not match')
+    if (!existing) await legacyAcpStore.write(legacyBinding)
+  }
+  return openOpencodeAcpSession({
   command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId,
-  env: { ...routerEnv, PAC_SESSION_DIR: join(sessionRoot, 'acp') },
+  env: { ...routerEnv, PAC_SESSION_DIR: join(sessionRoot, legacyMode ? 'legacy-acp' : 'acp') },
   onPermission: (params) => server.requestPermission(sessionId, params),
   onDiagnostic: (category) => { if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC ACP ${category}\n`) },
-}) })
+}) } })
 server = createOpencodeProvider({ router, token, cwd, onFailure: (category) => {
   if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC provider failure: ${category}\n`)
 } })

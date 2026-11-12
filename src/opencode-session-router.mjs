@@ -1,6 +1,6 @@
 // Maps OpenCode session identities to dedicated ACP sessions. The caller owns
 // the transport and translates the updates and permission requests it receives.
-export function createOpencodeSessionRouter({ openSession, store, journal }) {
+export function createOpencodeSessionRouter({ openSession, store, journal, legacyStore }) {
   if (typeof openSession !== 'function') throw new Error('openSession is required')
   const sessions = new Map()
   let closed = false
@@ -27,16 +27,25 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
       sessions.set(sessionId, state)
       state.opening = Promise.resolve().then(async () => {
         const saved = await store?.read(sessionId)
-        if (saved && (saved.pacId !== 'opencode-acp' || !samePac(saved.model, model) || saved.workspace !== cwd)) throw new Error('Saved PAC binding does not match the selected model or workspace')
-        if (mustResume && !saved) throw new Error('PAC session binding is unavailable; refusing to start a different conversation')
+        // Older ACP-routed turns may not exist in OpenCode's native message
+        // history, so a legacy binding must be considered even for the first
+        // provider request. The store is supplied only by the opt-in migration.
+        const legacy = !saved ? await legacyStore?.read(sessionId) : null
+        if (saved && (!['opencode-acp', 'opencode-legacy-acp'].includes(saved.pacId) || !samePac(saved.model, model) || saved.workspace !== cwd)) throw new Error('Saved PAC binding does not match the selected model or workspace')
+        if (legacy && (legacy.workspace !== cwd || !samePac(`PAC_${legacy.pacId}/${legacy.model}`, model))) throw new Error('Legacy PAC binding does not match the selected model or workspace')
+        if (mustResume && !saved && !legacy) throw new Error('PAC session binding is unavailable; refusing to start a different conversation')
         if (saved) state.model = saved.model
-        const session = await openSession({ sessionId, model: state.model, cwd, ...(saved ? { resumeSessionId: saved.remoteSessionId } : {}) })
+        if (legacy) state.model = `PAC_${legacy.pacId}/${legacy.model}`
+        state.pacId = saved?.pacId || (legacy ? 'opencode-legacy-acp' : 'opencode-acp')
+        const session = await openSession({ sessionId, model: state.model, cwd,
+          ...(saved ? { resumeSessionId: saved.remoteSessionId } : legacy ? { resumeSessionId: legacy.sessionId, legacyBinding: legacy } : {}),
+          ...(state.pacId === 'opencode-legacy-acp' ? { legacyMode: true } : {}) })
         if (!session || typeof session.prompt !== 'function' || typeof session.cancel !== 'function' || typeof session.close !== 'function') throw new Error('Invalid ACP session')
         state.session = session
         if (closed) { session.close(); throw new Error('Session router is closed') }
         if (store && !saved) {
           if (typeof session.sourceSessionId !== 'string' || !session.sourceSessionId) { session.close(); throw new Error('ACP session identity cannot be persisted') }
-          try { await store.write({ version: 1, sessionId, pacId: 'opencode-acp', remoteSessionId: session.sourceSessionId, model, workspace: cwd }) }
+          try { await store.write({ version: 1, sessionId, pacId: state.pacId, remoteSessionId: session.sourceSessionId, model: state.model, workspace: cwd }) }
           catch (error) { session.close(); throw error }
         }
         return session
@@ -56,7 +65,7 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
     hasSession(sessionId) { return sessions.has(sessionId) },
     async canResume(sessionId) {
       if (await journal?.isPending(sessionId)) throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
-      return Boolean(await store?.read(sessionId))
+      return Boolean(await store?.read(sessionId) || await legacyStore?.read(sessionId))
     },
     async prompt(binding, prompt, onUpdate, { signal, mustResume = false } = {}) {
       if (!Array.isArray(prompt) || typeof onUpdate !== 'function') throw new Error('Invalid PAC prompt')
@@ -72,7 +81,7 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
         if (state.model !== binding.model) {
           if (typeof session.selectModel !== 'function') throw new Error('PAC model switching is unavailable in this session')
           await session.selectModel(binding.model)
-          if (store) await store.write({ version: 1, sessionId: binding.sessionId, pacId: 'opencode-acp', remoteSessionId: session.sourceSessionId, model: binding.model, workspace: binding.cwd })
+          if (store) await store.write({ version: 1, sessionId: binding.sessionId, pacId: state.pacId, remoteSessionId: session.sourceSessionId, model: binding.model, workspace: binding.cwd })
           state.model = binding.model
         }
         clearMarker = await journal?.begin(binding.sessionId)
@@ -97,9 +106,11 @@ export function createOpencodeSessionRouter({ openSession, store, journal }) {
       identity(sessionId, 'OpenCode session identity')
       const existing = sessions.get(sessionId)
       const saved = existing ? null : await store?.read(sessionId)
-      if (!existing && !saved) return null
+      const legacy = !existing && !saved ? await legacyStore?.read(sessionId) : null
+      if (!existing && !saved && !legacy) return null
       const binding = existing ? { sessionId, model: existing.model, cwd: existing.cwd }
-        : { sessionId, model: saved.model, cwd: saved.workspace }
+        : saved ? { sessionId, model: saved.model, cwd: saved.workspace }
+          : { sessionId, model: `PAC_${legacy.pacId}/${legacy.model}`, cwd: legacy.workspace }
       const { state, session } = await getSession(binding, true)
       if (state.busy || typeof session.compact !== 'function') throw new Error('PAC session is unavailable or busy')
       state.busy = true

@@ -9,6 +9,30 @@ function deferred() {
 }
 const binding = { sessionId: 'session-a', model: 'PAC_work/sonnet', cwd: '/workspace' }
 
+test('migrates only a matching legacy binding and persists its legacy mode', async () => {
+  const old = { version: 1, sessionId: 'session-a', pacId: 'work', remoteSessionId: 'claude-old', model: 'sonnet', workspace: '/workspace' }
+  const records = new Map()
+  const store = { read: async id => records.get(id), write: async value => records.set(value.sessionId, value) }
+  const legacyStore = { read: async id => id === old.sessionId ? old : null }
+  const opened = []
+  const openSession = async options => { opened.push(options); return { sourceSessionId: options.resumeSessionId, prompt: async () => ({ stopReason: 'end_turn' }), cancel() {}, close() {} } }
+  const router = createOpencodeSessionRouter({ store, legacyStore, openSession })
+  assert.equal(await router.canResume('session-a'), true)
+  await router.prompt(binding, [], () => {})
+  assert.equal(opened[0].resumeSessionId, old.sessionId)
+  assert.deepEqual(opened[0].legacyBinding, old)
+  assert.equal(records.get('session-a').pacId, 'opencode-legacy-acp')
+  router.close()
+  const restarted = createOpencodeSessionRouter({ store, legacyStore, openSession })
+  await restarted.prompt(binding, [], () => {}, { mustResume: true })
+  assert.equal(opened[1].legacyMode, true)
+  assert.equal(opened[1].legacyBinding, undefined)
+  restarted.close()
+  const mismatch = createOpencodeSessionRouter({ store: { read: async () => null }, legacyStore, openSession })
+  await assert.rejects(mismatch.prompt({ ...binding, model: 'PAC_other/sonnet' }, [], () => {}, { mustResume: true }), /does not match/)
+  mismatch.close()
+})
+
 test('compacts only a bound PAC session and refuses overlapping turns', async () => {
   const pending = deferred()
   let calls = 0
