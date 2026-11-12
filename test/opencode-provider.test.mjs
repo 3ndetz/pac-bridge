@@ -331,6 +331,21 @@ test('returns an actionable error when a turn fails before streaming starts', as
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
+test('explains a recovery lock without revealing internal details', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt() { throw new Error('PAC journal is locked; do not alter an active or unreviewed session') },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'continue' }] }) })
+    assert.equal(response.status, 400)
+    assert.match(await response.text(), /recovery lock is present/)
+  } finally { await new Promise(resolve => server.close(resolve)) }
+})
+
 test('never turns an interactive question into an approval', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   let server

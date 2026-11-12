@@ -292,9 +292,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         .find((term) => error?.message?.toLowerCase().includes(term))
       const known = new Map([
         ['PAC interactive questions are not supported by this OpenCode adapter', 'PAC interactive questions are not supported by this OpenCode adapter; the turn was not retried.'],
-        ['Previous PAC turn outcome is unknown; reconciliation is required', 'Previous PAC turn outcome is unknown; reconcile it before continuing this session.'],
+        ['Previous PAC turn outcome is unknown; reconciliation is required', 'Previous PAC turn outcome is unknown; reconcile it before continuing this session: https://github.com/3ndetz/pac-bridge/blob/main/docs/recovery.md'],
+        ['PAC journal is locked; do not alter an active or unreviewed session', 'PAC recovery lock is present; review the session and follow https://github.com/3ndetz/pac-bridge/blob/main/docs/recovery.md before continuing.'],
         ['PAC model or workspace changed; start a new session', 'The PAC model or workspace changed; start a new session.'],
-        ['PAC session state is uncertain; start a new session', 'PAC session state is uncertain; start a new session.'],
+        ['PAC session state is uncertain; start a new session', 'PAC session state is uncertain. Archive this chat and review https://github.com/3ndetz/pac-bridge/blob/main/docs/recovery.md before continuing; do not replay the previous action.'],
         ['Unsupported PAC event; turn cannot be represented', 'This PAC event cannot be represented in OpenCode; the turn was interrupted and its outcome may be unknown.'],
       ])
       const safeMessage = known.get(error?.message) || (hint === 'authentication'
