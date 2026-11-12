@@ -1,10 +1,10 @@
-# Windows setup from a Git checkout
+﻿# Windows setup from the repository
 
-This is the **Windows x64 preview**. A second Windows profile can have a different hub and key. Never substitute the key of another hub.
+This procedure targets an **existing configured HAPI runner**, under the Windows account that owns it. It uses the existing hub and machine identity, and installs PAC Bridge as a separate OpenCode provider. It does not install or replace HAPI. Linux and macOS installation is not yet fully verified.
 
-**Migration in progress:** the older procedure below installs a custom HAPI binary and is retained only to document existing deployments. The supported target is the provider integration with an unmodified, normally updated HAPI. For an already configured PAC profile, `windows/Install-ProviderMode.ps1` can stage the provider directly from a clean Git checkout without downloading that binary. Activation requires its `-Activate` switch and takes effect at the next runner start. It does not replace or restart HAPI, migrate old sessions, or establish that the current hub is unmodified. Do not activate or consider the migration complete until those items in the reliability checklist are verified.
+The provider has been exercised on two Windows profiles. The bootstrap below is new and needs a clean-profile end-to-end test before it can be regarded as a finished installer. Existing PAC deployments must follow their migration procedure rather than overwrite their configuration.
 
-1. Install Git for Windows, Node.js 24 with npm, and OpenCode 1.19.5. The pinned OpenCode command below installs it separately for this user:
+1. Install Git for Windows, Node.js 24 with npm, and OpenCode 1.19.5. The verified OpenCode version can be installed for the current user:
 
    ```powershell
    $prefix = Join-Path $env:LOCALAPPDATA 'PAC-Bridge\opencode-1.19.5'
@@ -13,39 +13,20 @@ This is the **Windows x64 preview**. A second Windows profile can have a differe
    & $openCode --version
    ```
 
-2. Clone the integration branch. All source and setup scripts are in this checkout:
+2. Clone this repository with `git clone https://github.com/3ndetz/pac-bridge.git` and enter the checkout. Have the existing permanent ServerMallAgents kit path available. The profile must already connect to the intended existing HAPI hub.
+3. Transfer a private directory containing `connection.json`, `pac-source-token.txt`, and `pac-relay-ca.pem` through an appropriately protected channel. The JSON must provide `relayUrl`, `pacName`, and `controllerCwd`, with optional `displayName` and `modelPrefix`. The PAC source token grants access to the controller; never commit it or send its contents through chat. Claude login stays on the controller. The existing HAPI profile supplies its own hub credentials and identity.
+4. Run under the account owning the existing runner:
 
    ```powershell
-   git clone https://github.com/3ndetz/pac-bridge.git
-   cd pac-bridge
-   ```
-
-3. Obtain the compatible ServerMallAgents kit from its administrator and extract it into a permanent directory. The current kit is available at `https://apps.servermall.ru/workflow/sma-connection-kit.zip`. This corporate kit is separate from PAC Bridge. Obtain a private directory containing `connection.json`, `hapi-token.txt`, `pac-source-token.txt`, and `pac-relay-ca.pem` for the **intended existing hub**. The hub token grants access to that hub and its sessions. Transfer these files securely, never through Git or chat. Claude's login stays on the controller.
-4. Run the repository script under the Windows account that will own the runner:
-
-   ```powershell
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Install-FromRepo.ps1 `
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Configure-ExistingProvider.ps1 `
      -KitPath C:\Tools\ServerMallAgents `
      -KeysPath C:\Private\PAC-Bridge-keys `
      -OpenCodePath $openCode
    ```
 
-   The script downloads the reviewed Windows HAPI executable as an individual release asset, verifies its SHA-256 against `windows/runtime-manifest.json`, and then invokes `windows/Install-PacRunner.ps1` from this checkout. To use an already downloaded reviewed binary, pass `-HapiBinaryPath`; its checksum is still required to match. No PAC Bridge archive is needed.
+   This stages versioned repository source and npm dependencies, then configures the existing kit for the next runner start. It does not restart the runner or active chats. A PAC profile already present stops the script for a reviewed migration. If installation is interrupted, preserve the profile and inspect the `pac-bridge` directory and `Runtime.ps1` before retrying.
+5. At a suitable time restart the existing runner using the kit's normal procedure. In the existing HAPI, create an OpenCode chat on that machine and choose a `PAC #N / …` model. Verify a real answer, compaction and recall. A test of the installed runner is available in `scripts/verify-installed-hapi.mjs`; it creates and archives its own test chat and requires `PAC_TEST_INSTALLED=1`, a permitted workspace, and a PAC model ID.
 
-5. Open the intended existing HAPI, create an OpenCode chat in an allowed test directory, select the PAC model, and verify a real answer and permitted source file operations. Verify reconnection and session continuity after a planned restart. The installer does not prove those scenarios by itself.
+To update an already configured provider, fetch and pull the repository, then run `windows/Install-ProviderMode.ps1 -KitPath <kit> -Activate -NamedProviders`. Existing sessions may require the separately reviewed `-LegacyMigration` option. Changes take effect on the next runner start. `windows/Disable-ProviderMode.ps1` disables the provider loader without replacing HAPI. Inspect the specific profile and preserve its backups when rolling back a migration.
 
-## Integrating an existing HAPI profile
-
-Do not run the fresh installer against an existing profile. Review the current kit, local `Runtime.ps1`, runtime pin, hub, credentials, workspace roots, and running sessions first. The profile must use a compatible managed kit with runtime pin support, Node 24, Git Bash, and the pinned OpenCode version. Preserve the kit's local settings and backups. Where the profile has no existing PAC integration, no local `Runtime.ps1`, and no user runtime pin, the repository provides this preview script:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Install-ExistingProfile.ps1 `
-  -KitPath C:\Tools\ServerMallAgents `
-  -KeysPath C:\Private\PAC-Bridge-keys `
-  -OpenCodePath $openCode `
-  -HapiBinaryPath C:\Private\hapi-pac.exe
-```
-
-The binary can be downloaded as [a single release asset](https://github.com/3ndetz/pac-bridge/releases/download/windows-preview-ffd08bd/hapi-pac.exe); the script verifies its checksum. The target hub URL and machine identity come from the existing profile, not from the supplied source connection file. The script preserves an existing runtime pointer backup, sets a user runtime pin, and invokes the kit's reviewed runtime installer. If an existing runtime customization or pin is present, it stops for a reviewed merge. If interrupted or unsuccessful, inspect the profile and restore service before retrying; do not delete the profile or existing sessions. This script has an isolated synthetic-profile test; individual real deployments require verification.
-
-Detailed installer behavior and a copyable agent prompt are in [windows/README.md](../windows/README.md). Current acceptance gaps are in [RELIABILITY-CHECKLIST.md](../RELIABILITY-CHECKLIST.md).
+Older `Install-FromRepo.ps1`, `Install-PacRunner.ps1`, and `Install-ExistingProfile.ps1` describe the superseded PAC-patched runtime and should not be used for this provider setup. Follow [RELIABILITY-CHECKLIST.md](../RELIABILITY-CHECKLIST.md) for remaining limitations.
