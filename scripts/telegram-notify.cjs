@@ -78,21 +78,21 @@ async function notify(hook) {
     state.stopped = Date.now();
     fs.writeFileSync(file, JSON.stringify(state));
     const message = clean(hook.last_assistant_message || hook["last-assistant-message"] || "Ответ готов.", 1800);
-    text = "Codex закончил ответ • " + project + "\n\n" + message;
+    text = "OpenCode закончил ответ • " + project + "\n\n" + message;
     identity = "done:" + (hook.turn_id || hook["turn-id"] || crypto.createHash("sha256").update(message).digest("hex"));
   } else if (event === "PermissionRequest") {
-    text = "Codex просит разрешение • " + project + "\n\n" + clean(hook.tool_input?.description || "Посмотри запрос разрешения в чате.");
+    text = "OpenCode просит разрешение • " + project + "\n\n" + clean(hook.tool_input?.description || "Посмотри запрос разрешения в чате.");
     identity = "permission:" + (hook.tool_use_id || hook.turn_id || text);
   } else if (event === "PreToolUse" && /(?:^|[._])request_user_input(?:_async)?$/.test(hook.tool_name || "")) {
     const question = clean(questionText(hook.tool_input));
-    text = "Codex ждёт твоего ответа • " + project + "\n\n" + question;
+    text = "OpenCode ждёт твоего ответа • " + project + "\n\n" + question;
     identity = "question:" + (hook.tool_use_id || question);
   } else return;
   // Detect encoding damage before sending an unreadable notification.
   if (/\?{4,}/.test(text)) {
     log("notification text has encoding damage; sending readable notice");
-    text = (event === "Stop" ? "Codex закончил ответ" : "Codex ждёт твоего ответа") + " • " + project +
-      "\n\nТекст уведомления повреждён при передаче. Открой чат Codex, чтобы прочитать сообщение.";
+    text = (event === "Stop" ? "OpenCode закончил ответ" : "OpenCode ждёт твоего ответа") + " • " + project +
+      "\n\nТекст уведомления повреждён при передаче. Открой чат OpenCode, чтобы прочитать сообщение.";
   }
   const key = crypto.createHash("sha256").update(file + ":" + identity).digest("hex");
   const lock = path.join(STATE, key + ".sent");
