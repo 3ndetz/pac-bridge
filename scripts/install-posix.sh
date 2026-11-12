@@ -17,7 +17,6 @@ cd "$repo"
 revision=$(git rev-parse --verify HEAD)
 case "$revision" in *[!0-9a-f]*|'') printf '%s\n' 'Invalid checkout revision.' >&2; exit 1;; esac
 [ "${#revision}" -eq 40 ] || { printf '%s\n' 'Invalid checkout revision.' >&2; exit 1; }
-git diff --quiet HEAD -- adapters src source-package scripts/pac-posix-launcher.mjs || { printf '%s\n' 'Commit source changes before installation.' >&2; exit 1; }
 umask 077
 base="$HOME/.local/share/pac-bridge"
 if [ -e "$base" ] && [ ! -f "$base/.pac-bridge-install" ]; then printf '%s\n' 'Existing installation directory is not managed by this installer.' >&2; exit 1; fi
@@ -36,7 +35,7 @@ done
 target="$base/versions/$revision"
 if [ ! -d "$target" ]; then
   stage=$(mktemp -d "$base/versions/.stage.XXXXXXXX")
-  git archive HEAD adapters src source-package | tar -xf - -C "$stage"
+  git archive HEAD adapters src source-package scripts/pac-posix-launcher.mjs | tar -xf - -C "$stage"
   cp "$stage/source-package/package.json" "$stage/package.json"
   cp "$stage/source-package/package-lock.json" "$stage/package-lock.json"
   (cd "$stage" && npm ci --omit=dev --no-audit --no-fund)
@@ -44,8 +43,8 @@ if [ ! -d "$target" ]; then
   mv "$stage" "$target"
   stage=''
 fi
-[ -f "$target/.complete" ] && [ -f "$target/adapters/pac-hapi-opencode.mjs" ] || { printf '%s\n' 'Existing staged version is incomplete.' >&2; exit 1; }
-cp "$repo/scripts/pac-posix-launcher.mjs" "$base/bin/pac-posix-launcher.mjs.tmp"
+[ -f "$target/.complete" ] && [ -f "$target/adapters/pac-hapi-opencode.mjs" ] && [ -f "$target/scripts/pac-posix-launcher.mjs" ] || { printf '%s\n' 'Existing staged version is incomplete.' >&2; exit 1; }
+cp "$target/scripts/pac-posix-launcher.mjs" "$base/bin/pac-posix-launcher.mjs.tmp"
 mv "$base/bin/pac-posix-launcher.mjs.tmp" "$base/bin/pac-posix-launcher.mjs"
 cat > "$base/bin/opencode.tmp" <<'EOF'
 #!/bin/sh
