@@ -20,6 +20,7 @@ import { createSourceSkills } from '../src/source-skills.mjs'
 import { readSourceInstructions } from '../src/source-instructions.mjs'
 import { matchesProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
 import { assertNoUnsupportedOpenCodePlugins } from '../src/opencode-plugin-guard.mjs'
+import { notifyTurnComplete } from '../src/completion-notifier.mjs'
 
 const { PAC_OPENCODE_BINARY: binary, PAC_RELAY_URL: url, PAC_NAME: name, PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd } = process.env
 if (process.env.PAC_EXPERIMENTAL !== '1' || !binary) throw new Error('Incomplete experimental OpenCode router configuration')
@@ -339,6 +340,10 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             if (session.selected === endpoint.id) {
               const event = remoteMethod === 'session/update' ? state.translator.translate(remoteParams)
                 : { method: remoteMethod, params: { ...remoteParams, sessionId: session.id } }
+              if (state.completionCapture && event.method === 'session/update' && event.params.sessionId === session.id &&
+                  event.params.update?.sessionUpdate === 'agent_message_chunk' && event.params.update.content?.type === 'text') {
+                state.completionCapture.text = (state.completionCapture.text + event.params.update.content.text).slice(-1800)
+              }
               if (['session/update', 'opencode/session/child_update'].includes(event.method) && event.params.update?.title === 'mcp__pac__AskUserQuestion') {
                 event.params.update = { ...event.params.update, title: 'AskUserQuestion' }
               }
@@ -476,9 +481,14 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       // turn so that controller paths are not mistaken for project paths.
       params = { ...params, prompt: [{ type: 'text', text: `<system-reminder>PAC Bridge source workspace: ${JSON.stringify(session.cwd)}. This is the user's working directory; the remote controller's process directory is internal. Execute project commands and resolve project paths in the source workspace.</system-reminder>` }, ...params.prompt] }
     }
+    const completionCapture = method === 'session/prompt' && process.env.PAC_TURN_NOTIFY_SCRIPT
+      ? { id: randomUUID(), text: '' } : null
+    if (completionCapture) selected.completionCapture = completionCapture
     try {
       const result = await selected.remote.call(method, params, method === 'session/prompt' ? 0 : undefined)
       if (method === 'session/prompt') await selected.remote.drainNotifications()
+      if (completionCapture && result?.stopReason === 'end_turn') notifyTurnComplete({ script: process.env.PAC_TURN_NOTIFY_SCRIPT,
+        sessionId: session.id, turnId: completionCapture.id, cwd: session.cwd, message: completionCapture.text })
       return result
     } catch (error) {
       if (method === 'session/prompt' && error.message === 'Authentication required') {
@@ -486,6 +496,8 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           content: { type: 'text', text: '\n\nPAC Bridge: Claude authentication is required on the selected PAC controller. Sign in there and retry your request.' } } })
       }
       throw error
+    } finally {
+      if (completionCapture && selected.completionCapture === completionCapture) selected.completionCapture = null
     }
   },
   onNotification: (method, params = {}) => {
