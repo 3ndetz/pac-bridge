@@ -72,7 +72,18 @@ if ($current.namedProviders -eq $true) { $env:PAC_NAMED_PROVIDERS_EXPERIMENT='1'
 if ($current.legacyMigration -eq $true) { $env:PAC_LEGACY_MIGRATION_EXPERIMENT='1' } else { Remove-Item Env:PAC_LEGACY_MIGRATION_EXPERIMENT -ErrorAction SilentlyContinue }
 $env:PATH=(Split-Path $wrapper -Parent)+';'+$env:PATH
 $notify=Join-Path $pacHome 'notify\tg-notify.cjs'
+if (!(Test-Path -LiteralPath $notify -PathType Leaf)) { $notify=Join-Path $pacHome 'notify\telegram-notify.cjs' }
 if (Test-Path -LiteralPath $notify -PathType Leaf) { $env:PAC_TURN_NOTIFY_SCRIPT=$notify }
+else {
+  $codexModulePath=Join-Path $pacHome 'notify\codex-telegram-module.txt'
+  if (Test-Path -LiteralPath $codexModulePath -PathType Leaf) {
+    $codexModule=[IO.File]::ReadAllText($codexModulePath).Trim()
+    if ([IO.Path]::IsPathRooted($codexModule) -and (Test-Path -LiteralPath $codexModule -PathType Leaf)) {
+      $env:PAC_CODEX_TELEGRAM_MODULE=$codexModule
+      $env:PAC_TURN_NOTIFY_SCRIPT=Join-Path $version 'adapters\codex-telegram-notify.cjs'
+    } else { Write-Warning 'Local Codex Telegram sender is unavailable; PAC notifications are disabled.' }
+  }
+}
 '@
   $marker='# PAC Bridge provider loader v1'
   $runtimeText=[IO.File]::ReadAllText($runtime)

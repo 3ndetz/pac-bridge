@@ -12,3 +12,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Enable-Telegra
 The script protects the local notification directory, copies the sender and credentials there, and configures the existing PAC OpenCode wrapper. It refuses to overwrite an existing notification setup. The change applies to new PAC chats; existing processes keep their previous environment. Delivery results are recorded in the private profile's `notify/tg-notify.log` without tokens.
 
 On other platforms, `scripts/telegram-notify.cjs` reads the private `tg-notify.env` in `PAC_TELEGRAM_DIR`, or in `~/.hapi-servermall/pac-bridge/notify` by default. Configure `PAC_TURN_NOTIFY_SCRIPT` to the absolute path of the sender in the source runner's environment before starting it. This path is experimental until that platform's full HAPI deployment is verified.
+
+For an existing provider-mode installation on Windows, a compatible local Codex Telegram module exporting `notify(event)` can be reused without copying its credentials:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Use-CodexTelegramNotify.ps1 -SenderModulePath C:\Private\codex-notify\tg-notify.js
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Install-ProviderMode.ps1 -KitPath C:\Tools\ServerMallAgents -Activate -NamedProviders
+```
+
+The exact module path depends on the existing Codex setup. The loader preserves a separately configured PAC sender in preference to the Codex adapter. These settings apply after the existing runner restarts; they do not change running chats. Delivery must be verified for the actual profile.
