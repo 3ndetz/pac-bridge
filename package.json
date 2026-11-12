@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "description": "Brains here, hands there: see README.md",
+  "scripts": {
+    "test": "node --test --test-concurrency=2 \"test/*.test.mjs\""
+  },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.88.0",
     "@agentclientprotocol/sdk": "1.7.0",
