@@ -5,7 +5,6 @@ import { openPacSession } from './pac-session.mjs'
 import { createProjectHooks } from './project-hooks.mjs'
 import { createSourceSkills } from './source-skills.mjs'
 import { readSourceInstructions } from './source-instructions.mjs'
-import { assertNoUnsupportedOpenCodePlugins } from './opencode-plugin-guard.mjs'
 
 export async function discoverPacsDirect({ cwd, env, timeoutMs = 18000 }) {
   if (typeof cwd !== 'string' || !cwd || !env || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) throw new Error('Invalid PAC discovery configuration')
@@ -21,9 +20,6 @@ export async function discoverPacsDirect({ cwd, env, timeoutMs = 18000 }) {
   }
   let skills, instructions
   try {
-    // Do not advertise a PAC model for a workspace whose OpenCode policy
-    // would stop the first turn. Native OpenCode models remain available.
-    await assertNoUnsupportedOpenCodePlugins({ root: cwd, home: homedir(), env })
     if (env.PAC_EXPERIMENTAL_HOOKS === '1') {
       if (!env.PAC_SOURCE_BASH) throw new Error('A source shell is required for project hooks')
       await createProjectHooks({ root: cwd, shell: env.PAC_SOURCE_BASH })
@@ -31,8 +27,7 @@ export async function discoverPacsDirect({ cwd, env, timeoutMs = 18000 }) {
     if (env.PAC_EXPERIMENTAL_SKILLS === '1') skills = await createSourceSkills({ root: cwd, home: homedir() })
     if (env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') instructions = await readSourceInstructions({ root: cwd })
   } catch (error) {
-    const code = error.message === 'Configured OpenCode plugins and hooks are not yet supported by PAC Bridge' || /^OpenCode (?:permission|instructions|mcp|skills|agent permission) configuration is not yet supported by PAC Bridge$/.test(error.message) ? 'opencode_policy_unsupported'
-      : ['Unsupported project rule paths', 'Rule aliases are not supported', 'Rule glob expansion exceeds the supported limit'].includes(error.message) ? 'rule_frontmatter_unsupported'
+    const code = ['Unsupported project rule paths', 'Rule aliases are not supported', 'Rule glob expansion exceeds the supported limit'].includes(error.message) ? 'rule_frontmatter_unsupported'
       : error.message === 'External instruction imports require approval and are not supported' ? 'external_import_unsupported' : 'source_setup_failed'
     return { models: [], warnings: records.map(({ name }) => ({ name, code })) }
   }
