@@ -44,6 +44,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [ ] Test HAPI and OpenCode version updates and rollback with existing sessions and machine identity preserved. Keep the existing deployment until this migration is verified.
 - [ ] Provide versioned, reproducible installation from the repository using scripts and existing runtimes. Avoid a custom standalone executable or PAC Bridge archive; verify dependencies and explain any unavoidable platform runtime.
 - [x] Stage and repeat the POSIX source installer on Linux with synthetic connection files and a native executable fixture. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
+- [x] Exercise installed Linux launcher with real OpenCode, a synthetic TLS PAC response and native-model fallback when its PAC token is absent. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
 - [ ] Verify the POSIX installer with an authenticated PAC and existing HAPI runner on Linux and macOS, including upgrade and restart; verify macOS execution separately.
 - [ ] Ensure background startup and subprocesses run without visible console windows. Verify restart and operation under the existing user profile; do not require a new hub or service account.
 - [ ] Integrate with each machine's existing hub and runner without creating another hub, overwriting an unrelated configuration, or copying machine identity; verify the target profile and PAC model discovery.
