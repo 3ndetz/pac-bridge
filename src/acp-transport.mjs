@@ -19,10 +19,15 @@ function connect(baseUrl, role, name, token, channel) {
   } })
 }
 
-export async function connectSource({ url, name, token }) {
+export async function connectSource({ url, name, token, signal }) {
   const socket = connect(url, 'source', name, token)
-  await once(socket, 'open')
-  return createWebSocketStream(socket)
+  const abort = () => socket.terminate()
+  if (signal?.aborted) { socket.on('error', () => {}); socket.terminate(); throw new Error('PAC connection cancelled') }
+  signal?.addEventListener('abort', abort, { once: true })
+  try {
+    await once(socket, 'open')
+    return createWebSocketStream(socket)
+  } finally { signal?.removeEventListener('abort', abort) }
 }
 
 export async function startAgent({ url, name, token, command, args = [], cwd, env, maxSessions = 8, onError = () => {}, onDisconnect = () => {} }) {

@@ -6,8 +6,8 @@ import { createProjectHooks } from './project-hooks.mjs'
 import { createSourceSkills } from './source-skills.mjs'
 import { readSourceInstructions } from './source-instructions.mjs'
 
-export async function discoverPacsDirect({ cwd, env }) {
-  if (typeof cwd !== 'string' || !cwd || !env) throw new Error('Invalid PAC discovery configuration')
+export async function discoverPacsDirect({ cwd, env, timeoutMs = 18000 }) {
+  if (typeof cwd !== 'string' || !cwd || !env || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) throw new Error('Invalid PAC discovery configuration')
   const records = env.PAC_ENDPOINTS_FILE ? JSON.parse(await readFile(env.PAC_ENDPOINTS_FILE, 'utf8')) : [{
     id: env.PAC_NAME, name: env.PAC_NAME, displayName: env.PAC_DISPLAY_NAME, modelPrefix: env.PAC_MODEL_PREFIX, url: env.PAC_RELAY_URL, tokenFile: env.PAC_SOURCE_TOKEN_FILE, cwd: env.PAC_CONTROLLER_CWD,
   }]
@@ -32,10 +32,15 @@ export async function discoverPacsDirect({ cwd, env }) {
     return { models: [], warnings: records.map(({ name }) => ({ name, code })) }
   }
   const results = await Promise.all(records.map(async (entry) => {
-    let remote
+    let remote, stream
+    const cancellation = new AbortController()
+    const timer = setTimeout(() => cancellation.abort(), timeoutMs)
+    const closeStream = () => stream?.destroy()
+    cancellation.signal.addEventListener('abort', closeStream, { once: true })
     try {
-      const token = (await readFile(entry.tokenFile, 'utf8')).trim()
-      const stream = await connectSource({ ...entry, token })
+      const token = (await readFile(entry.tokenFile, { encoding: 'utf8', signal: cancellation.signal })).trim()
+      stream = await connectSource({ ...entry, token, signal: cancellation.signal })
+      if (cancellation.signal.aborted) throw new Error('PAC discovery timed out')
       remote = await openPacSession(stream, { cwd: entry.cwd, meta: { pac: { workspaceCwd: cwd, skills: skills?.list || [], instructions: (instructions || []).filter((entry) => !entry.paths) } },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {} },
         onRequest: async () => { throw new Error('Discovery cannot approve actions') }, onNotification: () => {} })
@@ -43,7 +48,7 @@ export async function discoverPacsDirect({ cwd, env }) {
         .map((item) => ({ id: `PAC_${entry.name}/${item.id}`, name: `PAC ${entry.displayName || entry.name} / ${entry.modelPrefix ? entry.modelPrefix + ' ' : ''}${typeof item.name === 'string' ? item.name.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200) : item.id}` }))
       return { models }
     } catch { return { models: [], warning: { name: entry.name, code: 'unavailable' } } }
-    finally { remote?.close() }
+    finally { clearTimeout(timer); cancellation.signal.removeEventListener('abort', closeStream); remote?.close(); stream?.destroy() }
   }))
   return { models: results.flatMap((result) => result.models), warnings: results.flatMap((result) => result.warning ? [result.warning] : []) }
 }
