@@ -5,6 +5,7 @@ import { openPacSession } from './pac-session.mjs'
 import { createProjectHooks } from './project-hooks.mjs'
 import { createSourceSkills } from './source-skills.mjs'
 import { readSourceInstructions } from './source-instructions.mjs'
+import { pacModelLabel } from './pac-model-label.mjs'
 
 export async function discoverPacsDirect({ cwd, env, timeoutMs = 18000 }) {
   if (typeof cwd !== 'string' || !cwd || !env || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) throw new Error('Invalid PAC discovery configuration')
@@ -45,7 +46,7 @@ export async function discoverPacsDirect({ cwd, env, timeoutMs = 18000 }) {
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {} },
         onRequest: async () => { throw new Error('Discovery cannot approve actions') }, onNotification: () => {} })
       const models = remote.models.models.filter((item) => typeof item.id === 'string' && item.id.length <= 256 && /^[A-Za-z0-9_.:@/-]+$/.test(item.id))
-        .map((item) => ({ id: `PAC_${entry.name}/${item.id}`, name: `PAC ${entry.displayName || entry.name} / ${entry.modelPrefix ? entry.modelPrefix + ' ' : ''}${typeof item.name === 'string' ? item.name.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200) : item.id}` }))
+        .map((item) => ({ id: `PAC_${entry.name}/${item.id}`, name: pacModelLabel(entry, item) }))
       return { models }
     } catch { return { models: [], warning: { name: entry.name, code: 'unavailable' } } }
     finally { clearTimeout(timer); cancellation.signal.removeEventListener('abort', closeStream); remote?.close(); stream?.destroy() }

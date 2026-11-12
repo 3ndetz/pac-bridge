@@ -15,6 +15,8 @@ The provider has been exercised on two Windows profiles. The bootstrap below is 
 
 2. Clone this repository with `git clone https://github.com/3ndetz/pac-bridge.git` and enter the checkout. Have the existing permanent ServerMallAgents kit path available. The profile must already connect to the intended existing HAPI hub.
 3. Transfer a private directory containing `connection.json`, `pac-source-token.txt`, and `pac-relay-ca.pem` through an appropriately protected channel. The JSON must provide `relayUrl`, `pacName`, and `controllerCwd`, with optional `displayName` and `modelPrefix`. The PAC source token grants access to the controller; never commit it or send its contents through chat. Claude login stays on the controller. The existing HAPI profile supplies its own hub credentials and identity.
+
+   The legacy `Claude` model prefix is applied to recognizable Claude model names only. Models from another family, such as Codex, keep their own name. This changes display labels, not model identifiers or routing; ambiguous names are left without the Claude prefix.
 4. Run under the account owning the existing runner:
 
    ```powershell

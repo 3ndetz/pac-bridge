@@ -28,7 +28,7 @@ test('HAPI model probe keeps native models and checks the requested workspace', 
     const launcher = fileURLToPath(new URL('../adapters/pac-hapi-opencode.mjs', import.meta.url))
     const env = { ...process.env, OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider: { native_test: { npm: '@ai-sdk/openai-compatible', name: 'Native test', options: { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'test' }, models: { 'native-model': { name: 'Native model' } } } } }),
-      PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_NAMED_PROVIDERS_EXPERIMENT: '1', PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile,
+      PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_NAMED_PROVIDERS_EXPERIMENT: '1', PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_DISPLAY_NAME: '#1', PAC_MODEL_PREFIX: 'Claude', PAC_SOURCE_TOKEN_FILE: tokenFile,
       PAC_CONTROLLER_CWD: root, PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH }
     for (const [cwd, expectPac, offline] of [[allowed, true, false], [rejected, false, false], [allowed, false, true]]) {
       const child = spawnContained(process.execPath, [launcher, 'acp'], { cwd: root, env: offline ? { ...env, PAC_RELAY_URL: 'ws://127.0.0.1:1' } : env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
@@ -67,7 +67,8 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
       XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'), XDG_STATE_HOME: join(root, 'state'),
       OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_NAMED_PROVIDERS_EXPERIMENT: '1', PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile,
-      PAC_CONTROLLER_CWD: root, PAC_SESSION_DIR: join(root, 'sessions'), PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH }
+      PAC_CONTROLLER_CWD: root, PAC_SESSION_DIR: join(root, 'sessions'), PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH,
+      PAC_DISPLAY_NAME: '#1', PAC_MODEL_PREFIX: 'Claude' }
     delete env.PAC_MODEL
     child = spawnContained(process.execPath, [launcher, 'acp'], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     let errors = ''
@@ -88,6 +89,7 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
     assert.match(JSON.stringify(updates.filter(item => item.params?.update?.sessionUpdate === 'agent_message_chunk')), /fake PAC sonnet response/)
     const nested = option.options.find(item => item.value === 'PAC_testpac/openai/gpt-5-codex')
     assert.ok(nested, 'A PAC model with a provider-qualified ID must be available')
+    assert.match(nested.name, /^PAC #1\s*\/\s*Codex$/)
     await peer.call('session/set_config_option', { sessionId: session.sessionId, configId: option.id, value: nested.value }, 30000)
     const codex = await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Hello Codex' }] }, 90000)
     assert.equal(codex.stopReason, 'end_turn')

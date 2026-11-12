@@ -21,6 +21,7 @@ import { loadOpenCodeBuiltins } from '../src/opencode-builtins.mjs'
 import { readSourceInstructions } from '../src/source-instructions.mjs'
 import { matchesProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
 import { assertNoUnsupportedOpenCodePlugins } from '../src/opencode-plugin-guard.mjs'
+import { pacModelLabel } from '../src/pac-model-label.mjs'
 import { notifyTurnComplete } from '../src/completion-notifier.mjs'
 
 const { PAC_OPENCODE_BINARY: binary, PAC_RELAY_URL: url, PAC_NAME: name, PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd } = process.env
@@ -80,7 +81,7 @@ function combined(response, session, current) {
   if (session.discoveryWarnings.length) {
     result._meta = { ...(result._meta || {}), pacDiscoveryWarnings: session.discoveryWarnings }
   }
-  const choices = [...session.remotes.values()].filter((entry) => entry.connected).flatMap((entry) => entry.remote.models.models.map((model) => ({ value: `PAC_${entry.endpoint.name}/${model.id}`, name: `PAC ${entry.endpoint.displayName || entry.endpoint.name} / ${entry.endpoint.modelPrefix ? entry.endpoint.modelPrefix + ' ' : ''}${model.name}` })))
+  const choices = [...session.remotes.values()].filter((entry) => entry.connected).flatMap((entry) => entry.remote.models.models.map((model) => ({ value: `PAC_${entry.endpoint.name}/${model.id}`, name: pacModelLabel(entry.endpoint, model) })))
   const option = result.configOptions?.find((entry) => entry.category === 'model' || entry.id === 'model')
   if (option) {
     option.options = [...(option.options || []), ...choices.filter((choice) => !(option.options || []).some((entry) => entry.value === choice.value))]
