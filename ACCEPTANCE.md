@@ -1,5 +1,11 @@
 # Acceptance criteria: cross-platform transparent agent bridge
 
+## Live checks on an existing second Windows profile (12 November 2026)
+
+An existing Windows HAPI profile retained its hub and runner identity while receiving the PAC integration. Through its actual runner, real Claude selected a PAC model, wrote a source file, completed manual compaction and recalled a marker. The same real-Claude session path invoked an OpenCode project skill and read its bundled resource, executed a post-write hook, enforced a pre-read denial without exposing the file contents, and executed a post-read-failure hook. Reinstalling the managed kit retained the pinned PAC runtime; a subsequent real-Claude compaction and recall check passed. These are API and runner checks; the create-chat UI, Windows reboot, all skill metadata and native OpenCode plugin hooks are not covered.
+
+An optional source-side completion sender was exercised on that profile after real PAC responses. Telegram accepted the test notifications and the sender verified the returned text. Credentials remained in a protected local profile and were not published. This callback covers completed PAC turns, not every OpenCode or Codex hook event.
+
 ## Latest live verification (11 November 2026)
 
 An isolated HAPI runner using the PAC compaction extension sent `/compact` to the remote Claude session, received a confirmed compaction result and recalled a marker recorded before compaction. An independent direct ACP test also observed a completed compaction and recalled its marker. The corrected HAPI runtime and PAC router were then installed on the existing `1C-Prog` runner; a disposable session created through that runner selected the PAC model, completed `/compact` and recalled its marker. Existing agent processes need a restart to pick up the new runtime. Automatic compaction near the context limit and preservation of every instruction and tool after compaction remain unverified.
