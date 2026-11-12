@@ -20,6 +20,8 @@ if (process.env.PAC_EXPERIMENTAL !== '1' || (model && !/^PAC_[A-Za-z0-9_.-]+\/[A
   throw new Error('Experimental PAC launcher requires PAC_EXPERIMENTAL=1 and a valid PAC_MODEL if specified')
 }
 const cwd = process.cwd()
+const args = process.argv.slice(2)
+const acpMode = args[0] === 'acp'
 const startedAt = Date.now()
 const sessionRoot = resolve(process.env.PAC_SESSION_DIR || join(homedir(), '.pac-bridge', 'sessions'))
 const token = randomBytes(32).toString('hex')
@@ -42,7 +44,7 @@ if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC discovery tim
 for (const warning of catalog.warnings) process.stderr.write(`PAC ${warning.name}: ${warning.code}\n`)
 if (!catalog.models.length) throw new Error('No authorized PAC models are available')
 if (model && !catalog.models.some((entry) => entry.id === model)) throw new Error('The selected PAC model is unavailable')
-if (!model) {
+if (!model && !acpMode) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Select a PAC model with PAC_MODEL in non-interactive mode')
   const prompt = createInterface({ input: process.stdin, output: process.stdout })
   try {
@@ -75,8 +77,7 @@ try {
     models: Object.fromEntries(catalog.models.map((entry) => [entry.id, { name: entry.name,
       ...(process.env.PAC_EXPERIMENTAL_IMAGE_INPUT === '1' ? { modalities: { input: ['text', 'image'], output: ['text'] } } : {}) }])),
   } } }
-  const args = process.argv.slice(2)
-  child = spawnContained(binary, args[0] === 'serve' ? args : ['--model', `pacbridge/${model}`, ...args], {
+  child = spawnContained(binary, args[0] === 'serve' || acpMode ? args : ['--model', `pacbridge/${model}`, ...args], {
     cwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
       PAC_PROVIDER_URL: `http://127.0.0.1:${server.address().port}`, PAC_PROVIDER_TOKEN: token }, stdio: 'inherit', windowsHide: false,
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
