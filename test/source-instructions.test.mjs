@@ -14,6 +14,12 @@ test('reads instructions and workspace imports, preserving boundaries and code e
     await writeFile(join(workspace, 'CLAUDE.md'), 'Project instruction')
     const entries = await readSourceInstructions({ root: workspace, stopAt: root })
     assert.deepEqual(entries.map((entry) => entry.content), ['Parent instruction', 'Project instruction'])
+    await writeFile(join(root, 'CLAUDE.md'), '@AGENTS.md')
+    assert.deepEqual((await readSourceInstructions({ root: workspace, stopAt: root })).map((entry) => entry.content),
+      ['Parent instruction', '@AGENTS.md', 'Project instruction'])
+    await writeFile(join(root, 'CLAUDE.md'), '@other.md')
+    await assert.rejects(readSourceInstructions({ root: workspace, stopAt: root }), /External instruction imports/)
+    await unlink(join(root, 'CLAUDE.md'))
     await mkdir(join(workspace, 'docs'))
     await writeFile(join(workspace, 'docs', 'policy.md'), 'Policy @extra.md')
     await writeFile(join(workspace, 'docs', 'extra.md'), 'Extra')

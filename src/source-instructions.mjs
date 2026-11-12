@@ -98,6 +98,11 @@ export async function readSourceInstructions({ root, stopAt, nestedTarget, neste
       for (const imported of imports) {
         if (imported.startsWith('~')) throw new Error('External instruction imports require approval and are not supported')
         const target = resolve(dirname(actual), imported)
+        // An ancestor CLAUDE.md may simply reference its sibling AGENTS.md.
+        // That exact file was already loaded earlier in the ancestor walk, so
+        // no external file read or duplicate instruction is necessary.
+        if (depth === 0 && scope !== workspace && imported === 'AGENTS.md' && dirname(actual) === scope &&
+            entries.some((entry) => resolve(entry.path) === target)) continue
         // Workspace imports are supported; access outside it requires the
         // runtime's approval flow, which is not implemented by this adapter.
         const inWorkspace = relative(workspace, target)
