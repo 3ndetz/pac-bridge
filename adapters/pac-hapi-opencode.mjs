@@ -18,7 +18,8 @@ if (process.argv[2] === 'acp') {
     }
   }
   for (const name of ['PAC_EXPERIMENTAL_HOOKS', 'PAC_EXPERIMENTAL_SKILLS', 'PAC_EXPERIMENTAL_INSTRUCTIONS']) process.env[name] ??= '1'
-  await import('./pac-opencode-router.mjs')
+  if (process.env.PAC_HAPI_PROVIDER_EXPERIMENT === '1') await import('./opencode-pac.mjs')
+  else await import('./pac-opencode-router.mjs')
 } else {
   const child = spawnContained(binary, process.argv.slice(2), { stdio: 'inherit', windowsHide: false,
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
