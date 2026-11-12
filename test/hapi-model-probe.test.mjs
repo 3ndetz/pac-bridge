@@ -60,3 +60,35 @@ test('keeps native models when the PAC configuration cannot be read', async () =
     assert.deepEqual(result._meta.pacDiscoveryWarnings, [{ name: 'configuration', code: 'unavailable' }])
   } finally { client.close(); server.close() }
 })
+
+test('retries a fast unavailable PAC once without losing native models', async () => {
+  const input = new PassThrough(), output = new PassThrough()
+  let calls = 0
+  const server = startHapiModelProbe({ input, output, binary: process.execPath, env: { PAC_NAMED_PROVIDERS_EXPERIMENT: '1' },
+    native: async () => ({ sessionId: 'native', models: { availableModels: [{ modelId: 'native/model' }] } }),
+    discover: async () => ++calls === 1 ? { models: [], warnings: [{ name: 'testpac', code: 'unavailable' }] }
+      : { models: [{ id: 'PAC_testpac/sonnet', name: 'PAC' }], warnings: [] } })
+  const client = createAcpPeer(Duplex.from({ readable: output, writable: input }))
+  try {
+    await client.call('initialize', { protocolVersion: 1, clientInfo: { name: 'hapi-opencode-models' } })
+    const result = await client.call('session/new', { cwd: tmpdir(), mcpServers: [] })
+    assert.equal(calls, 2)
+    assert.deepEqual(result.models.availableModels.map(item => item.modelId), ['native/model', 'PAC_testpac/sonnet'])
+    assert.equal(result._meta?.pacDiscoveryWarnings, undefined)
+  } finally { client.close(); server.close() }
+})
+
+test('does not retry rejected source policy', async () => {
+  const input = new PassThrough(), output = new PassThrough()
+  let calls = 0
+  const server = startHapiModelProbe({ input, output, binary: process.execPath, env: {},
+    native: async () => ({ sessionId: 'native', models: { availableModels: [] } }),
+    discover: async () => { calls++; return { models: [], warnings: [{ name: 'testpac', code: 'source_setup_failed' }] } } })
+  const client = createAcpPeer(Duplex.from({ readable: output, writable: input }))
+  try {
+    await client.call('initialize', { protocolVersion: 1, clientInfo: { name: 'hapi-opencode-models' } })
+    const result = await client.call('session/new', { cwd: tmpdir(), mcpServers: [] })
+    assert.equal(calls, 1)
+    assert.deepEqual(result._meta.pacDiscoveryWarnings, [{ name: 'testpac', code: 'source_setup_failed' }])
+  } finally { client.close(); server.close() }
+})

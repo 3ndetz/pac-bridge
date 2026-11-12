@@ -38,6 +38,25 @@ async function nativeModels({ binary, cwd, init, params, env }) {
   } finally { native.close(); try { stopContained(child) } catch {} }
 }
 
+async function discoverWithBriefRetry(discover, cwd, env) {
+  const start = Date.now()
+  let first
+  try { first = await discover({ cwd, env }) } catch { return { models: [], warnings: [{ name: 'configuration', code: 'unavailable' }] } }
+  // A runner can reconnect just before its controller is ready. Retry only
+  // fast transport failures; never retry policy/configuration failures or add
+  // another long wait to an already slow or offline discovery.
+  const unavailable = (first.warnings || []).filter(item => item.code === 'unavailable' && item.name !== 'configuration')
+  if (!unavailable.length || Date.now() - start >= 2000) return first
+  await new Promise(resolve => setTimeout(resolve, 400))
+  let second
+  try { second = await discover({ cwd, env, timeoutMs: 5000 }) } catch { return first }
+  const models = [...first.models]
+  for (const model of second.models || []) if (!models.some(item => item.id === model.id)) models.push(model)
+  const warnings = (first.warnings || []).filter(item => item.code !== 'unavailable' || item.name === 'configuration')
+  for (const warning of second.warnings || []) if (!warnings.some(item => item.name === warning.name && item.code === warning.code)) warnings.push(warning)
+  return { models, warnings }
+}
+
 export function startHapiModelProbe({ input, output, binary, env = process.env, native = nativeModels, discover = discoverPacsDirect }) {
   if (!isAbsolute(binary)) throw new Error('Invalid native OpenCode path')
   let initialized, used = false
@@ -52,7 +71,7 @@ export function startHapiModelProbe({ input, output, binary, env = process.env, 
       used = true
       const [response, catalog] = await Promise.all([
         native({ binary, cwd: params.cwd, init: initialized, params, env }),
-        Promise.resolve().then(() => discover({ cwd: params.cwd, env })).catch(() => ({ models: [], warnings: [{ name: 'configuration', code: 'unavailable' }] })),
+        discoverWithBriefRetry(discover, params.cwd, env),
       ])
       if (typeof response?.sessionId !== 'string' || !response.sessionId) throw new Error('Native OpenCode model probe did not return a session ID')
       for (const warning of catalog.warnings || []) process.stderr.write(`PAC ${warning.name}: ${warning.code}\n`)
