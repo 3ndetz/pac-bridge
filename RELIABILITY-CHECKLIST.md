@@ -29,7 +29,11 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 
 ## Installation and operation
 
-- [ ] Provide versioned, reproducible Windows setup instructions and a tested archive in this repository's release assets. Pin and verify executable artifacts and dependencies.
+- [ ] Replace the modified HAPI runner, hub and UI with integration using unmodified, normally updateable HAPI. Keep integration behavior in PAC Bridge or supported extension interfaces; do not patch HAPI source or distribute a custom HAPI binary.
+- [ ] Verify model discovery, streamed answers, tools, permissions, questions, context compaction, session recovery, background tasks and Telegram notifications end to end with the unmodified HAPI. Record unsupported behavior instead of claiming parity.
+- [ ] Test HAPI and OpenCode version updates and rollback with existing sessions and machine identity preserved. Keep the existing deployment until this migration is verified.
+- [ ] Provide versioned, reproducible installation from the repository using scripts and existing runtimes. Avoid a custom standalone executable or PAC Bridge archive; verify dependencies and explain any unavoidable platform runtime.
+- [ ] Ensure background startup and subprocesses run without visible console windows. Verify restart and operation under the existing user profile; do not require a new hub or service account.
 - [ ] Integrate with each machine's existing hub and runner without creating another hub, overwriting an unrelated configuration, or copying machine identity; verify the target profile and PAC model discovery.
 - [ ] Prepare only the necessary connection credentials separately in a private Downloads directory. Never publish them or copy the controller's Claude login. Explain the access granted and safe transfer.
 - [ ] Provide a copyable prompt for an agent on the other PC and test it on a second machine.
