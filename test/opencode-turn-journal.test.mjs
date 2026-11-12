@@ -125,3 +125,22 @@ test('concurrent journal updates admit one owner and leave an existing lock unto
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-journal-test-')) await rm(actual, { recursive: true, force: true })
   }
 })
+
+test('concurrent reconciliation never clears a live owner marker', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-journal-test-'))
+  try {
+    const journal = createOpencodeTurnJournal(root)
+    for (let i = 0; i < 12; i++) {
+      const id = `race${i}`
+      const [begin, reconcile] = await Promise.allSettled([journal.begin(id), journal.reconcile(id, { outcomeReviewed: true })])
+      assert.notEqual(reconcile.status === 'fulfilled' && reconcile.value, true)
+      if (begin.status === 'fulfilled') {
+        assert.equal(await journal.isPending(id), true)
+        await begin.value()
+      }
+    }
+  } finally {
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-journal-test-')) await rm(actual, { recursive: true, force: true })
+  }
+})

@@ -35,26 +35,31 @@ export function createOpencodeTurnJournal(directory) {
     async begin(sessionId) {
       const filename = path(sessionId)
       const owner = JSON.stringify({ version: 1, id: randomUUID(), pid: process.pid })
-      await withLock(sessionId, async () => {
-        let file
-        try {
-          file = await open(filename, 'wx', 0o600)
-          await file.writeFile(owner, 'utf8')
-          await file.sync()
-        } catch (error) {
-          if (error.code === 'EEXIST') throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
-          throw error
-        } finally { await file?.close() }
-      })
+      await mkdir(directory, { recursive: true, mode: 0o700 })
+      const locked = async () => { try { const file = await open(`${filename}.lock`, 'r'); await file.close(); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error } }
+      if (await locked()) throw new Error('PAC journal is locked; do not alter an active or unreviewed session')
+      let file
+      try {
+        file = await open(filename, 'wx', 0o600)
+        await file.writeFile(owner, 'utf8')
+        await file.sync()
+      } catch (error) {
+        if (error.code === 'EEXIST') throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
+        throw error
+      } finally { await file?.close() }
+      // Reconciliation may have started between the first lock check and the
+      // exclusive create. A live owner must not proceed through that window.
+      if (await locked()) {
+        if (await readFile(filename, 'utf8') === owner) await unlink(filename)
+        throw new Error('PAC journal is locked; do not alter an active or unreviewed session')
+      }
       let finished = false
       return async () => {
         if (finished) throw new Error('PAC journal marker was already cleared')
-        await withLock(sessionId, async () => {
-          const value = await readFile(filename, 'utf8')
-          if (value !== owner) throw new Error('PAC journal ownership changed; outcome is unknown')
-          await unlink(filename)
-          finished = true
-        })
+        const value = await readFile(filename, 'utf8')
+        if (value !== owner) throw new Error('PAC journal ownership changed; outcome is unknown')
+        await unlink(filename)
+        finished = true
       }
     },
     async reconcile(sessionId, { outcomeReviewed = false, legacyOwnerStopped = false } = {}) {
