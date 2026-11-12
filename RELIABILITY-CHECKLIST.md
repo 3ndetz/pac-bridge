@@ -7,7 +7,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [ ] Use the existing HAPI hub and select an existing registered source machine; do not create a separate hub to substitute for this workflow.
 - [ ] Create an OpenCode chat and select every available model from the intended PAC, with the named PAC and actual selected model matching throughout the turn.
 - [ ] Exercise real Claude responses, streaming, reading, writing, editing, shell, search, permissions, cancellation, follow-up, and model switching on the selected source machine.
-- [ ] Verify the same flow from another Windows machine joined to the same HAPI hub, including restart and reconnect.
+- [ ] Verify the same flow on the other Windows machine through its own existing HAPI hub and runner, including restart and reconnect. A temporary runner attached to the first machine's hub does not satisfy this criterion.
 - [ ] Detect expired controller authentication and show actionable guidance without logging credentials or replaying an uncertain turn.
 
 ## Context, recovery and durability
@@ -30,7 +30,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 ## Installation and operation
 
 - [ ] Provide versioned, reproducible Windows setup instructions and a tested archive in this repository's release assets. Pin and verify executable artifacts and dependencies.
-- [ ] Join the existing hub without creating a new hub, overwriting an unrelated configuration, or copying machine identity; verify machine selection and PAC model discovery.
+- [ ] Integrate with each machine's existing hub and runner without creating another hub, overwriting an unrelated configuration, or copying machine identity; verify the target profile and PAC model discovery.
 - [ ] Prepare only the necessary connection credentials separately in a private Downloads directory. Never publish them or copy the controller's Claude login. Explain the access granted and safe transfer.
 - [ ] Provide a copyable prompt for an agent on the other PC and test it on a second machine.
 - [ ] Test startup, update, rollback, health diagnostics, credential rotation, and disaster recovery without losing conversations.

@@ -4,6 +4,8 @@
 
 This connects a new Windows runner to the existing HAPI hub specified in the private connection file. It does not enroll a new HAPI hub. Each machine retains its own runner identity and local project files. Claude authentication stays on the PAC controller.
 
+**Important:** Existing deployments can use separate HAPI hubs and credentials for different Windows accounts or machines. Confirm the intended account, hub URL and runner before installation. The bundled example connection files for one hub do not authorize access to another. For an existing HAPI profile, this fresh-profile installer deliberately stops; a reviewed integration into that profile is required. Attaching a temporary runner to another machine's hub is not acceptance of the existing target hub.
+
 ## Requirements
 
 * Windows 10 or 11, PowerShell 5.1, Node.js 24 with npm, Git for Windows in its normal location, and native OpenCode 1.19.5.
