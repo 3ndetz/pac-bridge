@@ -4,6 +4,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 
 ## Required workflow
 
+- [x] Verify the HAPI model-list probe uses its requested directory, preserves native models, and excludes PAC for an unsupported source policy on both installed runners. Real provider tests and the machine 4 wrapper correction are documented in [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
 - [ ] Use the existing HAPI hub and select an existing registered source machine; do not create a separate hub to substitute for this workflow.
 - [ ] Create an OpenCode chat and select every available model from the intended PAC, with the named PAC and actual selected model matching throughout the turn.
 - [ ] Exercise real Claude responses, streaming, reading, writing, editing, shell, search, permissions, cancellation, follow-up, and model switching on the selected source machine.
