@@ -1,14 +1,20 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$KitPath, [switch]$Activate)
+param([Parameter(Mandatory=$true)][string]$KitPath, [switch]$Activate, [switch]$NamedProviders, [switch]$LegacyMigration)
 $ErrorActionPreference='Stop'
+if($LegacyMigration -and !$NamedProviders){throw 'Legacy migration requires named PAC providers.'}
 $source=Split-Path -Parent $PSScriptRoot
 $kit=(Resolve-Path -LiteralPath $KitPath).Path
 $runtime=Join-Path $kit 'windows\Runtime.ps1'
 $profileHome=Join-Path $env:USERPROFILE '.hapi-servermall'
 $pac=Join-Path $profileHome 'pac-bridge'
-foreach($path in @($runtime,(Join-Path $profileHome 'settings.json'),(Join-Path $profileHome 'connection.json'),(Join-Path $pac 'connection.json'),(Join-Path $pac 'opencode-path.txt'),(Join-Path $pac 'pac-source-token.txt'),(Join-Path $pac 'pac-relay-ca.pem'))) {
+foreach($path in @($runtime,(Join-Path $profileHome 'settings.json'),(Join-Path $profileHome 'connection.json'))) {
   if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'An existing configured HAPI/PAC profile and local Runtime.ps1 are required.'}
 }
+$modern=@('connection.json','opencode-path.txt','pac-source-token.txt','pac-relay-ca.pem')
+$legacy=@('start-pac-opencode.ps1','source.token','cert.pem')
+$hasModern=@($modern | Where-Object { !(Test-Path -LiteralPath (Join-Path $pac $_) -PathType Leaf) }).Count -eq 0
+$hasLegacy=@($legacy | Where-Object { !(Test-Path -LiteralPath (Join-Path $pac $_) -PathType Leaf) }).Count -eq 0
+if(!$hasModern -and !$hasLegacy){throw 'The existing PAC connection files are incomplete or use an unsupported layout.'}
 $portableNode=Join-Path $env:LOCALAPPDATA 'ServermallWorkflow\node'
 if(Test-Path -LiteralPath (Join-Path $portableNode 'node.exe') -PathType Leaf){$env:PATH=$portableNode+';'+$env:PATH}
 if(!(Get-Command git.exe -ErrorAction SilentlyContinue) -or !(Get-Command npm.cmd -ErrorAction SilentlyContinue) -or !(Get-Command node.exe -ErrorAction SilentlyContinue)){throw 'Git, Node.js and npm are required.'}
@@ -62,6 +68,8 @@ $version=Join-Path $pacHome ('provider-versions/'+$current.revision)
 $wrapper=Join-Path $version 'bin\opencode.cmd'
 if (!(Test-Path -LiteralPath $wrapper -PathType Leaf)) { throw 'PAC provider wrapper is missing.' }
 $env:PAC_HAPI_PROVIDER_EXPERIMENT='1'
+if ($current.namedProviders -eq $true) { $env:PAC_NAMED_PROVIDERS_EXPERIMENT='1' } else { Remove-Item Env:PAC_NAMED_PROVIDERS_EXPERIMENT -ErrorAction SilentlyContinue }
+if ($current.legacyMigration -eq $true) { $env:PAC_LEGACY_MIGRATION_EXPERIMENT='1' } else { Remove-Item Env:PAC_LEGACY_MIGRATION_EXPERIMENT -ErrorAction SilentlyContinue }
 $env:PATH=(Split-Path $wrapper -Parent)+';'+$env:PATH
 $notify=Join-Path $pacHome 'notify\tg-notify.cjs'
 if (Test-Path -LiteralPath $notify -PathType Leaf) { $env:PAC_TURN_NOTIFY_SCRIPT=$notify }
@@ -71,7 +79,7 @@ if (Test-Path -LiteralPath $notify -PathType Leaf) { $env:PAC_TURN_NOTIFY_SCRIPT
   if($runtimeText.Contains($marker) -and !$runtimeText.Contains(". (Join-Path `$env:USERPROFILE '.hapi-servermall\pac-bridge\provider-runtime.ps1')")){throw 'Existing provider loader is not recognized.'}
   [IO.File]::WriteAllText($loader,$loaderText,[Text.UTF8Encoding]::new($false))
   $pointer=Join-Path $pac 'provider-current.json'
-  [IO.File]::WriteAllText(($pointer+'.new'),(@{revision=$revision}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText(($pointer+'.new'),(@{revision=$revision;namedProviders=[bool]$NamedProviders;legacyMigration=[bool]$LegacyMigration}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
   Move-Item -LiteralPath ($pointer+'.new') -Destination $pointer -Force
   if(!$runtimeText.Contains($marker)) {
     $backup=Join-Path $pac ('runtime-before-provider-'+[guid]::NewGuid().ToString()+'.ps1')
