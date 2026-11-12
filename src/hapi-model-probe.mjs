@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { Duplex } from 'node:stream'
 import { createAcpPeer } from './acp-peer.mjs'
@@ -53,14 +52,14 @@ export function startHapiModelProbe({ input, output, binary, env = process.env, 
       used = true
       const [response, catalog] = await Promise.all([
         native({ binary, cwd: params.cwd, init: initialized, params, env }),
-        discover({ cwd: params.cwd, env }),
+        Promise.resolve().then(() => discover({ cwd: params.cwd, env })).catch(() => ({ models: [], warnings: [{ name: 'configuration', code: 'unavailable' }] })),
       ])
+      if (typeof response?.sessionId !== 'string' || !response.sessionId) throw new Error('Native OpenCode model probe did not return a session ID')
       for (const warning of catalog.warnings || []) process.stderr.write(`PAC ${warning.name}: ${warning.code}\n`)
       const exposed = env.PAC_NAMED_PROVIDERS_EXPERIMENT === '1' ? catalog : {
         ...catalog, models: catalog.models.map((item) => ({ ...item, id: `pacbridge/${item.id}` })),
       }
       const merged = mergeProbeModels(response, exposed)
-      merged.sessionId ||= randomUUID()
       return merged
     },
   })

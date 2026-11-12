@@ -22,3 +22,12 @@ test('bounds an incomplete initialization', async () => {
   await assert.rejects(detected, /size limit/)
   stream.end()
 })
+
+test('passes malformed first lines to the normal ACP handler without altering bytes', async () => {
+  const stream = new PassThrough(), bytes = Buffer.from('{"broken":"привет"\nnext\n')
+  const detected = isHapiModelProbe(stream)
+  stream.write(bytes.subarray(0, 14)); stream.write(bytes.subarray(14))
+  assert.equal(await detected, false)
+  assert.deepEqual(stream.read(), bytes)
+  stream.end()
+})

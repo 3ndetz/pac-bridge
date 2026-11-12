@@ -20,11 +20,11 @@ export async function isHapiModelProbe(input, maxBytes = 1024 * 1024) {
         if (!Buffer.isBuffer(chunk)) chunk = Buffer.from(chunk)
         chunks.push(chunk); bytes += chunk.length
         if (bytes > maxBytes) return done(new Error('ACP initialization exceeds the size limit'), false, false)
+        if (chunk.indexOf(10) < 0) continue
         const buffer = Buffer.concat(chunks), newline = buffer.indexOf(10)
-        if (newline < 0) continue
         try {
           const msg = JSON.parse(buffer.subarray(0, newline).toString('utf8'))
-          return done(null, msg?.jsonrpc === '2.0' && msg.method === 'initialize' && msg.params?.protocolVersion === 1 && msg.params?.clientInfo?.name === 'hapi-opencode-models')
+          return done(null, msg?.jsonrpc === '2.0' && (typeof msg.id === 'string' || typeof msg.id === 'number') && msg.method === 'initialize' && msg.params?.protocolVersion === 1 && msg.params?.clientInfo?.name === 'hapi-opencode-models')
         } catch { return done(null, false) }
       }
     }

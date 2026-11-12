@@ -37,12 +37,26 @@ test('uses the requested project directory for native and PAC model discovery', 
 test('uses the legacy provider ID when named providers are disabled', async () => {
   const input = new PassThrough(), output = new PassThrough()
   const server = startHapiModelProbe({ input, output, binary: process.execPath, env: {},
-    native: async () => ({ models: { availableModels: [] } }),
+    native: async () => ({ sessionId: 'native', models: { availableModels: [] } }),
     discover: async () => ({ models: [{ id: 'PAC_test/sonnet', name: 'PAC' }], warnings: [] }) })
   const client = createAcpPeer(Duplex.from({ readable: output, writable: input }))
   try {
     await client.call('initialize', { protocolVersion: 1, clientInfo: { name: 'hapi-opencode-models' } })
     const result = await client.call('session/new', { cwd: tmpdir(), mcpServers: [] })
     assert.equal(result.models.availableModels[0].modelId, 'pacbridge/PAC_test/sonnet')
+  } finally { client.close(); server.close() }
+})
+
+test('keeps native models when the PAC configuration cannot be read', async () => {
+  const input = new PassThrough(), output = new PassThrough()
+  const server = startHapiModelProbe({ input, output, binary: process.execPath, env: {},
+    native: async () => ({ sessionId: 'native', models: { availableModels: [{ modelId: 'native/model' }] } }),
+    discover: async () => { throw new Error('private configuration details') } })
+  const client = createAcpPeer(Duplex.from({ readable: output, writable: input }))
+  try {
+    await client.call('initialize', { protocolVersion: 1, clientInfo: { name: 'hapi-opencode-models' } })
+    const result = await client.call('session/new', { cwd: tmpdir(), mcpServers: [] })
+    assert.deepEqual(result.models.availableModels, [{ modelId: 'native/model' }])
+    assert.deepEqual(result._meta.pacDiscoveryWarnings, [{ name: 'configuration', code: 'unavailable' }])
   } finally { client.close(); server.close() }
 })
