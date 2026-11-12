@@ -40,7 +40,18 @@ export async function nativeModels({ binary, cwd, init, params, env, timeoutMs =
     const initialized = await native.call('initialize', init, Math.max(1, deadline - Date.now()))
     if (initialized?.protocolVersion !== 1) throw new Error('Unsupported native OpenCode ACP version')
     return await native.call('session/new', params, Math.max(1, deadline - Date.now()))
-  } finally { native.close(); try { stopContained(child) } catch {} }
+  } finally {
+    native.close()
+    // Killing the Windows job host is asynchronous. Wait briefly for its
+    // handles and working directory to be released before returning, while
+    // keeping the entire probe inside HAPI's 30-second deadline.
+    const closed = new Promise((resolve) => {
+      const timer = setTimeout(resolve, 1000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+    })
+    try { stopContained(child) } catch {}
+    await closed
+  }
 }
 
 async function discoverWithBriefRetry(discover, cwd, env) {
