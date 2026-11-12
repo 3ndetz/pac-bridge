@@ -23,4 +23,8 @@ test('new runner children use the current version and preserve arguments and not
   assert.deepEqual(result.args, ['acp', '--test'])
   assert.equal(result.named, '1'); assert.equal(result.legacy, '1'); assert.equal(result.module, sender)
   assert.equal(result.notify, join(version, 'adapters', 'codex-telegram-notify.cjs'))
+  await writeFile(join(pac, 'provider-current.json'), JSON.stringify({ revision: '../outside', namedProviders: true, legacyMigration: true }))
+  const invalid = spawn(process.execPath, [dispatch, 'acp'], { env: { ...process.env, HOME: root, USERPROFILE: root }, stdio: 'ignore', windowsHide: true })
+  const invalidCode = await new Promise((resolve, reject) => { invalid.once('error', reject); invalid.once('exit', resolve) })
+  assert.notEqual(invalidCode, 0)
 })
