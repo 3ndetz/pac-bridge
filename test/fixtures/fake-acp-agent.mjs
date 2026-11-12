@@ -10,6 +10,7 @@ let firstPrompt
 let cancelTurn
 let workspace
 const models = [{ value: 'initial', name: 'Initial' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'opus', name: 'Opus' }]
+if (process.argv.includes('--nested-model')) models.push({ value: 'openai/gpt-5-codex', name: 'Codex' })
 const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.stdout }), {
   onNotification: async (method) => {
     if (method === 'session/cancel' && cancelTurn) {

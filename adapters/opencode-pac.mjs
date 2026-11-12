@@ -16,7 +16,7 @@ import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 // Experimental launcher: text only, unsupported tools/events fail closed.
 const binary = process.env.PAC_OPENCODE_BINARY || (process.platform === 'win32' ? 'opencode.exe' : 'opencode')
 let model = process.env.PAC_MODEL
-if (process.env.PAC_EXPERIMENTAL !== '1' || (model && !/^PAC_[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(model))) {
+if (process.env.PAC_EXPERIMENTAL !== '1' || (model && (model.length > 384 || !/^PAC_[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:@/-]+$/.test(model)))) {
   throw new Error('Experimental PAC launcher requires PAC_EXPERIMENTAL=1 and a valid PAC_MODEL if specified')
 }
 const cwd = process.cwd()

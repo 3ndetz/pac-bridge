@@ -22,7 +22,7 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
     await once(relayServer, 'listening')
     const url = `ws://127.0.0.1:${relayServer.address().port}`
     const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
-    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--text-response'] })
+    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--text-response', '--nested-model'] })
     const tokenFile = join(root, 'token')
     await writeFile(tokenFile, 'test-token')
     const launcher = fileURLToPath(new URL('../adapters/pac-hapi-opencode.mjs', import.meta.url))
@@ -49,6 +49,12 @@ test('unmodified OpenCode ACP exposes PAC provider models without preselection',
     const response = await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Hello PAC' }] }, 90000)
     assert.equal(response.stopReason, 'end_turn')
     assert.match(JSON.stringify(updates.filter(item => item.params?.update?.sessionUpdate === 'agent_message_chunk')), /fake PAC sonnet response/)
+    const nested = option.options.find(item => item.value === 'PAC_testpac/openai/gpt-5-codex')
+    assert.ok(nested, 'A PAC model with a provider-qualified ID must be available')
+    await peer.call('session/set_config_option', { sessionId: session.sessionId, configId: option.id, value: nested.value }, 30000)
+    const codex = await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Hello Codex' }] }, 90000)
+    assert.equal(codex.stopReason, 'end_turn')
+    assert.match(JSON.stringify(updates.filter(item => item.params?.update?.sessionUpdate === 'agent_message_chunk')), /fake PAC openai\/gpt-5-codex response/)
   } finally {
     if (child && child.exitCode === null) { try { stopContained(child) } catch {} }
     agent?.close()

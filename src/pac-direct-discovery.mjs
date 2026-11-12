@@ -39,7 +39,7 @@ export async function discoverPacsDirect({ cwd, env }) {
       remote = await openPacSession(stream, { cwd: entry.cwd, meta: { pac: { workspaceCwd: cwd, skills: skills?.list || [], instructions: (instructions || []).filter((entry) => !entry.paths) } },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {} },
         onRequest: async () => { throw new Error('Discovery cannot approve actions') }, onNotification: () => {} })
-      const models = remote.models.models.filter((item) => typeof item.id === 'string' && /^[A-Za-z0-9_.-]+$/.test(item.id))
+      const models = remote.models.models.filter((item) => typeof item.id === 'string' && item.id.length <= 256 && /^[A-Za-z0-9_.:@/-]+$/.test(item.id))
         .map((item) => ({ id: `PAC_${entry.name}/${item.id}`, name: `PAC ${entry.displayName || entry.name} / ${entry.modelPrefix ? entry.modelPrefix + ' ' : ''}${typeof item.name === 'string' ? item.name.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200) : item.id}` }))
       return { models }
     } catch { return { models: [], warning: { name: entry.name, code: 'unavailable' } } }
