@@ -1,6 +1,6 @@
 # Setup documentation
 
-- [Windows: install from this repository](windows-setup.md). This covers a fresh profile and explains the separate procedure required for an existing profile.
+- [Windows: install from this repository](windows-setup.md). This configures PAC on an existing HAPI profile; establishing a fresh HAPI profile remains a separate procedure.
 - [Linux and macOS: current development setup](posix-setup.md). Automated production installation and end-to-end acceptance on these systems remain open.
 - [Optional Telegram completion notifications](telegram-notifications.md).
 - [Supported skills and hooks](skills-hooks.md), [acceptance and limitations](../RELIABILITY-CHECKLIST.md).
