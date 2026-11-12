@@ -1,9 +1,9 @@
 # Linux and macOS development setup
 
-Clone the integration branch and prepare its locked dependencies:
+Clone the repository and prepare its locked dependencies:
 
 ```sh
-git clone --branch work/pac-bridge-integration https://github.com/3ndetz/pac-bridge.git
+git clone https://github.com/3ndetz/pac-bridge.git
 cd pac-bridge
 sh scripts/prepare-posix.sh
 ```

@@ -2,3 +2,6 @@ node_modules/
 secrets/
 bridge.env
 .env
+tg-notify.env
+pac-source-token.txt
+hapi-token.txt

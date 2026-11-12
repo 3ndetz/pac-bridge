@@ -2,7 +2,7 @@
 
 ## Current OpenCode and HAPI integration
 
-The integration branch contains the PAC relay, Claude controller adapter, OpenCode router, and setup scripts. Start with [setup documentation](docs/README.md), including [Windows installation from a Git checkout](docs/windows-setup.md). The Windows executable is an individually downloadable, checksum-verified release asset; a PAC Bridge archive is not required. Linux and macOS installation is not yet fully verified.
+This repository contains the PAC relay, Claude controller adapter, OpenCode router, and setup scripts. Start with [setup documentation](docs/README.md), including [Windows installation from a Git checkout](docs/windows-setup.md). The Windows executable is an individually downloadable, checksum-verified release asset; a PAC Bridge archive is not required. Linux and macOS installation is not yet fully verified.
 
 The integration is still under verification. See [RELIABILITY-CHECKLIST.md](RELIABILITY-CHECKLIST.md) and [ACCEPTANCE.md](ACCEPTANCE.md) for supported behavior, evidence and unresolved limitations. The material below describes the older shared-filesystem design and should not be used as the installation guide for the current HAPI integration.
 

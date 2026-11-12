@@ -14,7 +14,7 @@ This is the **Windows x64 preview**. A second Windows profile can have a differe
 2. Clone the integration branch. All source and setup scripts are in this checkout:
 
    ```powershell
-   git clone --branch work/pac-bridge-integration https://github.com/3ndetz/pac-bridge.git
+   git clone https://github.com/3ndetz/pac-bridge.git
    cd pac-bridge
    ```
 
