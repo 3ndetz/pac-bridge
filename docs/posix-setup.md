@@ -18,6 +18,8 @@ The source launcher can be staged and checked on Linux, but authenticated end-to
 
 Run `sh scripts/verify-posix-install.sh` to check a synthetic installation, repeated installation, command forwarding and conflict protection without starting HAPI or connecting to a PAC. It uses an isolated temporary home and downloads the locked npm dependencies.
 
+For an explicitly authorized, paid real-PAC source check, set `PAC_TEST_LIVE=1` and run `node scripts/verify-posix-live.mjs` after installation. It creates a temporary project, invokes the selected PAC through the installed launcher, checks a skill, its resource and pre/post tool hooks, then removes its own project. It does not start a HAPI hub. Set `PAC_TEST_MODEL` if the PAC uses a different model ID. This check does not replace testing the existing HAPI runner.
+
 ## Prompt for an agent on another computer
 
 ```text
