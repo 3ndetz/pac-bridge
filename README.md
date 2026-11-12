@@ -2,7 +2,7 @@
 
 ## Current OpenCode and HAPI integration
 
-This repository contains the PAC relay, Claude controller adapter, OpenCode router, and setup scripts. Start with [setup documentation](docs/README.md), including [Windows installation from a Git checkout](docs/windows-setup.md). The Windows executable is an individually downloadable, checksum-verified release asset; a PAC Bridge archive is not required. Linux and macOS installation is not yet fully verified.
+This repository contains the PAC relay, Claude controller adapter, OpenCode router, and setup scripts. Start with [setup documentation](docs/README.md), including [Windows installation from a Git checkout](docs/windows-setup.md). An experimental provider integration uses repository scripts and an existing OpenCode/HAPI installation, without downloading a custom HAPI executable. Linux and macOS installation is not yet fully verified.
 
 **Current deployment limitation:** the Windows installation described below uses a modified HAPI 0.34.4 runtime, and some PAC functionality also depends on changes to the HAPI hub and UI. It is not compatible with an unmodified HAPI update by construction. Replacing this fork with integration through supported OpenCode/HAPI interfaces, without changing HAPI source, is an outstanding requirement; see the [acceptance checklist](RELIABILITY-CHECKLIST.md). Do not switch an existing installation to an unmodified runtime until the complete workflow has been tested and a rollback is available.
 

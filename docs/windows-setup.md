@@ -2,6 +2,8 @@
 
 This is the **Windows x64 preview**. A second Windows profile can have a different hub and key. Never substitute the key of another hub.
 
+**Migration in progress:** the older procedure below installs a custom HAPI binary and is retained only to document existing deployments. The supported target is the provider integration with an unmodified, normally updated HAPI. For an already configured PAC profile, `windows/Install-ProviderMode.ps1` can stage the provider directly from a clean Git checkout without downloading that binary. Activation requires its `-Activate` switch and takes effect at the next runner start. It does not replace or restart HAPI, migrate old sessions, or establish that the current hub is unmodified. Do not activate or consider the migration complete until those items in the reliability checklist are verified.
+
 1. Install Git for Windows, Node.js 24 with npm, and OpenCode 1.19.5. The pinned OpenCode command below installs it separately for this user:
 
    ```powershell
