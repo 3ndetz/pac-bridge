@@ -206,12 +206,11 @@ test('does not report an unsupported ACP event as a completed response', async (
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
   try {
-    await assert.rejects(async () => {
-      const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' },
-        body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'hello' }] }) })
-      await response.text()
-    })
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'hello' }] }) })
+    assert.equal(response.status, 400)
+    assert.match(await response.text(), /cannot be represented/)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
@@ -313,6 +312,22 @@ test('reports an uncertain earlier turn without replaying it', async () => {
     assert.equal(response.status, 400)
     assert.match(await response.text(), /outcome is unknown; reconcile/)
     assert.equal(calls, 0)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('returns an actionable error when a turn fails before streaming starts', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    async prompt() { throw new Error('Previous PAC turn outcome is unknown; reconciliation is required') },
+  } })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-pac-session-id': 's', 'x-pac-message-id': 'm' },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'continue' }] }) })
+    assert.equal(response.status, 400)
+    assert.match(await response.text(), /outcome is unknown; reconcile/)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 

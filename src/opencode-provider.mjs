@@ -175,10 +175,17 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
       turn.streaming = true
       let completed = false
       response.on('close', () => { if (!completed) cancelTurn(sessionId, turn) })
-      response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
-      const write = (delta, finish = null) => response.write(`data: ${JSON.stringify({ id: messageId, object: 'chat.completion.chunk', created: 0,
-        model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`)
-      write({ role: 'assistant' })
+      let started = false
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: messageId, object: 'chat.completion.chunk', created: 0,
+        model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+      const write = (delta, finish = null) => {
+        if (!started) {
+          response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+          response.write(chunk({ role: 'assistant' }))
+          started = true
+        }
+        response.write(chunk(delta, finish))
+      }
       while (true) {
         const event = await turn.channel.next()
         if (event.type === 'permission') {

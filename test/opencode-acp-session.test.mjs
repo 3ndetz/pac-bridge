@@ -12,6 +12,18 @@ import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 
+test('finishes replaying restored history before accepting a new turn', { timeout: 15000 }, async () => {
+  const fake = fileURLToPath(new URL('./fixtures/fake-acp-load-history.mjs', import.meta.url))
+  const diagnostics = []
+  const session = await openOpencodeAcpSession({ command: process.execPath, args: [fake], cwd: tmpdir(), env: process.env,
+    model: 'PAC_test/sonnet', resumeSessionId: 'saved-session', onDiagnostic: value => diagnostics.push(value),
+    onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
+  try {
+    assert.equal((await session.prompt([], () => {})).stopReason, 'end_turn')
+    assert.ok(!diagnostics.includes('no_active_turn'))
+  } finally { session.close() }
+})
+
 test('retains an idle subagent update for its originating session', { timeout: 15000 }, async () => {
   const fake = fileURLToPath(new URL('./fixtures/fake-opencode-child-events.mjs', import.meta.url))
   const session = await openOpencodeAcpSession({ command: process.execPath, args: [fake], cwd: tmpdir(), env: process.env,

@@ -61,6 +61,9 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
     if (resumeSessionId && initialized.agentCapabilities?.loadSession !== true) throw new Error('ACP session cannot be restored')
     const opened = await peer.call(resumeSessionId ? 'session/load' : 'session/new', { cwd, mcpServers: [], ...(resumeSessionId ? { sessionId: resumeSessionId } : {}) })
     id = opened?.sessionId ?? resumeSessionId
+    // The load response can arrive before queued historical notifications
+    // finish running. Keep replay suppression active until they have drained.
+    if (loading) await peer.drainNotifications()
     loading = false
     if (typeof id !== 'string' || !id) throw new Error('ACP session identity is missing')
     if (resumeSessionId && id !== resumeSessionId) throw new Error('ACP returned a different session identity')
