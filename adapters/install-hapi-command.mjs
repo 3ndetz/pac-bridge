@@ -2,9 +2,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const [directory, ...extra] = process.argv.slice(2)
-if (!directory || !isAbsolute(directory) || extra.length) throw new Error('Usage: node adapters/install-hapi-command.mjs <new-absolute-directory>')
-const command = fileURLToPath(new URL('./pac-hapi-opencode.mjs', import.meta.url))
+const [directory, option, ...extra] = process.argv.slice(2)
+if (!directory || !isAbsolute(directory) || extra.length || (option !== undefined && option !== '--provider-dispatch')) throw new Error('Usage: node adapters/install-hapi-command.mjs <new-absolute-directory> [--provider-dispatch]')
+const command = fileURLToPath(new URL(option === '--provider-dispatch' ? './provider-dispatch.mjs' : './pac-hapi-opencode.mjs', import.meta.url))
 const node = process.execPath
 let name, body
 if (process.platform === 'win32') {

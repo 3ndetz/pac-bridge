@@ -26,6 +26,7 @@ try {
   if($env:PAC_NAMED_PROVIDERS_EXPERIMENT -ne '1' -or $env:PAC_LEGACY_MIGRATION_EXPERIMENT -ne '1'){throw 'Provider migration settings were not retained.'}
   $wrapper=[IO.File]::ReadAllText($command)
   if(!$wrapper.Contains($record.revision)){throw 'Wrapper does not reference the immutable provider directory.'}
+  if(!$wrapper.Contains('provider-dispatch.mjs')){throw 'The installed wrapper must follow future provider versions.'}
   & (Join-Path $root 'windows\Install-ProviderMode.ps1') -KitPath $kit -Activate -NamedProviders -LegacyMigration
   if(([regex]::Matches([IO.File]::ReadAllText($runtime),'PAC Bridge provider loader v1')).Count -ne 1){throw 'Provider loader was duplicated.'}
   & (Join-Path $root 'windows\Disable-ProviderMode.ps1') -KitPath $kit

@@ -51,7 +51,7 @@ try {
     Remove-Item -LiteralPath (Join-Path $stage 'bin\opencode.cmd')
     Remove-Item -LiteralPath (Join-Path $stage 'bin')
     Move-Item -LiteralPath $stage -Destination $target
-    & node.exe (Join-Path $target 'adapters\install-hapi-command.mjs') (Join-Path $target 'bin')
+    & node.exe (Join-Path $target 'adapters\install-hapi-command.mjs') (Join-Path $target 'bin') --provider-dispatch
     if($LASTEXITCODE -ne 0){throw 'Final OpenCode wrapper installation failed.'}
   }
   if(!(Test-Path -LiteralPath (Join-Path $target 'bin\opencode.cmd') -PathType Leaf)){throw 'Provider version is incomplete; inspect it before retrying.'}
