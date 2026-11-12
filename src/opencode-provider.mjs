@@ -284,7 +284,8 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
       }
     } catch (error) {
       const category = ['Selected PAC model is unavailable', 'PAC model selection was not confirmed', 'Unsupported ACP version',
-        'ACP session identity is missing', 'ACP connection lost', 'ACP request timed out', 'Unsupported PAC event',
+        'ACP session identity is missing', 'ACP connection lost', 'ACP request timed out', 'ACP session cannot be restored',
+        'PAC session binding is unavailable', 'PAC cannot load an existing session', 'Unsupported PAC event',
         'PAC turn did not finish normally'].find((value) => error?.message?.includes(value)) || 'other'
       const phase = ['initialize', 'session-new', 'select-model', 'prompt'].includes(error?.pacPhase) ? error.pacPhase : 'unknown'
       const hint = ['rate limit', 'quota', 'authentication', 'system prompt', 'cancelled', 'timed out', 'connection lost', 'overloaded']
@@ -298,7 +299,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
       ])
       const safeMessage = known.get(error?.message) || (hint === 'authentication'
         ? 'PAC authentication failed on the controller; sign in there. The turn was not retried.'
-        : 'PAC turn failed; its outcome may be unknown. The turn was not retried.')
+        : `PAC turn failed (${category}, ${phase}); its outcome may be unknown. The turn was not retried.`)
       if (messages?.has(messageId)) messages.set(messageId, safeMessage)
       try { onFailure(`${category} (${phase})${hint ? ` ${hint}` : ''}`) } catch {}
       fail(400, safeMessage)
