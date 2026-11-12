@@ -59,7 +59,7 @@ export async function createSourceSkills({ root, home, builtins = [], maxBytes =
     let gitBoundary = false
     try { await lstat(join(current, '.git')); gitBoundary = true } catch (error) { if (error.code !== 'ENOENT') throw error }
     const parent = dirname(current)
-    if (gitBoundary || parent === current || parent === systemHome || parent === homeRoot) break
+    if (gitBoundary || current === systemHome || current === homeRoot || parent === current || parent === systemHome || parent === homeRoot) break
     current = parent
   }
   const roots = [

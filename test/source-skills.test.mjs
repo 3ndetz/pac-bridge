@@ -152,8 +152,12 @@ test('loads nearest ancestor project skills up to the git boundary', async () =>
 })
 
 test('treats home compatibility directories as global when home is the workspace', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
+  const home = join(root, 'home')
   try {
+    const outside = join(root, '.opencode', 'skills', 'outside')
+    await mkdir(outside, { recursive: true })
+    await writeFile(join(outside, 'SKILL.md'), '---\nname: outside\ndescription: Outside home\n---\nOutside')
     for (const parent of ['.agents', '.claude']) {
       const folder = join(home, parent, 'skills', 'same')
       await mkdir(folder, { recursive: true })
@@ -163,7 +167,7 @@ test('treats home compatibility directories as global when home is the workspace
     assert.equal(skills.list.length, 1)
     assert.match((await skills.invoke({ name: 'same' })).content, /\.agents/)
   } finally {
-    const actual = await realpath(home)
+    const actual = await realpath(root)
     const local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
   }
