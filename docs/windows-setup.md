@@ -30,3 +30,23 @@ The provider has been exercised on two Windows profiles. The bootstrap below is 
 To update an already configured provider, fetch and pull the repository, then run `windows/Install-ProviderMode.ps1 -KitPath <kit> -Activate -NamedProviders`. Existing sessions may require the separately reviewed `-LegacyMigration` option. Changes take effect on the next runner start. `windows/Disable-ProviderMode.ps1` disables the provider loader without replacing HAPI. Inspect the specific profile and preserve its backups when rolling back a migration.
 
 Older `Install-FromRepo.ps1`, `Install-PacRunner.ps1`, and `Install-ExistingProfile.ps1` describe the superseded PAC-patched runtime and should not be used for this provider setup. Follow [RELIABILITY-CHECKLIST.md](../RELIABILITY-CHECKLIST.md) for remaining limitations.
+
+## Prompt for an agent on another PC
+
+```text
+Configure PAC Bridge for the existing HAPI runner on this Windows account using
+https://github.com/3ndetz/pac-bridge and docs/windows-setup.md. Keep this hub,
+machine identity, existing sessions and runtime. Use the private connection
+files supplied separately; never print or commit them. Do not create another
+HAPI hub or install a PAC-patched HAPI executable. Install prerequisites and
+the repository provider, then verify model discovery, a real PAC answer, manual
+compaction and context recall. Report each check and every unresolved issue.
+```
+
+For the currently prepared transfer, the source files are in
+`C:\Users\v.slavkin\Downloads\PAC-Bridge-keys` on the first Windows machine.
+Only `connection.json`, `pac-source-token.txt`, and `pac-relay-ca.pem` are used
+when the destination already has its own HAPI profile. The separate
+`hapi-token.txt` in that directory is not required for that scenario. Transfer
+the required files securely and keep them accessible only to the account that
+owns the destination runner. The existing HAPI token is not a PAC source token.
