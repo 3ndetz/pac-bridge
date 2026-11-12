@@ -9,6 +9,8 @@ $pac=Join-Path $profileHome 'pac-bridge'
 foreach($path in @($runtime,(Join-Path $profileHome 'settings.json'),(Join-Path $profileHome 'connection.json'),(Join-Path $pac 'connection.json'),(Join-Path $pac 'opencode-path.txt'),(Join-Path $pac 'pac-source-token.txt'),(Join-Path $pac 'pac-relay-ca.pem'))) {
   if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'An existing configured HAPI/PAC profile and local Runtime.ps1 are required.'}
 }
+$portableNode=Join-Path $env:LOCALAPPDATA 'ServermallWorkflow\node'
+if(Test-Path -LiteralPath (Join-Path $portableNode 'node.exe') -PathType Leaf){$env:PATH=$portableNode+';'+$env:PATH}
 if(!(Get-Command git.exe -ErrorAction SilentlyContinue) -or !(Get-Command npm.cmd -ErrorAction SilentlyContinue) -or !(Get-Command node.exe -ErrorAction SilentlyContinue)){throw 'Git, Node.js and npm are required.'}
 if((& node.exe --version).Trim() -notmatch '^v24\.'){throw 'Node.js 24 is required.'}
 Push-Location -LiteralPath $source
