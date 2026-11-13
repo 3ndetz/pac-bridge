@@ -280,3 +280,6 @@ The same metadata-bearing skill, resource, project hook, compaction and same-cha
 The [ACP working-directory fix](https://github.com/3ndetz/pac-bridge/commit/f320458) uses `--cwd` for PAC discovery and normalizes a relative argument before spawning OpenCode. In a real OpenCode test with a synthetic PAC, the inherited process directory contained a deny rule while the requested project did not; model discovery and responses succeeded for the requested project. After installation, a real HAPI first-turn check on machine 4 still took about 106 seconds, so the slow-start issue remains open and its cause is not established.
 
 In the first machine's current bridge checkout, direct source-skill discovery found 18 file-backed project and user skills, and loading each one's instructions succeeded. This is a read-only loading check; it does not establish that a model can apply every skill correctly or that its external dependencies work.
+
+
+On 13 November, a real Claude background shell task in the existing first-machine HAPI was stopped with `/pac-stop <task-id>`. The same isolated chat reported the stop and its scheduled write was absent after the command would have completed. The chat was confirmed archived. This supersedes the earlier synthetic-only stop result above; it does not establish native task cards or every cancellation and recovery scenario.
