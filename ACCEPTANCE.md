@@ -2,6 +2,8 @@
 
 ## Relay and notification checks (2026-11-13)
 
+An isolated candidate controller running on the existing PAC used its existing Claude login. A source project `UserPromptSubmit` hook blocked one prompt and supplied a marker that appeared in an authenticated Claude response to the next prompt. The source hook and controller communicated directly over a temporary connection; the installed HAPI runners and active controller were not changed. The installed HAPI path and other hook events remain open.
+
 On machine 4, an existing HAPI session was started through a temporary instance of the reviewed relay transport against the same existing hub. The TLS agent recovered one connection reset before any HTTP request was sent; OpenCode received a real Claude reply and the test session was archived. The recipient confirmed delivery of the Telegram completion notification for that actual turn. Earlier delivery of a synthetic Codex `Stop` event was also confirmed. These results cover the specific sender and scenarios exercised, not every OpenCode or Codex hook.
 
 The separately published relay candidate recovered pre-handshake resets in tests while preserving one delivery per HTTP request, including concurrent requests, cancellation and WebSocket upgrade. The actual machine 4 relay and the shared gateway have not yet been updated; other active sessions must be preserved during rollout. The release and outstanding work are tracked in the internal issue tracker.
