@@ -38,6 +38,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [ ] Inventory the actual installed OpenCode version's project and global instructions, skill search paths, metadata, plugin and hook events, tool permissions, and precedence.
 - [ ] Implement and test each supported capability end to end on the source machine, including skill resources and before/after tool hooks. Explicitly reject or clearly warn about unsupported security-relevant configurations rather than silently skipping them.
 - [ ] Implement and verify global Claude Code hook forwarding. The user's global `~/.claude/settings.json` is not currently forwarded; this also applies when the workspace is the home directory. Project-local settings remain checked. The separate Telegram completion notifier is not general global-hook support.
+- [ ] Verify project `UserPromptSubmit` hooks through the installed HAPI runners and a real PAC. The controller and source hook passed a local synthetic-model test for blocking and context injection; neither installation nor real-PAC behavior is established by that test.
 - [ ] Verify project instructions, scoped rules, hooks and skills before and after compaction and resume, for main agents and subagents, with allow, deny, and failure cases.
 - [ ] Document exactly which OpenCode and Claude capabilities are supported, unsupported, or not yet verified; do not claim complete parity without evidence.
 

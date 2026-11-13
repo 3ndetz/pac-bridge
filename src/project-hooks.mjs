@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { spawnContained, stopContained } from './spawn-contained.mjs'
 
-const supportedEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure'])
+const supportedEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit'])
 
 export async function createProjectHooks({ root, shell, home = homedir(), maxOutputBytes = 1024 * 1024 }) {
   if (!isAbsolute(root) || typeof shell !== 'string' || !shell || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('Invalid project hook configuration')
@@ -54,6 +54,7 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
       for (const group of groups) {
         if (!group || typeof group !== 'object' || Object.keys(group).some((key) => !['matcher', 'hooks'].includes(key)) ||
             (group.matcher !== undefined && typeof group.matcher !== 'string') || !Array.isArray(group.hooks)) throw new Error('Unsupported project hook matcher')
+        if (event === 'UserPromptSubmit' && group.matcher) throw new Error('UserPromptSubmit hook matchers are not supported')
         let matcher
         try { matcher = group.matcher ? new RegExp(group.matcher) : null } catch { throw new Error('Invalid project hook matcher') }
         for (const hook of group.hooks) {
@@ -99,17 +100,21 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
     if (result.code === 2 && input.hook_event_name === 'PreToolUse') return { hookSpecificOutput: {
       hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: stderr.trim() || 'Project hook denied the operation'
     } }
+    if (result.code === 2 && input.hook_event_name === 'UserPromptSubmit') return { decision: 'block', reason: stderr.trim() || 'Project hook blocked the prompt' }
     if (result.code !== 0) throw new Error(`Project hook failed with exit code ${result.code}: ${stderr.trim()}`)
     if (!stdout.trim()) return {}
     let output
-    try { output = JSON.parse(stdout) } catch { throw new Error('Project hook returned unsupported non-JSON output') }
+    try { output = JSON.parse(stdout) } catch {
+      if (input.hook_event_name === 'UserPromptSubmit') return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: stdout.trim() } }
+      throw new Error('Project hook returned unsupported non-JSON output')
+    }
     if (!output || typeof output !== 'object' || Array.isArray(output)) throw new Error('Invalid project hook output')
     return output
   }
 
   return {
     async dispatch(input) {
-      if (!input || !supportedEvents.has(input.hook_event_name) || typeof input.tool_name !== 'string') throw new Error('Unsupported project hook event')
+      if (!input || !supportedEvents.has(input.hook_event_name) || (input.hook_event_name === 'UserPromptSubmit' ? typeof input.prompt !== 'string' : typeof input.tool_name !== 'string')) throw new Error('Unsupported project hook event')
       const matching = (hooks.get(input.hook_event_name) || []).filter((entry) => !entry.matcher || entry.matcher.test(input.tool_name))
       const unique = [...new Map(matching.map(({ hook }) => [JSON.stringify([hook.type, hook.command, hook.args ?? null, hook.timeout ?? null]), hook])).values()]
       if (!unique.length) return {}
@@ -120,6 +125,24 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
       const outputs = results.map((result) => result.value).filter((output) => Object.keys(output).length)
       if (!outputs.length) return {}
       if (outputs.length === 1) return outputs[0]
+      if (input.hook_event_name === 'UserPromptSubmit') {
+        const contexts = [], reasons = []
+        for (const output of outputs) {
+          const specific = output.hookSpecificOutput
+          if (Object.keys(output).some((key) => !['decision', 'reason', 'hookSpecificOutput'].includes(key)) ||
+              (output.decision !== undefined && output.decision !== 'block') ||
+              (output.reason !== undefined && typeof output.reason !== 'string') ||
+              (specific !== undefined && (!specific || specific.hookEventName !== 'UserPromptSubmit' ||
+                Object.keys(specific).some((key) => !['hookEventName', 'additionalContext'].includes(key)) ||
+                (specific.additionalContext !== undefined && typeof specific.additionalContext !== 'string')))) {
+            throw new Error('Combining these project hook outputs is not yet supported')
+          }
+          if (output.decision === 'block') reasons.push(output.reason || 'Project hook blocked the prompt')
+          if (specific?.additionalContext) contexts.push(specific.additionalContext)
+        }
+        return { ...(reasons.length ? { decision: 'block', reason: reasons.join('\n') } : {}),
+          ...(contexts.length ? { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: contexts.join('\n\n') } } : {}) }
+      }
       const priority = { allow: 1, ask: 2, deny: 3 }
       let selected
       for (const output of outputs) {

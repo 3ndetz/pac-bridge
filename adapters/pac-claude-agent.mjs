@@ -287,6 +287,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       try {
         return await agent.client.inner.ctx.request('pac/hooks/dispatch', { sessionId, input: { ...input, tool_name: toolName } })
       } catch (error) {
+        if (input.hook_event_name === 'UserPromptSubmit') return { decision: 'block', reason: `Source project hook failed: ${error.message}` }
         if (input.hook_event_name !== 'PreToolUse') throw error
         return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
           permissionDecisionReason: `Source project hook failed: ${error.message}` } }
@@ -300,7 +301,8 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       ...(aliases ? { toolAliases: { Read: 'mcp__pac__Read', Write: 'mcp__pac__Write', Edit: 'mcp__pac__Edit', Bash: 'mcp__pac__Bash', Glob: 'mcp__pac__Glob', Grep: 'mcp__pac__Grep', Skill: 'mcp__pac__Skill', AskUserQuestion: 'mcp__pac__AskUserQuestion' },
         disallowedTools: ['PowerShell', 'NotebookEdit', 'WebFetch', 'WebSearch',
           ...(backgroundEnabled ? [] : ['Agent', 'Task', 'TaskOutput', 'TaskStop'])] } : {}),
-      hooks: { ...options.hooks, PostToolUse: [...(options.hooks?.PostToolUse || []), { hooks: [projectHook, scopedRulesHook] }],
+      hooks: { ...options.hooks, UserPromptSubmit: [...(options.hooks?.UserPromptSubmit || []), { hooks: [projectHook], onFailure: 'block' }],
+        PostToolUse: [...(options.hooks?.PostToolUse || []), { hooks: [projectHook, scopedRulesHook] }],
         PostToolUseFailure: [...(options.hooks?.PostToolUseFailure || []), { hooks: [projectHook] }],
         PreToolUse: [...(options.hooks?.PreToolUse || []), { hooks: [projectHook], onFailure: 'block' }, { hooks: [async (input) => {
         return prototypeToolDecision(input.tool_name, { aliases, allowSubagents: backgroundEnabled, allowQuestions: questionsEnabled,

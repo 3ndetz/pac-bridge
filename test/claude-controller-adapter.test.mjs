@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
@@ -9,6 +9,7 @@ import { Duplex } from 'node:stream'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createAcpPeer } from '../src/acp-peer.mjs'
+import { createProjectHooks } from '../src/project-hooks.mjs'
 
 test('initializes the Claude controller with project dependencies without signing in', { timeout: 30000 }, async () => {
   const adapter = fileURLToPath(new URL('../adapters/pac-claude-agent.mjs', import.meta.url))
@@ -27,11 +28,14 @@ test('runs the installed controller against a local synthetic model endpoint', {
   const toolTest = process.env.PAC_TEST_SYNTHETIC_TOOL === '1'
   const scopedTest = process.env.PAC_TEST_SYNTHETIC_SCOPED === '1'
   const scopedFailure = process.env.PAC_TEST_SYNTHETIC_SCOPED_FAILURE === '1'
+  const promptHookTest = process.env.PAC_TEST_SYNTHETIC_PROMPT_HOOK === '1'
+  let promptHooks, modelSawHookContext = false
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || !request.url.startsWith('/v1/messages')) { response.writeHead(404).end(); return }
     let body = ''
     for await (const chunk of request) body += chunk
     const parsed = JSON.parse(body), model = parsed.model
+    if (JSON.stringify(parsed.messages).includes('SYNTHETIC_PROMPT_HOOK_CONTEXT')) modelSawHookContext = true
     if (JSON.stringify(parsed.messages).includes('SYNTHETIC_SOURCE_CONTENT')) modelSawSource = true
     if (JSON.stringify(parsed.messages).includes('SYNTHETIC_SCOPED_RULE')) modelSawScopedRule = true
     requests++
@@ -54,17 +58,25 @@ test('runs the installed controller against a local synthetic model endpoint', {
   })
   let child, peer
   try {
+    if (promptHookTest) {
+      await mkdir(join(root, '.claude'))
+      const script = 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{const p=JSON.parse(s).prompt;if(p.includes("BLOCK_ME")){process.stderr.write("blocked by synthetic source hook");process.exitCode=2}else process.stdout.write("SYNTHETIC_PROMPT_HOOK_CONTEXT")})'
+      await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', script] }] }] } }))
+      promptHooks = await createProjectHooks({ root, shell: process.execPath })
+    }
     server.listen(0, '127.0.0.1'); await once(server, 'listening')
     const adapter = fileURLToPath(new URL('../adapters/pac-claude-agent.mjs', import.meta.url))
     child = spawn(process.execPath, [adapter], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: {
       ...process.env, HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key',
       ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`, NO_PROXY: '127.0.0.1,localhost',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1',
+      ...(promptHookTest ? { PAC_TEST_PROJECT_HOOKS: '1' } : {}),
     } })
     child.stderr.resume()
     peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { timeoutMs: 60000,
       onNotification: (method, params) => { if (method === 'session/update' && params?.update?.sessionUpdate === 'agent_message_chunk') answer += params.update.content?.text || '' },
       onRequest: async (method, params) => {
+        if (method === 'pac/hooks/dispatch' && promptHookTest) return promptHooks.dispatch(params.input)
         if (method === 'pac/instructions/match' && scopedTest && params.path === join(root, 'synthetic.txt')) {
           scopedRequests++
           if (scopedFailure) throw new Error('Synthetic source instruction failure')
@@ -75,13 +87,18 @@ test('runs the installed controller against a local synthetic model endpoint', {
         return { content: 'SYNTHETIC_SOURCE_CONTENT' }
       } })
     await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
-    const session = await peer.call('session/new', { cwd: root, mcpServers: [], ...(scopedTest ? { _meta: { pac: { scopedRules: true } } } : {}) })
+    const session = await peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, ...(scopedTest ? { scopedRules: true } : {}) } } })
+    if (promptHookTest) {
+      await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'BLOCK_ME' }] }, 90000)
+      assert.equal(requests, 0, 'Blocked prompt must not reach the model')
+    }
     await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Reply with the local marker.' }] }, 90000)
     assert.ok(requests > 0)
     assert.match(answer, scopedFailure ? /could not load source instructions/ : /LOCAL_SYNTHETIC_CLAUDE_OK/)
     if (scopedFailure) { assert.doesNotMatch(answer, /LOCAL_SYNTHETIC_CLAUDE_OK/); assert.equal(requests, 1) }
     if (toolTest) { if (!scopedFailure) { assert.ok(requests >= 2); assert.equal(modelSawSource, true) }; assert.equal(toolCalls, 1) }
     if (scopedTest) { assert.equal(scopedRequests, 1); if (!scopedFailure) assert.equal(modelSawScopedRule, true) }
+    if (promptHookTest) assert.equal(modelSawHookContext, true)
   } finally {
     peer?.close(); child?.kill(); await new Promise((resolve) => server.close(resolve))
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)

@@ -5,6 +5,27 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
 import { createProjectHooks } from '../src/project-hooks.mjs'
 
+test('forwards prompt hook context and blocks rejected prompts on the source', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-hooks-'))
+  try {
+    const config = join(root, '.claude')
+    await mkdir(config)
+    const hook = (script) => ({ type: 'command', command: process.execPath, args: ['-e', script], timeout: 5 })
+    const context = hook('let x="";process.stdin.on("data",c=>x+=c);process.stdin.on("end",()=>process.stdout.write("Seen: "+JSON.parse(x).prompt))')
+    const block = hook('process.stdin.resume();process.stdin.on("end",()=>{process.stderr.write("denied by source policy");process.exitCode=2})')
+    await writeFile(join(config, 'settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [context, block] }] } }))
+    const hooks = await createProjectHooks({ root, shell: process.execPath })
+    assert.deepEqual(await hooks.dispatch({ hook_event_name: 'UserPromptSubmit', prompt: 'hello' }), {
+      decision: 'block', reason: 'denied by source policy', hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Seen: hello' }
+    })
+    await writeFile(join(config, 'settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ matcher: 'hello', hooks: [context] }] } }))
+    await assert.rejects(createProjectHooks({ root, shell: process.execPath }), /matchers are not supported/)
+  } finally {
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-hooks-')) await rm(actual, { recursive: true, force: true })
+  }
+})
+
 test('does not treat global Claude settings as project hooks when the workspace is home', async () => {
   const home = await mkdtemp(join(tmpdir(), 'pac-hooks-'))
   try {
