@@ -6,14 +6,14 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 
 - [x] Verify the HAPI model-list probe uses its requested directory, preserves native models, and excludes PAC for an unsupported source policy on both installed runners. Real provider tests and the machine 4 wrapper correction are documented in [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
 - [ ] Use the existing HAPI hub and select an existing registered source machine; do not create a separate hub to substitute for this workflow.
-- [ ] Create an OpenCode chat and select every available model from the intended PAC, with the named PAC and actual selected model matching throughout the turn. All 13 IDs advertised on 1C-Prog returned real replies in one test chat; the controller's internal alias mapping remains unverified. See [the evidence](ACCEPTANCE.md#relay-and-notification-checks-2026-11-13).
+- [ ] Create an OpenCode chat and select every available model from the intended PAC, with the named PAC and actual selected model matching throughout the turn. All 13 IDs advertised on the first Windows machine returned real replies in one test chat; the controller's internal alias mapping remains unverified. See [the evidence](ACCEPTANCE.md#relay-and-notification-checks-2026-11-13).
 - [ ] Exercise real Claude responses, streaming, reading, writing, editing, shell, search, permissions, cancellation, follow-up, and model switching on the selected source machine.
 - [ ] Verify the same flow on the other Windows machine through its own existing HAPI hub and runner, including restart and reconnect. A temporary runner attached to the first machine's hub does not satisfy this criterion.
 - [ ] Detect expired controller authentication and show actionable guidance without logging credentials or replaying an uncertain turn.
 
 ## Context, recovery and durability
 
-- [x] Verify manual compaction actually compacts the PAC conversation and retains a deliberately recorded fact in the next turn on the installed working runner. The existing 1C-Prog runner and an isolated HAPI runner both passed with real Claude.
+- [x] Verify manual compaction actually compacts the PAC conversation and retains a deliberately recorded fact in the next turn on the installed working runner. The existing runner on the first Windows machine and an isolated HAPI runner both passed with real Claude.
 - [ ] Verify automatic compaction near the real context limit, including subsequent tools, instructions, skills, subagents, and session resume. Record model and limits used.
 - [x] Exercise automatic compaction and context recall through HAPI with an artificially lowered test threshold; verify the completion notice is visible. This does not establish the production model's actual threshold.
 - [ ] Verify session bindings, history, selected PAC and model survive runner, controller, relay, and Windows restarts without switching sessions or duplicating uncertain actions.
@@ -27,7 +27,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [ ] Resolve and retest slow HAPI archive acknowledgement on both installed runners. The HAPI session and all 17 observed child processes exited in about one second on the first machine, but the archive API returned 200 after 45 seconds; the second machine took 22 seconds. Inspect the runner confirmation path without weakening process ownership checks or patching HAPI for PAC.
 - [ ] With the PAC relay unavailable, verify native OpenCode model discovery still works and the unavailable PAC is not advertised. This passed with the actual OpenCode ACP and an isolated synthetic native provider. The fix is staged for the next runner start on both Windows profiles; it is not yet verified in the running profiles.
 - [ ] Store durable bindings and installation outside temporary build and checkout paths; preserve existing session bindings during migration.
-- [x] Keep the verified PAC runner selected through a same-version managed kit repair, and reject a damaged pin or an incompatible base version. This was checked on the existing 1C-Prog profile and in isolated installer tests.
+- [x] Keep the verified PAC runner selected through a same-version managed kit repair, and reject a damaged pin or an incompatible base version. This was checked on the existing profile on the first Windows machine and in isolated installer tests.
 
 ## Instructions, skills and hooks
 
@@ -46,7 +46,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 
 - [ ] Replace the modified HAPI runner, hub and UI with integration using unmodified, normally updateable HAPI. Keep integration behavior in PAC Bridge or supported extension interfaces; do not patch HAPI source or distribute a custom HAPI binary.
 - [ ] Verify model discovery, streamed answers, tools, permissions, questions, context compaction, session recovery, background tasks and Telegram notifications end to end with the unmodified HAPI. Record unsupported behavior instead of claiming parity.
-- [x] Start and stop a real PAC background shell task from the installed `/workflow/4/` OpenCode runner against its corporate baseline hub. A delayed test file was not written after the original command deadline. This verifies the provider command path, not the old PAC-specific task-control UI.
+- [x] Start and stop a real PAC background shell task from the installed OpenCode runner on the second machine against its corporate baseline hub. A delayed test file was not written after the original command deadline. This verifies the provider command path, not the old PAC-specific task-control UI.
 - [ ] Test HAPI and OpenCode version updates and rollback with existing sessions and machine identity preserved. Keep the existing deployment until this migration is verified.
 - [ ] Provide versioned, reproducible installation from the repository using scripts and existing runtimes. Avoid a custom standalone executable or PAC Bridge archive; verify dependencies and explain any unavoidable platform runtime.
 - [x] Stage and repeat the POSIX source installer on Linux with synthetic connection files and a native executable fixture. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).

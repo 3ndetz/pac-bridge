@@ -10,7 +10,7 @@ This connects a new Windows runner to the existing HAPI hub specified in the pri
 
 * Windows 10 or 11, PowerShell 5.1, Node.js 24 with npm, Git for Windows in its normal location, and native OpenCode 1.19.5.
 * Network access to the existing HAPI gateway, the private PAC relay, npm, and the software download sources. The private relay requires the appropriate corporate network or VPN.
-* ServerMallAgents connection kit `0.34.4-sm4` or a reviewed compatible successor, extracted into a **permanent** directory. Its published download is <https://apps.servermall.ru/workflow/sma-connection-kit.zip>. Its `Install-Runner.ps1` uses the existing hub access token; do not run the new-machine enrollment command.
+* ServerMallAgents connection kit `0.34.4-sm4` or a reviewed compatible successor, extracted into a **permanent** directory. Its published download is available from the organization administrator. Its `Install-Runner.ps1` uses the existing hub access token; do not run the new-machine enrollment command.
 * A separate private directory containing `connection.json`, `hapi-token.txt`, `pac-source-token.txt`, and `pac-relay-ca.pem`. Never put these files into Git, an archive published on GitHub, logs, or chat. The HAPI token grants access to the existing hub and its sessions; only transfer it to a trusted machine and user account.
 * A checkout of this repository with `package-lock.json` and the `windows` directory. `Install-FromRepo.ps1` downloads the reviewed HAPI executable individually and checks it against `runtime-manifest.json`; a PAC Bridge archive is not required.
 

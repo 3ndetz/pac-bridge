@@ -58,7 +58,7 @@ compaction and context recall. Report each check and every unresolved issue.
 ```
 
 For the currently prepared transfer, the source files are in
-`C:\Users\v.slavkin\Downloads\PAC-Bridge-keys` on the first Windows machine.
+`%USERPROFILE%\Downloads\PAC-Bridge-keys` on the first Windows machine.
 Only `connection.json`, `pac-source-token.txt`, and `pac-relay-ca.pem` are used
 when the destination already has its own HAPI profile. The separate
 `hapi-token.txt` in that directory is not required for that scenario. Transfer
