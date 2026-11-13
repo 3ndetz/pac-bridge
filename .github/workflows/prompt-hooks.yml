@@ -23,6 +23,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Offline regression suite
+        run: npm test
       - name: Source hooks and ACP routing
         run: node --test --test-concurrency=1 --test-name-pattern='source prompt hooks|original prompt|forwards prompt hook' test/opencode-acp-session.test.mjs test/project-hooks.test.mjs
       - name: Controller with synthetic model
