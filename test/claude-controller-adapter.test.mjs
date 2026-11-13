@@ -29,6 +29,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
   const scopedTest = process.env.PAC_TEST_SYNTHETIC_SCOPED === '1'
   const scopedFailure = process.env.PAC_TEST_SYNTHETIC_SCOPED_FAILURE === '1'
   const promptHookTest = process.env.PAC_TEST_SYNTHETIC_PROMPT_HOOK === '1'
+  const oldSourceTest = process.env.PAC_TEST_SYNTHETIC_OLD_SOURCE === '1'
   let promptHooks, modelSawHookContext = false
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || !request.url.startsWith('/v1/messages')) { response.writeHead(404).end(); return }
@@ -70,7 +71,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
       ...process.env, HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key',
       ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`, NO_PROXY: '127.0.0.1,localhost',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1',
-      ...(promptHookTest ? { PAC_TEST_PROJECT_HOOKS: '1' } : {}),
+      ...(promptHookTest || oldSourceTest ? { PAC_TEST_PROJECT_HOOKS: '1' } : {}),
     } })
     child.stderr.resume()
     peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { timeoutMs: 60000,
@@ -87,8 +88,9 @@ test('runs the installed controller against a local synthetic model endpoint', {
         return { content: 'SYNTHETIC_SOURCE_CONTENT' }
       } })
     await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
-    const session = await peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, ...(scopedTest ? { scopedRules: true } : {}) } } })
+    const session = await peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, ...(scopedTest ? { scopedRules: true } : {}), ...(promptHookTest ? { promptHooks: true } : {}) } } })
     if (promptHookTest) {
+      assert.deepEqual(await peer.call('pac/hooks/capabilities', { sessionId: session.sessionId }), { promptSubmit: true })
       await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'BLOCK_ME' }] }, 90000)
       assert.equal(requests, 0, 'Blocked prompt must not reach the model')
     }

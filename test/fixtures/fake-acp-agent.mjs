@@ -20,6 +20,7 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
   },
   onRequest: async (method, params) => {
     if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+    if (method === 'pac/hooks/capabilities' && process.argv.includes('--prompt-hook')) return { promptSubmit: true }
     if (method === 'session/new') {
       workspace = params?._meta?.pac?.workspaceCwd
       return { sessionId: native ? 'native-session' : 'remote-session',
@@ -37,6 +38,11 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/prompt') {
+      if (process.argv.includes('--prompt-hook')) {
+        const result = await peer.call('pac/hooks/dispatch', { sessionId: params.sessionId, input: { hook_event_name: 'UserPromptSubmit', prompt: 'INTERNAL_WRAPPER' } })
+        peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(result) } } })
+        return { stopReason: 'end_turn' }
+      }
       if (process.argv.includes('--background-task')) {
         peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'subagent_spawned', subagentSessionId: 'child-1', name: 'fixture', _meta: { pacBridge: { background: true } } } })
         return { stopReason: 'end_turn' }

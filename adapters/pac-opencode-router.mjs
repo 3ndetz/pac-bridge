@@ -160,7 +160,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           })
           if (binding) state.translator = createSubagentTranslator({ localSessionId: session.id, remoteSessionId: binding.remoteSessionId, pacId: endpoint.id })
           state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
-            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions) } },
+            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions), promptHooks: !!state.hooks } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
             clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {}, session: { compaction: {} } },
           onRequest: async (remoteMethod, remoteParams) => {
@@ -208,6 +208,11 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
               let output
               try {
                 const hooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH })
+                if (remoteParams.input?.hook_event_name === 'UserPromptSubmit') {
+                  if (!hooks.hasEvent('UserPromptSubmit')) return {}
+                  if (typeof state.currentUserPrompt !== 'string') throw new Error('The original user prompt is unavailable to the source hook')
+                  remoteParams.input = { ...remoteParams.input, prompt: state.currentUserPrompt }
+                }
                 output = await hooks.dispatch(remoteParams.input)
               } catch (error) {
                 if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ hookFailure: true }) + '\n')
@@ -495,22 +500,36 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
         client.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: message } } })
         throw error
       }
+      if (selected.hooks) {
+        const currentHooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH })
+        if (currentHooks.hasEvent('UserPromptSubmit')) {
+          const prompt = method === 'pac/compact' ? '/compact' : Array.isArray(params.prompt) && params.prompt.length === 1 && params.prompt[0]?.type === 'text' ? params.prompt[0].text : undefined
+          if (typeof prompt !== 'string') throw new Error('PAC Bridge cannot pass this prompt to the configured source hook')
+          let capability
+          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm support for source prompt hooks') }
+          if (capability?.promptSubmit !== true) throw new Error('PAC controller does not support source prompt hooks')
+        }
+      }
     }
     if (method === 'pac/compact') {
       if (selected.compaction) throw new Error('PAC compaction is already in progress')
+      if (Object.hasOwn(selected, 'currentUserPrompt')) throw new Error('A PAC prompt is already running')
       let settle
       const terminal = new Promise((resolve) => { settle = resolve })
       const operation = { chunks: '', summary: '', status: null, settle }
       selected.compaction = operation
+      selected.currentUserPrompt = '/compact'
       try {
         await selected.remote.call('session/prompt', { prompt: [{ type: 'text', text: '/compact' }] }, 0)
         await selected.remote.drainNotifications()
         if (!operation.status) await Promise.race([terminal, new Promise((resolve) => setTimeout(resolve, 3000))])
         if (operation.status !== 'completed') throw new Error('PAC compaction did not report a confirmed successful result')
         return { status: 'completed', summary: operation.summary || operation.chunks || '' }
-      } finally { if (selected.compaction === operation) selected.compaction = null }
+      } finally { if (selected.compaction === operation) selected.compaction = null; delete selected.currentUserPrompt }
     }
     if (method === 'session/prompt' && Array.isArray(params.prompt)) {
+      if (Object.hasOwn(selected, 'currentUserPrompt')) throw new Error('A PAC prompt is already running')
+      selected.currentUserPrompt = params.prompt.length === 1 && params.prompt[0]?.type === 'text' && typeof params.prompt[0].text === 'string' ? params.prompt[0].text : undefined
       // The remote Claude runtime also describes its own process directory in
       // the environment. Restate the source directory alongside each user
       // turn so that controller paths are not mistaken for project paths.
@@ -532,6 +551,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       }
       throw error
     } finally {
+      if (method === 'session/prompt') delete selected.currentUserPrompt
       if (completionCapture && selected.completionCapture === completionCapture) selected.completionCapture = null
     }
   },

@@ -301,7 +301,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       ...(aliases ? { toolAliases: { Read: 'mcp__pac__Read', Write: 'mcp__pac__Write', Edit: 'mcp__pac__Edit', Bash: 'mcp__pac__Bash', Glob: 'mcp__pac__Glob', Grep: 'mcp__pac__Grep', Skill: 'mcp__pac__Skill', AskUserQuestion: 'mcp__pac__AskUserQuestion' },
         disallowedTools: ['PowerShell', 'NotebookEdit', 'WebFetch', 'WebSearch',
           ...(backgroundEnabled ? [] : ['Agent', 'Task', 'TaskOutput', 'TaskStop'])] } : {}),
-      hooks: { ...options.hooks, UserPromptSubmit: [...(options.hooks?.UserPromptSubmit || []), { hooks: [projectHook], onFailure: 'block' }],
+      hooks: { ...options.hooks, ...(meta.pac?.promptHooks === true ? { UserPromptSubmit: [...(options.hooks?.UserPromptSubmit || []), { hooks: [projectHook], onFailure: 'block' }] } : {}),
         PostToolUse: [...(options.hooks?.PostToolUse || []), { hooks: [projectHook, scopedRulesHook] }],
         PostToolUseFailure: [...(options.hooks?.PostToolUseFailure || []), { hooks: [projectHook] }],
         PreToolUse: [...(options.hooks?.PreToolUse || []), { hooks: [projectHook], onFailure: 'block' }, { hooks: [async (input) => {
@@ -320,7 +320,11 @@ const app = acp.v1AgentApp(undefined, (agent) => {
   agent.newSession = (params) => prepareSession(params, false)
   agent.loadSession = (params) => prepareSession(params, true)
 })
-const extendedApp = app.onRequest('pac/tasks/stop_native', { parse: (params) => {
+const extendedApp = app.onRequest('pac/hooks/capabilities', { parse: (params) => {
+  if (!params || typeof params.sessionId !== 'string' || !params.sessionId) throw new Error('Invalid hook capability request')
+  return params
+} }, async ({ params }) => ({ promptSubmit: hooksEnabled && !!activeAgent.sessions[params.sessionId] }))
+  .onRequest('pac/tasks/stop_native', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || typeof params.taskId !== 'string' || !params.taskId) throw new Error('Invalid native task stop request')
   return params
 } }, async ({ params }) => stopNativeTask(activeAgent.sessions[params.sessionId], params.taskId))

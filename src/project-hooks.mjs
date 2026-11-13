@@ -113,6 +113,7 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
   }
 
   return {
+    hasEvent(event) { return (hooks.get(event) || []).length > 0 },
     async dispatch(input) {
       if (!input || !supportedEvents.has(input.hook_event_name) || (input.hook_event_name === 'UserPromptSubmit' ? typeof input.prompt !== 'string' : typeof input.tool_name !== 'string')) throw new Error('Unsupported project hook event')
       const matching = (hooks.get(input.hook_event_name) || []).filter((entry) => !entry.matcher || entry.matcher.test(input.tool_name))
