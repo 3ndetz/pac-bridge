@@ -22,6 +22,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [x] Provide reviewed stale recovery-lock repair with automated live-owner, legacy and concurrency checks on Windows and Linux.
 - [ ] Verify interrupted background and remote actions beyond the named one-line end-to-end test, including the rare case of a stale repair lock.
 - [ ] Investigate the machine 4 ACP initialization that took approximately 168 seconds during a real HAPI session startup.
+- [ ] Deploy and verify the independently tested Windows relay TLS-handshake recovery on the existing profiles without interrupting active sessions. A candidate completed a real Claude turn against the existing machine 4 hub; the installed relay is not yet updated. See [the evidence](ACCEPTANCE.md#relay-and-notification-checks-2026-11-13).
 - [ ] Verify disconnection, reconnection, authorization expiry, model unavailability, concurrency, timeouts, and cancellation while actions are running. Confirm failures are explicit and recoverable.
 - [ ] Resolve and retest slow HAPI archive acknowledgement on both installed runners. The HAPI session and all 17 observed child processes exited in about one second on the first machine, but the archive API returned 200 after 45 seconds; the second machine took 22 seconds. Inspect the runner confirmation path without weakening process ownership checks or patching HAPI for PAC.
 - [ ] With the PAC relay unavailable, verify native OpenCode model discovery still works and the unavailable PAC is not advertised. This passed with the actual OpenCode ACP and an isolated synthetic native provider. The fix is staged for the next runner start on both Windows profiles; it is not yet verified in the running profiles.
@@ -29,6 +30,8 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [x] Keep the verified PAC runner selected through a same-version managed kit repair, and reject a damaged pin or an incompatible base version. This was checked on the existing 1C-Prog profile and in isolated installer tests.
 
 ## Instructions, skills and hooks
+
+- [x] Confirm actual Telegram delivery for an OpenCode PAC turn using the existing local Codex notification sender. This covers the verified sender and turn, not all native OpenCode hooks. See [the evidence](ACCEPTANCE.md#relay-and-notification-checks-2026-11-13).
 
 - [x] Discover file-backed skills nested in source directories and from ancestor project directories, respecting the nearest Git boundary and nearer project definition. Compare against the installed OpenCode and verify an ancestor skill invocation with real Claude. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
 - [x] Discover and invoke the installed OpenCode built-in `customize-opencode` skill with real Claude without granting a filesystem root. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).

@@ -1,5 +1,11 @@
 # Acceptance criteria: cross-platform transparent agent bridge
 
+## Relay and notification checks (2026-11-13)
+
+On machine 4, an existing HAPI session was started through a temporary instance of the reviewed relay transport against the same existing hub. The TLS agent recovered one connection reset before any HTTP request was sent; OpenCode received a real Claude reply and the test session was archived. The recipient confirmed delivery of the Telegram completion notification for that actual turn. Earlier delivery of a synthetic Codex `Stop` event was also confirmed. These results cover the specific sender and scenarios exercised, not every OpenCode or Codex hook.
+
+The separately published relay candidate recovered pre-handshake resets in tests while preserving one delivery per HTTP request, including concurrent requests, cancellation and WebSocket upgrade. The actual machine 4 relay and the shared gateway have not yet been updated; other active sessions must be preserved during rollout. The release and outstanding work are tracked in [D1C-2321](https://service.servermall.ru/browse/D1C-2321).
+
 ## Live checks on an existing second Windows profile (12 November 2026)
 
 An existing Windows HAPI profile retained its hub and runner identity while receiving the PAC integration. Through its actual runner, real Claude selected a PAC model, wrote a source file, completed manual compaction and recalled a marker. The same real-Claude session path invoked an OpenCode project skill and read its bundled resource, executed a post-write hook, enforced a pre-read denial without exposing the file contents, and executed a post-read-failure hook. Reinstalling the managed kit retained the pinned PAC runtime; a subsequent real-Claude compaction and recall check passed. These are API and runner checks; the create-chat UI, Windows reboot, all skill metadata and native OpenCode plugin hooks are not covered.
