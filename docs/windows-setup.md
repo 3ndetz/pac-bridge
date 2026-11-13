@@ -35,6 +35,16 @@ New provider-mode wrappers follow the selected staged revision for newly launche
 
 Older `Install-FromRepo.ps1`, `Install-PacRunner.ps1`, and `Install-ExistingProfile.ps1` describe the superseded PAC-patched runtime and should not be used for this provider setup. Follow [RELIABILITY-CHECKLIST.md](../RELIABILITY-CHECKLIST.md) for remaining limitations.
 
+To check every currently advertised PAC model in one temporary HAPI chat, run
+`$env:PAC_TEST_INSTALLED='1'; node scripts/verify-windows-pac-models.mjs` from
+the repository. This sends one real prompt per model and consumes model quota.
+The temporary launcher disables completion notifications for this test only;
+the installed notification configuration is unchanged. The check confirms
+selection and a response for each advertised ID, not the controller's internal
+mapping from aliases to model implementations. It archives its own chat and
+removes its own workspace only after confirming the archive; an uncertain
+cleanup is reported with the test session and workspace for inspection.
+
 ## Prompt for an agent on another PC
 
 ```text
