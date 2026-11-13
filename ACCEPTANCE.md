@@ -283,3 +283,6 @@ In the first machine's current bridge checkout, direct source-skill discovery fo
 
 
 On 13 November, a real Claude background shell task in the existing first-machine HAPI was stopped with `/pac-stop <task-id>`. The same isolated chat reported the stop and its scheduled write was absent after the command would have completed. The chat was confirmed archived. This supersedes the earlier synthetic-only stop result above; it does not establish native task cards or every cancellation and recovery scenario.
+
+
+After the PAC account was signed in again on 13 November, real Claude passed the skill resource, project hook, manual compaction and same-session resume scenario through both existing Windows HAPI instances. Four matching hook events were observed in each of the three stages on each machine. The first machine reported an uncertain final archive response; a separate read confirmed that the test chat was archived. The first response remained slow, and the checks do not establish general OpenCode plugin or hook parity.
