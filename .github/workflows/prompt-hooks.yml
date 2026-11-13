@@ -1,0 +1,37 @@
+name: Prompt hook compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prompt-hooks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Source hooks and ACP routing
+        run: node --test --test-concurrency=1 --test-name-pattern='source prompt hooks|original prompt|forwards prompt hook' test/opencode-acp-session.test.mjs test/project-hooks.test.mjs
+      - name: Controller with synthetic model
+        run: node --test test/claude-controller-adapter.test.mjs
+        env:
+          PAC_TEST_SYNTHETIC_CLAUDE: '1'
+          PAC_TEST_SYNTHETIC_PROMPT_HOOK: '1'
+      - name: New controller with older source
+        run: node --test test/claude-controller-adapter.test.mjs
+        env:
+          PAC_TEST_SYNTHETIC_CLAUDE: '1'
+          PAC_TEST_SYNTHETIC_OLD_SOURCE: '1'
