@@ -41,4 +41,4 @@ try{
  const resumedOutput=await turn('Use the pac-proof skill, read its resource, then repeat the remembered PAC_CONTEXT_MEMORY marker. Do not modify files.','PAC_CONTEXT_MEMORY_23974')
  const hooksResumed=await countHooks(), skillResumed=resumedOutput.includes('pac-proof')&&resumedOutput.includes('[PAC tool event]')&&resumedOutput.includes('PAC_CONTEXT_SKILL_RESOURCE_74193');if(!skillResumed||hooksResumed<=hooksAfter)throw Error('Skill or hooks were not observed after resume')
  console.log(JSON.stringify({stage:'after_resume',sameSession:true,skill:skillResumed,hookEvents:hooksResumed,recall:true}))
-}finally{if(id&&jwt&&!archived&&!archiveAttempted){try{await request(`/api/sessions/${id}/archive`,'POST')}catch{console.error('Test session cleanup outcome is uncertain');process.exitCode=1}}}
+}finally{if(id&&jwt&&!archived&&!archiveAttempted){try{await request(`/api/sessions/${id}/archive`,'POST')}catch{let confirmed=false;try{confirmed=(await request(`/api/sessions/${id}`)).session?.metadata?.lifecycleState==='archived'}catch{}if(!confirmed){console.error('Test session cleanup outcome is uncertain');process.exitCode=1}}}}
