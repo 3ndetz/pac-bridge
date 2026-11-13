@@ -286,3 +286,6 @@ On 13 November, a real Claude background shell task in the existing first-machin
 
 
 After the PAC account was signed in again on 13 November, real Claude passed the skill resource, project hook, manual compaction and same-session resume scenario through both existing Windows HAPI instances. Four matching hook events were observed in each of the three stages on each machine. The first machine reported an uncertain final archive response; a separate read confirmed that the test chat was archived. The first response remained slow, and the checks do not establish general OpenCode plugin or hook parity.
+
+
+The unmodified PAC-free HAPI web selector from source commit `2161a9f` was rendered in a component test with PAC Claude, PAC Codex and native models. Their labels appeared and both PAC IDs were returned unchanged when selected. Re-run with Docker using `node scripts/verify-stock-hapi-selector.mjs <absolute-saas-apps-center-checkout>` on the branch whose web recipe pins that source. This is not an end-to-end verification of the live HAPI, provider discovery, warnings, or existing sessions.
