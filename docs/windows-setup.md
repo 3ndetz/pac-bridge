@@ -2,7 +2,9 @@
 
 This procedure targets an **existing configured HAPI runner**, under the Windows account that owns it. It uses the existing hub and machine identity, and installs PAC Bridge as a separate OpenCode provider. It does not install or replace HAPI. Linux and macOS installation is not yet fully verified.
 
-The provider has been exercised on two Windows profiles. The bootstrap below is new and needs a clean-profile end-to-end test before it can be regarded as a finished installer. Existing PAC deployments must follow their migration procedure rather than overwrite their configuration.
+**Do not run the bootstrap, provider-disable, live-dispatch or notification-configuration scripts on a real profile yet.** Isolated audits found incomplete failure recovery and retry; disable and live dispatch can overwrite concurrent changes, and notification setup can follow pre-existing hard links or junctions. Crash-safe updates and protection against path substitution are not established. The provider has been exercised on two Windows profiles, but those checks do not make these scripts production-ready. Existing PAC deployments must not be overwritten.
+
+The bootstrap now checks the source checkout and required tracked files before creating a profile. Synthetic tests cover ZIP snapshots, nested and modified checkouts, missing files, and a clean checkout through input validation; full installation and recovery remain unverified.
 
 1. Install Git for Windows, Node.js 24 with npm, and OpenCode 1.19.5. The verified OpenCode version can be installed for the current user:
 
@@ -41,9 +43,10 @@ the repository. This sends one real prompt per model and consumes model quota.
 The temporary launcher disables completion notifications for this test only;
 the installed notification configuration is unchanged. The check confirms
 selection and a response for each advertised ID, not the controller's internal
-mapping from aliases to model implementations. It archives its own chat and
-removes its own workspace only after confirming the archive; an uncertain
-cleanup is reported with the test session and workspace for inspection.
+mapping from aliases to model implementations. It attempts to archive its own chat,
+but retains the workspace after any spawn until process ownership and exit can be
+verified. The command reports the retained workspace and exits unsuccessfully while
+cleanup is unresolved.
 
 ## Prompt for an agent on another PC
 
