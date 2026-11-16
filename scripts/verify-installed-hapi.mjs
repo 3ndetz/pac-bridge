@@ -57,7 +57,17 @@ try {
   console.log(JSON.stringify({ runner: true, model: true, compact: true, recall: true }))
 } finally {
   if (sessionId && jwt) {
+    const archiveStarted = Date.now()
+    let archiveStatus = 'ok'
     try { await request(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, 'POST') }
-    catch { console.error('The verification chat could not be archived; inspect it before retrying.'); process.exitCode = 1 }
+    catch (error) { archiveStatus = Number.isInteger(error.status) ? String(error.status) : 'unavailable' }
+    const archiveMs = Date.now() - archiveStarted
+    let archived = false
+    try {
+      const session = (await request(`/api/sessions/${encodeURIComponent(sessionId)}`)).session
+      archived = session?.metadata?.lifecycleState === 'archived' && session.active === false
+    } catch {}
+    if (!archived) { console.error(`The verification chat archive is unconfirmed; inspect session ${sessionId} before retrying.`); process.exitCode = 1 }
+    console.log(JSON.stringify({ archived, archiveStatus, archiveMs }))
   }
 }
