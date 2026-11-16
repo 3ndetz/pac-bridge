@@ -27,7 +27,24 @@ fi
 if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Installation lock exists; inspect its owner and state before retrying.' >&2; exit 1; fi
 stage=''
 temp=''
-cleanup() { case "$stage" in "$base"/versions/.stage.*) [ ! -d "$stage" ] || rm -rf "$stage";; esac; case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp";; esac; rmdir "$base/.install-lock" 2>/dev/null || :; }
+cleanup() {
+  case "$stage" in
+    "$base"/versions/.stage.*)
+      if [ -d "$stage" ]; then
+        resolved_base=$(CDPATH= cd -P "$base" && pwd -P) || resolved_base=''
+        resolved_versions=$(CDPATH= cd -P "$base/versions" && pwd -P) || resolved_versions=''
+        resolved_stage=$(CDPATH= cd -P "$stage" && pwd -P) || resolved_stage=''
+        if [ -n "$resolved_base" ] && [ "$resolved_versions" = "$resolved_base/versions" ] &&
+           [ "$(dirname "$resolved_stage")" = "$resolved_versions" ]; then
+          case "${resolved_stage##*/}" in .stage.*) rm -rf "$resolved_stage";; *) printf '%s\n' 'Stage cleanup requires inspection.' >&2;; esac
+        else
+          printf '%s\n' 'Stage cleanup requires inspection.' >&2
+        fi
+      fi;;
+  esac
+  case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp";; esac
+  rmdir "$base/.install-lock" 2>/dev/null || :
+}
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 for name in connection-directory opencode-path; do
