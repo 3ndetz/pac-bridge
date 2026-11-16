@@ -28,7 +28,8 @@ if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Installation l
 stage=''
 temp=''
 cleanup() { case "$stage" in "$base"/versions/.stage.*) [ ! -d "$stage" ] || rm -rf "$stage";; esac; case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp";; esac; rmdir "$base/.install-lock" 2>/dev/null || :; }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 for name in connection-directory opencode-path; do
   if [ -f "$base/$name" ]; then
     case "$name" in connection-directory) expected=$keys;; opencode-path) expected=$binary;; esac
