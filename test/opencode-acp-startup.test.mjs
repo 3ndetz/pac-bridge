@@ -13,4 +13,3 @@ test('reports bounded startup timing on failure without exposing the selected mo
   assert.ok(diagnostics.some(value => /^startup:session-new:[0-9]+ms$/.test(value)))
   assert.ok(diagnostics.every(value => !value.includes('PAC_private')))
 })
-
