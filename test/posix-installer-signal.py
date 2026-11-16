@@ -18,6 +18,9 @@ handle = None
 npm_handle = None
 safe_cleanup = False
 release = root / 'release'
+mode = os.environ.get('PAC_TEST_SIGNAL', 'TERM')
+if mode not in ('TERM', 'KILL'):
+    raise ValueError('Invalid isolated signal scenario.')
 try:
     repo, home, keys, fakebin, native = [root / name for name in ('repo', 'home', 'keys', 'bin', 'native')]
     for directory in (repo / 'scripts', repo / 'adapters', repo / 'src', repo / 'source-package', home, keys, fakebin, native):
@@ -59,7 +62,7 @@ exit 0''')
         time.sleep(0.05)
     npm_pid = int((root / 'ready').read_text(encoding='utf-8'))
     npm_handle = os.pidfd_open(npm_pid)
-    signal.pidfd_send_signal(handle, signal.SIGTERM)
+    signal.pidfd_send_signal(handle, signal.SIGTERM if mode == 'TERM' else signal.SIGKILL)
     release.touch()
     code = child.wait(timeout=20)
     if not select.select([npm_handle], [], [], 20)[0] or not (root / 'done').exists():
@@ -68,9 +71,21 @@ exit 0''')
     if code == 0:
         raise AssertionError('Interrupted installer reported success.')
     base = home / '.local' / 'share' / 'pac-bridge'
-    if (base / '.install-lock').exists() or (base / 'current').exists() or any((base / 'versions').iterdir()):
-        raise AssertionError('Interrupted installer did not clean its own stage and lock.')
-    print('Owned installer exited on SIGTERM and cleaned its stage and lock.')
+    if mode == 'TERM':
+        if (base / '.install-lock').exists() or (base / 'current').exists() or any((base / 'versions').iterdir()):
+            raise AssertionError('Interrupted installer did not clean its own stage and lock.')
+        print('Owned installer exited on SIGTERM and cleaned its stage and lock.')
+    else:
+        if not (base / '.install-lock').is_dir() or (base / 'current').exists() or not any((base / 'versions').iterdir()):
+            raise AssertionError('Forced termination did not preserve the stage and lock.')
+        safe_cleanup = False
+        retry = subprocess.Popen(['sh', str(repo / 'scripts' / 'install-posix.sh'), str(keys), str(native / 'opencode')],
+                                 cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        retry_code = retry.wait(timeout=20)
+        safe_cleanup = True
+        if retry_code == 0 or not (base / '.install-lock').is_dir() or not any((base / 'versions').iterdir()):
+            raise AssertionError('Retry did not preserve the unresolved stage and lock.')
+        print('Owned installer exited on SIGKILL; retry preserved its stage and lock.')
 finally:
     if handle is not None:
         os.close(handle)
