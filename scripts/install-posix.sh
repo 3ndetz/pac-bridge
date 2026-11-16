@@ -21,11 +21,57 @@ umask 077
 base="$HOME/.local/share/pac-bridge"
 if [ -e "$base" ] && [ ! -f "$base/.pac-bridge-install" ]; then printf '%s\n' 'Existing installation directory is not managed by this installer.' >&2; exit 1; fi
 mkdir -p "$base/versions" "$base/bin"
-: > "$base/.pac-bridge-install"
-if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Another installation is in progress.' >&2; exit 1; fi
+if [ ! -f "$base/.pac-bridge-install" ]; then
+  (set -C; : > "$base/.pac-bridge-install") 2>/dev/null || { printf '%s\n' 'Could not safely create installation marker.' >&2; exit 1; }
+fi
+if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Installation lock exists; inspect its owner and state before retrying.' >&2; exit 1; fi
 stage=''
-cleanup() { case "$stage" in "$base"/versions/.stage.*) [ ! -d "$stage" ] || rm -rf "$stage";; esac; rmdir "$base/.install-lock" 2>/dev/null || :; }
-trap cleanup EXIT HUP INT TERM
+temp=''
+cleanup() {
+  cleanup_uncertain=0
+  case "$stage" in
+    "$base"/versions/.stage.*)
+      if [ -L "$stage" ]; then
+        cleanup_uncertain=1
+      elif [ -d "$stage" ]; then
+        resolved_base=$(CDPATH= cd -P "$base" && pwd -P) || resolved_base=''
+        resolved_versions=$(CDPATH= cd -P "$base/versions" && pwd -P) || resolved_versions=''
+        resolved_stage=$(CDPATH= cd -P "$stage" && pwd -P) || resolved_stage=''
+        if [ -n "$resolved_base" ] && [ "$resolved_versions" = "$resolved_base/versions" ] &&
+           [ "$resolved_stage" = "$resolved_versions/${stage##*/}" ]; then
+          case "${resolved_stage##*/}" in .stage.*) rm -rf "$resolved_stage" || cleanup_uncertain=1; [ ! -e "$resolved_stage" ] || cleanup_uncertain=1;; *) cleanup_uncertain=1;; esac
+        else
+          cleanup_uncertain=1
+        fi
+      else
+        cleanup_uncertain=1
+      fi;;
+    '') ;;
+    *) cleanup_uncertain=1;;
+  esac
+  if [ -n "$temp" ] && { [ -e "$temp" ] || [ -L "$temp" ]; }; then
+    resolved_base=$(CDPATH= cd -P "$base" && pwd -P) || resolved_base=''
+    resolved_parent=$(CDPATH= cd -P "$(dirname "$temp")" && pwd -P) || resolved_parent=''
+    case "$temp" in
+      "$base"/.install.*) expected_parent=$resolved_base;;
+      "$base"/bin/.install.*) expected_parent=$resolved_base/bin;;
+      *) expected_parent='';;
+    esac
+    if [ -z "$resolved_base" ] || [ -z "$expected_parent" ] || [ "$resolved_parent" != "$expected_parent" ] || [ -L "$temp" ]; then
+      cleanup_uncertain=1
+    else
+      rm -f "$temp" || cleanup_uncertain=1
+      if [ -e "$temp" ] || [ -L "$temp" ]; then cleanup_uncertain=1; fi
+    fi
+  fi
+  if [ "$cleanup_uncertain" -ne 0 ]; then
+    printf '%s\n' 'Installer cleanup is unconfirmed; lock retained for inspection.' >&2
+    exit 1
+  fi
+  rmdir "$base/.install-lock" 2>/dev/null || { printf '%s\n' 'Installer lock removal is unconfirmed.' >&2; exit 1; }
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 for name in connection-directory opencode-path; do
   if [ -f "$base/$name" ]; then
     case "$name" in connection-directory) expected=$keys;; opencode-path) expected=$binary;; esac
@@ -44,16 +90,24 @@ if [ ! -d "$target" ]; then
   stage=''
 fi
 [ -f "$target/.complete" ] && [ -f "$target/adapters/pac-hapi-opencode.mjs" ] && [ -f "$target/scripts/pac-posix-launcher.mjs" ] || { printf '%s\n' 'Existing staged version is incomplete.' >&2; exit 1; }
-cp "$target/scripts/pac-posix-launcher.mjs" "$base/bin/pac-posix-launcher.mjs.tmp"
-mv "$base/bin/pac-posix-launcher.mjs.tmp" "$base/bin/pac-posix-launcher.mjs"
-cat > "$base/bin/opencode.tmp" <<'EOF'
+temp=$(mktemp "$base/bin/.install.XXXXXXXX")
+cp "$target/scripts/pac-posix-launcher.mjs" "$temp"
+mv -f "$temp" "$base/bin/pac-posix-launcher.mjs"
+temp=$(mktemp "$base/bin/.install.XXXXXXXX")
+cat > "$temp" <<'EOF'
 #!/bin/sh
 exec node "$(dirname "$0")/pac-posix-launcher.mjs" "$@"
 EOF
-chmod 700 "$base/bin/opencode.tmp"
-mv "$base/bin/opencode.tmp" "$base/bin/opencode"
-printf '%s\n' "$keys" > "$base/connection-directory.tmp"; mv "$base/connection-directory.tmp" "$base/connection-directory"
-printf '%s\n' "$binary" > "$base/opencode-path.tmp"; mv "$base/opencode-path.tmp" "$base/opencode-path"
-printf '%s\n' "$revision" > "$base/current.tmp"; mv "$base/current.tmp" "$base/current"
+chmod 700 "$temp"
+mv -f "$temp" "$base/bin/opencode"
+write_value() {
+  temp=$(mktemp "$base/.install.XXXXXXXX")
+  printf '%s\n' "$2" > "$temp"
+  mv -f "$temp" "$base/$1"
+}
+write_value connection-directory "$keys"
+write_value opencode-path "$binary"
+write_value current "$revision"
+temp=''
 printf '%s\n' 'PAC Bridge launcher installed. Put ~/.local/share/pac-bridge/bin first in the existing HAPI runner PATH.'
 printf '%s\n' 'Existing HAPI processes and chats were not restarted.'
