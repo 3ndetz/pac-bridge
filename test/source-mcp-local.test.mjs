@@ -119,6 +119,30 @@ test('a failed stop request is accepted only after the owned child closes', asyn
   await transport.close()
 })
 
+test('an exited child still requires its close event before cleanup succeeds', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: 0, signalCode: null })
+  let stops = 0, release
+  const transport = new ContainedTransport({}, tmpdir(), {}, 100, () => { stops++ }, 100)
+  transport.child = child
+  transport.closed = new Promise(resolve => { release = resolve })
+  let finished = false
+  const closing = transport.close().then(() => { finished = true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(finished, false)
+  assert.equal(stops, 0)
+  release()
+  await closing
+  assert.equal(finished, true)
+})
+
+test('an exited child with unconfirmed close reports cleanup failure', async () => {
+  const transport = new ContainedTransport({}, tmpdir(), {}, 100, () => {}, 20)
+  transport.child = Object.assign(new EventEmitter(), { exitCode: 0, signalCode: null })
+  transport.closed = new Promise(() => {})
+  await assert.rejects(transport.close(), /timed out/)
+  await assert.rejects(transport.close(), /timed out/)
+})
+
 test('a stalled transport write is bounded and terminates its child', async () => {
   let stops = 0
   const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, stdin: { writable: true, write() {} } })

@@ -28,7 +28,7 @@ export class ContainedTransport {
     this.child.stdin.on('error', error => this.onerror?.(error))
     this.child.stdout.on('error', error => this.onerror?.(error))
     this.child.on('error', error => this.onerror?.(error))
-    this.child.on('close', () => this.onclose?.())
+    this.closed = new Promise(resolve => this.child.once('close', () => { resolve(); this.onclose?.() }))
     await new Promise((resolve, reject) => { this.child.once('spawn', resolve); this.child.once('error', reject) })
   }
   async send(message) {
@@ -41,8 +41,11 @@ export class ContainedTransport {
   async stop() {
     if (!this.child) return
     const child = this.child; this.child = null
-    if (child.exitCode !== null || child.signalCode !== null) return
-    const exited = new Promise(resolve => child.once('close', resolve))
+    const exited = this.closed || new Promise(resolve => child.once('close', resolve))
+    if (child.exitCode !== null || child.signalCode !== null) {
+      await bounded(exited, this.cleanupTimeoutMs)
+      return
+    }
     let stopError
     try { this.stopChild(child) } catch (error) { stopError = error }
     try { await bounded(exited, this.cleanupTimeoutMs) } catch { throw stopError || new Error('Source MCP process cleanup timed out') }
