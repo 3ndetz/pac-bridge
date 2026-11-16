@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-$sourceScript=Join-Path (Split-Path -Parent $PSScriptRoot) 'windows\Configure-ExistingProvider.ps1'
+$scriptsRoot=Join-Path (Split-Path -Parent $PSScriptRoot) 'windows'
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('pac-checkout-preflight-'+[guid]::NewGuid().ToString('N'))
 $oldProfile=$env:USERPROFILE
 try {
@@ -9,18 +9,20 @@ try {
   $outer=Join-Path $testRoot 'outer'
   $zip=Join-Path $outer 'zip'
   New-Item -ItemType Directory -Path $testProfile,(Join-Path $zip 'windows') -Force | Out-Null
-  Copy-Item -LiteralPath $sourceScript -Destination (Join-Path $zip 'windows\Configure-ExistingProvider.ps1')
+  foreach($name in @('Configure-ExistingProvider.ps1','Install-ProviderMode.ps1','Assert-ProviderCheckout.ps1')) { Copy-Item -LiteralPath (Join-Path $scriptsRoot $name) -Destination (Join-Path $zip 'windows') }
   $env:USERPROFILE=$testProfile
   foreach($nested in @($false,$true)) {
     if($nested) { & git.exe init --quiet $outer; if($LASTEXITCODE -ne 0){throw 'Synthetic parent Git setup failed.'} }
-    $failed=$false
-    try { & (Join-Path $zip 'windows\Configure-ExistingProvider.ps1') -KitPath 'missing' -KeysPath 'missing' -OpenCodePath 'missing' } catch { $failed=$true }
-    if(!$failed){throw 'An archive or nested non-checkout was accepted.'}
+    foreach($entry in @('Configure-ExistingProvider.ps1','Install-ProviderMode.ps1')) {
+      $message=''
+      try { if($entry -eq 'Configure-ExistingProvider.ps1') { & (Join-Path $zip ('windows\'+$entry)) -KitPath 'missing' -KeysPath 'missing' -OpenCodePath 'missing' } else { & (Join-Path $zip ('windows\'+$entry)) -KitPath 'missing' } } catch { $message=$_.Exception.Message }
+      if($message -notmatch 'Git checkout'){throw 'An archive or nested non-checkout was not rejected by checkout preflight.'}
+    }
     if(@(Get-ChildItem -LiteralPath $testProfile -Force).Count -ne 0){throw 'Preflight modified the synthetic user profile.'}
   }
   $checkout=Join-Path $testRoot 'checkout'
   New-Item -ItemType Directory -Path (Join-Path $checkout 'windows'),(Join-Path $checkout 'adapters'),(Join-Path $checkout 'src'),(Join-Path $checkout 'source-package') -Force | Out-Null
-  Copy-Item -LiteralPath $sourceScript -Destination (Join-Path $checkout 'windows\Configure-ExistingProvider.ps1')
+  foreach($name in @('Configure-ExistingProvider.ps1','Install-ProviderMode.ps1','Assert-ProviderCheckout.ps1')) { Copy-Item -LiteralPath (Join-Path $scriptsRoot $name) -Destination (Join-Path $checkout 'windows') }
   foreach($file in @('adapters/install-hapi-command.mjs','adapters/pac-hapi-opencode.mjs','src/opencode-provider.mjs','source-package/package.json','source-package/package-lock.json')) { [IO.File]::WriteAllText((Join-Path $checkout $file),'fixture') }
   & git.exe init --quiet $checkout
   & git.exe -C $checkout add -- .
@@ -29,16 +31,25 @@ try {
   $message=''
   try { & (Join-Path $checkout 'windows\Configure-ExistingProvider.ps1') -KitPath 'missing' -KeysPath 'missing' -OpenCodePath 'missing' } catch { $message=$_.Exception.Message }
   if($message -notmatch 'missing'){throw 'A valid checkout did not reach subsequent input validation.'}
+  $message=''
+  try { & (Join-Path $checkout 'windows\Install-ProviderMode.ps1') -KitPath 'missing' } catch { $message=$_.Exception.Message }
+  if($message -notmatch 'missing'){throw 'A valid checkout did not reach provider input validation.'}
   [IO.File]::WriteAllText((Join-Path $checkout 'src/opencode-provider.mjs'),'changed')
   $message=''
   try { & (Join-Path $checkout 'windows\Configure-ExistingProvider.ps1') -KitPath 'missing' -KeysPath 'missing' -OpenCodePath 'missing' } catch { $message=$_.Exception.Message }
   if($message -notmatch 'Commit or discard'){throw 'Modified provider sources were not rejected before profile changes.'}
+  $message=''
+  try { & (Join-Path $checkout 'windows\Install-ProviderMode.ps1') -KitPath 'missing' } catch { $message=$_.Exception.Message }
+  if($message -notmatch 'Commit or discard'){throw 'Provider setup accepted modified sources.'}
   [IO.File]::WriteAllText((Join-Path $checkout 'src/opencode-provider.mjs'),'fixture')
   & git.exe -C $checkout rm --quiet -- source-package/package-lock.json
   & git.exe -C $checkout -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'missing manifest'
   $message=''
   try { & (Join-Path $checkout 'windows\Configure-ExistingProvider.ps1') -KitPath 'missing' -KeysPath 'missing' -OpenCodePath 'missing' } catch { $message=$_.Exception.Message }
   if($message -notmatch 'manifests must be tracked'){throw 'Missing dependency manifests were not rejected before profile changes.'}
+  $message=''
+  try { & (Join-Path $checkout 'windows\Install-ProviderMode.ps1') -KitPath 'missing' } catch { $message=$_.Exception.Message }
+  if($message -notmatch 'manifests must be tracked'){throw 'Provider setup accepted an incomplete checkout.'}
   [IO.File]::WriteAllText((Join-Path $checkout 'source-package/package-lock.json'),'fixture')
   & git.exe -C $checkout add -- source-package/package-lock.json
   & git.exe -C $checkout rm --quiet -- adapters/install-hapi-command.mjs
@@ -46,6 +57,9 @@ try {
   $message=''
   try { & (Join-Path $checkout 'windows\Configure-ExistingProvider.ps1') -KitPath 'missing' -KeysPath 'missing' -OpenCodePath 'missing' } catch { $message=$_.Exception.Message }
   if($message -notmatch 'missing tracked provider'){throw 'Missing provider sources were not rejected before profile changes.'}
+  $message=''
+  try { & (Join-Path $checkout 'windows\Install-ProviderMode.ps1') -KitPath 'missing' } catch { $message=$_.Exception.Message }
+  if($message -notmatch 'missing tracked provider'){throw 'Provider setup accepted an incomplete checkout.'}
   if(@(Get-ChildItem -LiteralPath $testProfile -Force).Count -ne 0){throw 'Preflight modified the synthetic user profile.'}
   Write-Output 'ZIP, nested, modified and incomplete checkouts rejected; clean checkout reached input validation.'
 } finally {
