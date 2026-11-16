@@ -13,7 +13,7 @@ Remaining work:
 
 A separate synthetic ACP-session test encountered the same unconfirmed Windows host stop after rejecting an unrelated background snapshot. This points to a shared process-lifecycle path, but does not establish why termination failed. Keep the failure visible; do not infer successful cleanup from a failed stop request.
 
-The source-runtime package and lockfile do not declare the MCP SDK required by the experimental source route. The experimental router defers that import until the test-only route is selected; a local disabled-path startup check passed with the SDK deliberately unavailable. Optional provenance discovery is explicitly disabled before opening a session. The experimental route and its dependencies remain unverified in the installed source runtime; do not deploy it as-is.
+The source-runtime manifest and lockfile pin the MCP SDK. A clean synthetic dependency installation and module imports passed without running npm scripts, a server or a model. The router defers MCP imports until the test-only route is selected; disabled-path startup was also checked without the SDK. Optional provenance discovery is explicitly disabled before opening a session. The experimental route remains unverified in the installed source runtime and is not ready for deployment.
 
 Eight session, permission, controller and quiescence tests passed in an isolated Linux container without network access, using the repository's development dependencies and synthetic collaborators. This does not validate the installed source runtime, a real MCP server, or the client authorization boundary.
 
