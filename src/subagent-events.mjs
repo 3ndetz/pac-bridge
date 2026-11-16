@@ -23,11 +23,13 @@ export function createSubagentTranslator({ localSessionId, remoteSessionId, pacI
         if (typeof id !== 'string' || !id || children.has(id)) throw new Error('Invalid or duplicate subagent identity')
         const parent = params.sessionId === remoteSessionId ? null : children.get(params.sessionId)
         if (params.sessionId !== remoteSessionId && !parent) throw new Error('Unknown subagent parent')
+        const background = update._meta?.pacBridge?.background
+        if (background !== undefined && typeof background !== 'boolean') throw new Error('Invalid subagent background state')
         const child = { id: scoped(id), parent: parent?.id || localSessionId, depth: (parent?.depth || 0) + 1,
-          name: typeof update.name === 'string' ? update.name : 'Subagent', background: update._meta?.pacBridge?.background === true, active: true }
+          name: typeof update.name === 'string' ? update.name : 'Subagent', nameKnown: typeof update.name === 'string', background, active: true }
         children.set(id, child)
         return { method: 'opencode/session/child_update', params: { rootSessionId: localSessionId, childSessionId: child.id,
-          parentSessionId: child.parent, depth: child.depth, type: 'status', status: 'created' } }
+          parentSessionId: child.parent, depth: child.depth, type: 'status', status: 'created', ...(child.nameKnown ? { name: child.name } : {}), ...(background !== undefined ? { background } : {}) } }
       }
       if (update.sessionUpdate === 'subagent_state_update') {
         const child = children.get(update.subagentSessionId)
@@ -36,7 +38,7 @@ export function createSubagentTranslator({ localSessionId, remoteSessionId, pacI
         if (!status) throw new Error('Unsupported subagent state')
         child.active = false
         return { method: 'opencode/session/child_update', params: { rootSessionId: localSessionId, childSessionId: child.id,
-          parentSessionId: child.parent, depth: child.depth, type: 'status', status } }
+          parentSessionId: child.parent, depth: child.depth, type: 'status', status, ...(child.nameKnown ? { name: child.name } : {}), ...(child.background !== undefined ? { background: child.background } : {}) } }
       }
       if (params.sessionId === remoteSessionId) return { method: 'session/update', params: { ...params, sessionId: localSessionId } }
       const child = children.get(params.sessionId)
@@ -45,7 +47,7 @@ export function createSubagentTranslator({ localSessionId, remoteSessionId, pacI
       if (typeof translated.toolCallId === 'string') translated.toolCallId = `${child.id}:${translated.toolCallId}`
       translated._meta = { ...translated._meta, 'opencode/child-session': { id: child.id, parentID: child.parent, depth: child.depth } }
       return { method: 'opencode/session/child_update', params: { rootSessionId: localSessionId, childSessionId: child.id,
-        parentSessionId: child.parent, depth: child.depth, type: 'update', update: translated } }
+        parentSessionId: child.parent, depth: child.depth, type: 'update', update: translated, ...(child.nameKnown ? { name: child.name } : {}), ...(child.background !== undefined ? { background: child.background } : {}) } }
     },
     backgroundTasks() {
       return [...children.values()].filter((child) => child.active && child.background).map((child) => ({

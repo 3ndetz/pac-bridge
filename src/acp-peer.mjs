@@ -42,6 +42,7 @@ export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 3
       clearTimeout(entry.timer)
       if (message.error) {
         const error = new Error(message.error.message || 'ACP request failed')
+        error.code = message.error.code
         error.rpc = message.error
         entry.reject(error)
       } else entry.resolve(message.result)
@@ -73,7 +74,8 @@ export function createAcpPeer(stream, { onRequest, onNotification, timeoutMs = 3
       const result = await onRequest(message.method, message.params)
       send({ jsonrpc: '2.0', id: message.id, result: result ?? null })
     } catch (error) {
-      if (!closed) send({ jsonrpc: '2.0', id: message.id, error: { code: Number.isInteger(error.code) ? error.code : -32603, message: error.message } })
+      if (!closed) send({ jsonrpc: '2.0', id: message.id, error: { code: Number.isInteger(error.code) ? error.code : -32603, message: error.message,
+        ...(error.rpc && Object.hasOwn(error.rpc, 'data') ? { data: error.rpc.data } : {}) } })
     } finally { inFlightRequestBytes -= requestBytes; inFlightRequests-- }
   })
   // readline buffers an unfinished line internally. Limit it before the peer
