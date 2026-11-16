@@ -24,7 +24,8 @@ mkdir -p "$base/versions" "$base/bin"
 : > "$base/.pac-bridge-install"
 if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Another installation is in progress.' >&2; exit 1; fi
 stage=''
-cleanup() { case "$stage" in "$base"/versions/.stage.*) [ ! -d "$stage" ] || rm -rf "$stage";; esac; rmdir "$base/.install-lock" 2>/dev/null || :; }
+temp=''
+cleanup() { case "$stage" in "$base"/versions/.stage.*) [ ! -d "$stage" ] || rm -rf "$stage";; esac; case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp";; esac; rmdir "$base/.install-lock" 2>/dev/null || :; }
 trap cleanup EXIT HUP INT TERM
 for name in connection-directory opencode-path; do
   if [ -f "$base/$name" ]; then
@@ -44,16 +45,24 @@ if [ ! -d "$target" ]; then
   stage=''
 fi
 [ -f "$target/.complete" ] && [ -f "$target/adapters/pac-hapi-opencode.mjs" ] && [ -f "$target/scripts/pac-posix-launcher.mjs" ] || { printf '%s\n' 'Existing staged version is incomplete.' >&2; exit 1; }
-cp "$target/scripts/pac-posix-launcher.mjs" "$base/bin/pac-posix-launcher.mjs.tmp"
-mv "$base/bin/pac-posix-launcher.mjs.tmp" "$base/bin/pac-posix-launcher.mjs"
-cat > "$base/bin/opencode.tmp" <<'EOF'
+temp=$(mktemp "$base/bin/.install.XXXXXXXX")
+cp "$target/scripts/pac-posix-launcher.mjs" "$temp"
+mv -f "$temp" "$base/bin/pac-posix-launcher.mjs"
+temp=$(mktemp "$base/bin/.install.XXXXXXXX")
+cat > "$temp" <<'EOF'
 #!/bin/sh
 exec node "$(dirname "$0")/pac-posix-launcher.mjs" "$@"
 EOF
-chmod 700 "$base/bin/opencode.tmp"
-mv "$base/bin/opencode.tmp" "$base/bin/opencode"
-printf '%s\n' "$keys" > "$base/connection-directory.tmp"; mv "$base/connection-directory.tmp" "$base/connection-directory"
-printf '%s\n' "$binary" > "$base/opencode-path.tmp"; mv "$base/opencode-path.tmp" "$base/opencode-path"
-printf '%s\n' "$revision" > "$base/current.tmp"; mv "$base/current.tmp" "$base/current"
+chmod 700 "$temp"
+mv -f "$temp" "$base/bin/opencode"
+write_value() {
+  temp=$(mktemp "$base/.install.XXXXXXXX")
+  printf '%s\n' "$2" > "$temp"
+  mv -f "$temp" "$base/$1"
+}
+write_value connection-directory "$keys"
+write_value opencode-path "$binary"
+write_value current "$revision"
+temp=''
 printf '%s\n' 'PAC Bridge launcher installed. Put ~/.local/share/pac-bridge/bin first in the existing HAPI runner PATH.'
 printf '%s\n' 'Existing HAPI processes and chats were not restarted.'
