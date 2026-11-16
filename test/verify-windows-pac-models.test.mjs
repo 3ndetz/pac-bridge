@@ -36,7 +36,7 @@ async function scenario(mode) {
       return reply(200, {})
     }
     if (req.url === '/api/sessions/test-session/archive') { archived = mode === 'success'; return reply(mode === 'success' ? 200 : 409, {}) }
-    if (req.url === '/api/sessions/test-session') return reply(200, { session: { metadata: { lifecycleState: archived ? 'archived' : 'running' } } })
+    if (req.url === '/api/sessions/test-session') return reply(200, { session: { active: false, metadata: { lifecycleState: archived ? 'archived' : 'running' } } })
     return reply(404, {})
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -56,9 +56,9 @@ async function scenario(mode) {
   }
 }
 
-test('model check removes only its workspace after confirmed archive', { skip: process.platform !== 'win32' }, async () => {
+test('model check retains its workspace after archive pending process verification', { skip: process.platform !== 'win32' }, async () => {
   const result = await scenario('success')
-  assert.equal(result.code, 0, result.stderr); assert.deepEqual(result.directories, []); assert.equal(result.archived, true)
+  assert.equal(result.code, 1, result.stderr); assert.equal(result.directories.length, 1); assert.equal(result.archived, true); assert.match(result.stderr, /retained pending ownership-safe process verification/)
 })
 
 test('model check preserves its workspace if archive is uncertain', { skip: process.platform !== 'win32' }, async () => {
