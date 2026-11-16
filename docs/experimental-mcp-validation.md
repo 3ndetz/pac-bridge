@@ -30,3 +30,5 @@ The committed branch snapshot was exercised with the default Node test selection
 A separate synthetic Windows job harness confirmed its own job had zero active processes before workspace cleanup in early-exit and timeout scenarios. It uses a retained job handle and a bounded control deadline. This does not establish ownership or repair the separate production job-host failure.
 
 Two synthetic ACP invalid-or-stale snapshot cases were rerun on Windows inside an owned job. The harness verified both cases ran and passed, then confirmed the job had no active processes before cleanup. This does not establish the cause of the earlier job-host failure or prove all shutdown paths safe.
+
+The earlier failing local synthetic MCP disconnect/timeout case was rerun on Windows inside an owned job: the intended case passed and the harness confirmed zero active processes before cleaning up. The earlier failure's cause remains unknown, and this isolated repeat does not establish safe behavior for all shutdown paths.
