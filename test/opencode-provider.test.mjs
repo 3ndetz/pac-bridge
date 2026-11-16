@@ -1,7 +1,42 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { createOpencodeProvider } from '../src/opencode-provider.mjs'
+import { createPacStopJournal } from '../src/pac-stop-journal.mjs'
+
+test('publishes normalized background tasks only to their owning session', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  const received = []
+  let rejectUpdate = false
+  const server = createOpencodeProvider({ token, cwd: '/source', onBackgroundTasks(sessionId, tasks) {
+    if (rejectUpdate) throw new Error('private callback details')
+    received.push({ sessionId, tasks })
+  }, router: { async prompt(binding, _prompt, update) {
+    update({ method: 'pac/background_tasks_changed', params: { tasks: [{ task_id: `${binding.sessionId}-task`, task_type: 'agent', description: 'work', secret: 'private' }] } })
+    return { stopReason: 'end_turn' }
+  } } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+  const post = sessionId => fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json',
+    'x-pac-session-id': sessionId, 'x-pac-message-id': `message-${sessionId}` },
+    body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'hello' }] }) })
+  try {
+    for (const sessionId of ['first', 'second']) {
+      const response = await post(sessionId)
+      assert.equal(response.status, 200)
+      assert.doesNotMatch(await response.text(), /private/)
+    }
+    assert.deepEqual(received, ['first', 'second'].map(sessionId => ({ sessionId, tasks: [{ task_id: `${sessionId}-task`, task_type: 'agent', description: 'work' }] })))
+    rejectUpdate = true
+    const failure = await post('third')
+    assert.equal(failure.status, 400)
+    assert.doesNotMatch(await failure.text(), /private callback details/)
+    assert.equal(received.length, 2)
+  } finally { await new Promise(resolve => server.close(resolve)) }
+})
 
 test('accepts a multi-megabyte history while forwarding only the new turn', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
@@ -98,10 +133,175 @@ test('routes a stop command once without prompting the model', async () => {
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
+test('routes a task stop concurrently without cancelling or replaying the active turn', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let started, finish, calls = 0, stops = 0
+  const active = new Promise(resolve => { started = resolve })
+  const held = new Promise(resolve => { finish = resolve })
+  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+    hasSession: id => id === 'session-1',
+    async prompt() { calls++; started(); await held; return { stopReason: 'end_turn' } },
+    async stopTask(binding, id) { assert.equal(binding.sessionId, 'session-1'); assert.equal(id, 'pac:task'); stops++; return { status: 'stop_requested' } },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+  const post = (messageId, content) => fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json',
+    'x-pac-session-id': 'session-1', 'x-pac-message-id': messageId }, body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content }] }) })
+  try {
+    const turn = post('turn-1', 'start work')
+    await active
+    const stopped = await post('stop-1', 'PAC_BRIDGE_STOP_TASK pac:task')
+    assert.equal(stopped.status, 200)
+    assert.match(await stopped.text(), /stop request accepted/)
+    assert.equal((await post('stop-1', 'PAC_BRIDGE_STOP_TASK pac:task')).status, 400)
+    assert.equal(calls, 1); assert.equal(stops, 1)
+    finish()
+    assert.equal((await turn).status, 200)
+    await (await turn).text()
+  } finally { finish(); await new Promise(resolve => server.close(resolve)) }
+})
+
+test('independent authenticated task stop preserves the active turn and rejects replay', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let started, finish, stops = 0, cancelled = false
+  const active = new Promise(resolve => { started = resolve })
+  const held = new Promise(resolve => { finish = resolve })
+  const server = createOpencodeProvider({ enableExperimentalTaskStop: true, token, cwd: '/source', router: {
+    hasSession: id => id === 'session-1',
+    async prompt(_binding, _prompt, _update, { signal }) { signal.addEventListener('abort', () => { cancelled = true }); started(); await held; return { stopReason: 'end_turn' } },
+    async stopTask(binding, taskId) {
+      assert.deepEqual(binding, { sessionId: 'session-1', model: 'PAC_work/sonnet', cwd: '/source' })
+      stops++
+      if (taskId === 'invalid-status') return { status: 'unrecognized' }
+      if (taskId !== 'owned-task') throw new Error('Unknown task private-detail')
+      return { status: 'stop_requested' }
+    },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const base = `http://127.0.0.1:${server.address().port}`
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+  const stop = (body, authorization = headers) => fetch(base + '/pac/tasks/stop', { method: 'POST', headers: authorization, body: JSON.stringify(body) })
+  try {
+    const turn = fetch(base + '/v1/chat/completions', { method: 'POST', headers: { ...headers, 'x-pac-session-id': 'session-1', 'x-pac-message-id': 'turn-1' },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'start work' }] }) })
+    await active
+    const request = { sessionId: 'session-1', taskId: 'owned-task', requestId: 'stop-1' }
+    assert.equal((await stop(request, { 'content-type': 'application/json' })).status, 401)
+    assert.equal((await stop({ ...request, sessionId: 'other-session' })).status, 400)
+    assert.equal((await stop({ ...request, taskId: 'bad task' })).status, 400)
+    const response = await stop(request)
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { status: 'stop_requested' })
+    assert.equal((await stop(request)).status, 409)
+    const unknown = await stop({ ...request, taskId: 'other-task', requestId: 'stop-2' })
+    assert.equal(unknown.status, 502)
+    assert.doesNotMatch(await unknown.text(), /private-detail/)
+    assert.equal((await stop({ ...request, taskId: 'other-task', requestId: 'stop-2' })).status, 409)
+    const invalidStatus = await stop({ ...request, taskId: 'invalid-status', requestId: 'stop-3' })
+    assert.equal(invalidStatus.status, 502)
+    assert.match(await invalidStatus.text(), /outcome is unknown/)
+    assert.equal((await stop({ ...request, taskId: 'invalid-status', requestId: 'stop-3' })).status, 409)
+    assert.equal(stops, 3); assert.equal(cancelled, false)
+    finish()
+    assert.equal((await turn).status, 200)
+    await (await turn).text()
+  } finally { finish(); await new Promise(resolve => server.close(resolve)) }
+})
+
+test('persistent stop guard rejects a retry after an uncertain outcome and restart', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pac-stop-provider-'))
+  const token = 'local-test-token-with-at-least-32-characters'
+  let calls = 0
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let started, finish
+      const active = new Promise(resolve => { started = resolve }), held = new Promise(resolve => { finish = resolve })
+      const server = createOpencodeProvider({ enableExperimentalTaskStop: true, token, cwd: '/source', stopGuard: createPacStopJournal(directory), router: {
+        hasSession: () => true,
+        async prompt() { started(); await held; return { stopReason: 'end_turn' } },
+        async stopTask() { calls++; throw new Error('uncertain remote outcome') },
+      } })
+      server.listen(0, '127.0.0.1'); await once(server, 'listening')
+      const base = `http://127.0.0.1:${server.address().port}`
+      const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+      try {
+        const turn = fetch(base + '/v1/chat/completions', { method: 'POST', headers: { ...headers, 'x-pac-session-id': 'session', 'x-pac-message-id': `turn-${attempt}` },
+          body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'start' }] }) })
+        await active
+        const stop = await fetch(base + '/pac/tasks/stop', { method: 'POST', headers, body: JSON.stringify({ sessionId: 'session', taskId: 'task', requestId: `request-${attempt}` }) })
+        assert.equal(stop.status, attempt === 0 ? 502 : 409)
+        finish(); await (await turn).text()
+      } finally { finish(); await new Promise(resolve => server.close(resolve)) }
+    }
+    assert.equal(calls, 1)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('independent stop rejects a duplicate while the original is in flight', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let begin, finishTurn, stopStarted, finishStop, calls = 0
+  const active = new Promise(resolve => { begin = resolve })
+  const holdTurn = new Promise(resolve => { finishTurn = resolve })
+  const stopping = new Promise(resolve => { stopStarted = resolve })
+  const holdStop = new Promise(resolve => { finishStop = resolve })
+  const server = createOpencodeProvider({ enableExperimentalTaskStop: true, token, cwd: '/source', router: {
+    hasSession: id => id === 'session-1',
+    async prompt() { begin(); await holdTurn; return { stopReason: 'end_turn' } },
+    async stopTask() { calls++; stopStarted(); await holdStop; return { status: 'stopped' } },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const base = `http://127.0.0.1:${server.address().port}`
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+  const request = JSON.stringify({ sessionId: 'session-1', taskId: 'task-1', requestId: 'stop-1' })
+  const postStop = () => fetch(base + '/pac/tasks/stop', { method: 'POST', headers, body: request })
+  try {
+    const turn = fetch(base + '/v1/chat/completions', { method: 'POST', headers: { ...headers, 'x-pac-session-id': 'session-1', 'x-pac-message-id': 'turn-1' },
+      body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content: 'start work' }] }) })
+    await active
+    const original = postStop()
+    await stopping
+    assert.equal((await postStop()).status, 409)
+    assert.equal(calls, 1)
+    finishStop()
+    assert.deepEqual(await (await original).json(), { status: 'stopped' })
+    finishTurn()
+    assert.equal((await turn).status, 200)
+    await (await turn).text()
+  } finally { finishStop(); finishTurn(); await new Promise(resolve => server.close(resolve)) }
+})
+
+test('a failed concurrent stop does not cancel the active turn or replay the stop', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let started, finish, stops = 0, cancelled = false
+  const active = new Promise(resolve => { started = resolve })
+  const held = new Promise(resolve => { finish = resolve })
+  const server = createOpencodeProvider({ enableExperimentalTaskStop: true, token, cwd: '/source', router: {
+    hasSession: id => id === 'session-1',
+    async prompt(_binding, _prompt, _update, { signal }) { signal.addEventListener('abort', () => { cancelled = true }); started(); await held; return { stopReason: 'end_turn' } },
+    async stopTask() { stops++; throw new Error('Unknown task private-detail') },
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const url = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
+  const post = (messageId, content) => fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json',
+    'x-pac-session-id': 'session-1', 'x-pac-message-id': messageId }, body: JSON.stringify({ model: 'PAC_work/sonnet', stream: true, tools: [{}], messages: [{ role: 'user', content }] }) })
+  try {
+    const turn = post('turn-1', 'start work')
+    await active
+    const stop = await post('stop-1', 'PAC_BRIDGE_STOP_TASK pac:unknown')
+    assert.equal(stop.status, 400)
+    assert.doesNotMatch(await stop.text(), /private-detail/)
+    assert.equal((await post('stop-1', 'PAC_BRIDGE_STOP_TASK pac:unknown')).status, 400)
+    assert.equal(stops, 1); assert.equal(cancelled, false)
+    finish()
+    assert.equal((await turn).status, 200)
+    await (await turn).text()
+  } finally { finish(); await new Promise(resolve => server.close(resolve)) }
+})
+
 test('does not claim that a finished or unknown task accepted a stop', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   let status = 'completed'
-  const server = createOpencodeProvider({ token, cwd: '/source', router: {
+  const server = createOpencodeProvider({ enableExperimentalTaskStop: true, token, cwd: '/source', router: {
     hasSession: () => true,
     async prompt() { throw new Error('Unexpected model prompt') },
     async stopTask() { return { status } },
@@ -130,7 +330,7 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
       update({ method: 'session/update', params: { update: { sessionUpdate: 'usage_update' } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'available_commands_update' } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'tool_call', toolCallId: 'call-1', title: 'Read', rawInput: { path: 'a.txt' }, _meta: { secret: 'must-not-be-forwarded' } } } })
-      update({ method: 'opencode/session/child_update', params: { childSessionId: 'pac:child', parentSessionId: 'session-1', depth: 1, type: 'status', status: 'created', secret: 'must-not-be-forwarded' } })
+      update({ method: 'opencode/session/child_update', params: { childSessionId: 'pac:child', parentSessionId: 'session-1', depth: 1, type: 'status', status: 'created', name: 'Synthetic child', background: true, secret: 'must-not-be-forwarded' } })
       update({ method: 'pac/background_tasks_changed', params: { tasks: [{ task_id: 'pac:child', task_type: 'agent', description: 'Test child', secret: 'must-not-be-forwarded' }] } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'synthetic thought' } } } })
       update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'remote ' } } } })
@@ -164,6 +364,8 @@ test('routes a distinct user turn to its selected PAC and refuses replay', async
     assert.match(stream, /remote slash commands are not yet available/)
     assert.match(stream, /call-1/)
     assert.match(stream, /PAC subagent event/)
+    assert.match(stream, /\\"background\\":true/)
+    assert.match(stream, /Synthetic child/)
     assert.match(stream, /PAC background tasks/)
     assert.match(stream, /pac:child/)
     assert.doesNotMatch(stream, /must-not-be-forwarded/)
@@ -274,11 +476,11 @@ test('expires an abandoned approval and cancels its remote turn', async () => {
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
-test('reports a controller authentication failure on a retry without replaying the turn', async () => {
+for (const failure of ['Authentication failed with private-detail', 'OAuth session expired private-detail', 'Failed to authenticate private-detail', 'Not logged in private-detail']) test(`reports an authentication-related failure without replay: ${failure.split(' private-detail')[0]}`, async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   let calls = 0
   const server = createOpencodeProvider({ token, cwd: '/source', router: {
-    async prompt() { calls++; throw new Error('Authentication failed with private-detail') }
+    async prompt() { calls++; throw new Error(failure) }
   } })
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
@@ -290,7 +492,8 @@ test('reports a controller authentication failure on a retry without replaying t
     const retry = await fetch(url, { method: 'POST', headers, body })
     assert.equal(retry.status, 400)
     const error = await retry.text()
-    assert.match(error, /authentication failed on the controller/)
+    assert.match(error, /authentication-related error; check the relay and controller sign-in/)
+    assert.match(error, /review any actions already started/)
     assert.doesNotMatch(error, /private-detail/)
     assert.equal(calls, 1)
   } finally { await new Promise((resolve) => server.close(resolve)) }
@@ -432,4 +635,18 @@ test('cancels a native question when OpenCode continues without an answer', asyn
     assert.match(await next.text(), /\[DONE\]/)
     assert.deepEqual(received, { outcome: { outcome: 'selected', optionId: 'cancel' } })
   } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('experimental independent task stop is disabled by default', async () => {
+  const token = 'local-test-token-with-at-least-32-characters'
+  let calls = 0
+  const server = createOpencodeProvider({ token, cwd: '/source', router: { async prompt() {}, async stopTask() { calls++ }, hasSession: () => true } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/pac/tasks/stop`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'session', taskId: 'task', requestId: 'request' }) })
+    assert.equal(response.status, 404)
+    assert.equal(calls, 0)
+  } finally { await new Promise(resolve => server.close(resolve)) }
 })

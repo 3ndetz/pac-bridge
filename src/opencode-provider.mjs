@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createOpencodeTurnChannel } from './opencode-turn-channel.mjs'
 import { mapQuestionAnswers } from './question-answers.mjs'
+import { normalizePacBackgroundTasks } from './pac-background-tasks.mjs'
 
 function userPrompt(content) {
   if (typeof content === 'string' && content) return [{ type: 'text', text: content }]
@@ -17,12 +18,13 @@ function userPrompt(content) {
 
 // Experimental transport. Unsupported events and permissions terminate the
 // turn rather than being translated into a successful text answer.
-export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {} }) {
-  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1) throw new Error('Invalid provider configuration')
+export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {}, onBackgroundTasks = () => {}, stopGuard, enableExperimentalTaskStop = false }) {
+  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1 || typeof onBackgroundTasks !== 'function' || (stopGuard !== undefined && typeof stopGuard?.claim !== 'function')) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
   const turns = new Map()
   const compacted = new Map()
+  const stopRequests = new Set()
   function cancelTurn(sessionId, turn) {
     clearTimeout(turn.timer)
     turn.cancellation.abort()
@@ -33,7 +35,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
     const fail = (status, message) => { if (!response.headersSent) response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { message } })); else response.destroy() }
     const auth = Buffer.from(request.headers.authorization || '')
     if (auth.length !== expected.length || !timingSafeEqual(auth, expected)) return fail(401, 'Unauthorized')
-    if (request.method !== 'POST' || !['/v1/chat/completions', '/pac/approval', '/pac/compact'].includes(request.url)) return fail(404, 'Not found')
+    if (request.method !== 'POST' || !['/v1/chat/completions', '/pac/approval', '/pac/compact', '/pac/tasks/stop'].includes(request.url)) return fail(404, 'Not found')
     const sessionId = request.headers['x-pac-session-id']
     const messageId = request.headers['x-pac-message-id']
     if (request.url === '/v1/chat/completions' && (typeof sessionId !== 'string' || typeof messageId !== 'string' || !sessionId || !messageId || sessionId.length > 512 || messageId.length > 512 || /[\x00-\x1f]/.test(sessionId + messageId))) return fail(400, 'Missing OpenCode session or message identity')
@@ -48,6 +50,24 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         chunks.push(chunk)
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if (request.url === '/pac/tasks/stop') {
+        if (!enableExperimentalTaskStop) return fail(404, 'Not found')
+        const valid = (value) => typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\s\x00-\x1f\x7f]/.test(value)
+        if (!valid(body.sessionId) || !valid(body.taskId) || !valid(body.requestId)) return fail(400, 'Invalid task stop request')
+        const turn = turns.get(body.sessionId)
+        if (!turn || typeof router.stopTask !== 'function' || !router.hasSession?.(body.sessionId)) return fail(400, 'No active PAC session for this task')
+        const key = JSON.stringify([body.sessionId, body.requestId])
+        if (stopRequests.has(key)) return fail(409, 'Duplicate stop request; outcome may be unknown')
+        if (stopRequests.size >= 4096) return fail(503, 'Stop request capacity reached')
+        stopRequests.add(key)
+        try { await stopGuard?.claim(body.sessionId, body.taskId) }
+        catch { return fail(409, 'Task stop was already requested or its state requires review') }
+        let result
+        try { result = await router.stopTask({ sessionId: body.sessionId, model: turn.model, cwd }, body.taskId) }
+        catch { return fail(502, 'Task stop failed or its outcome is unknown; do not retry without review') }
+        if (!['stop_requested', 'stopped', 'completed', 'failed', 'timed_out'].includes(result?.status)) return fail(502, 'Task stop outcome is unknown; do not retry without review')
+        return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ status: result.status }))
+      }
       if (request.url === '/pac/compact') {
         if (typeof body.sessionId !== 'string' || !body.sessionId || body.sessionId.length > 512 || /[\x00-\x1f]/.test(body.sessionId) || typeof router.compact !== 'function') return fail(400, 'Invalid compaction request')
         if (compacted.has(body.sessionId)) return fail(409, 'PAC compaction result is already pending')
@@ -140,20 +160,23 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         const hasPriorConversation = body.messages.some((entry) => entry.role === 'assistant' || entry.role === 'tool') || body.messages.filter((entry) => entry.role === 'user').length > 1
         if (hasPriorConversation && !router.hasSession?.(sessionId) && !await router.canResume?.(sessionId)) return fail(400, 'PAC session binding is unavailable; refusing to start a different conversation')
         if (messages.has(messageId)) return fail(400, messages.get(messageId))
-        if (turn?.settled) { await turn.settled; turn = turns.get(sessionId) }
-        if (turn) return fail(400, 'A PAC turn is already active')
         if (messages.size >= 4096) return fail(503, 'Session turn capacity reached')
-        messages.set(messageId, 'Duplicate turn; outcome may be unknown')
         const stop = prompt.length === 1 && prompt[0].type === 'text' && /^PAC_BRIDGE_STOP_TASK ([^\s\x00-\x1f]{1,512})$/.exec(prompt[0].text)
         if (stop) {
+          messages.set(messageId, 'Duplicate turn; outcome may be unknown')
           if (typeof router.stopTask !== 'function' || !router.hasSession?.(sessionId)) return fail(400, 'No live PAC session for this task')
+          try { await stopGuard?.claim(sessionId, stop[1]) }
+          catch { return fail(409, 'Task stop was already requested or its state requires review') }
           const result = await router.stopTask({ sessionId, model: body.model, cwd }, stop[1])
-          const messages = { stop_requested: '[PAC stop request accepted]', stopped: '[PAC task stopped]', completed: '[PAC task already completed]', failed: '[PAC task already failed]', timed_out: '[PAC task already timed out]' }
-          if (!Object.hasOwn(messages, result?.status)) throw new Error('PAC task stop outcome is unknown')
+          const statuses = { stop_requested: '[PAC stop request accepted]', stopped: '[PAC task stopped]', completed: '[PAC task already completed]', failed: '[PAC task already failed]', timed_out: '[PAC task already timed out]' }
+          if (!Object.hasOwn(statuses, result?.status)) throw new Error('PAC task stop outcome is unknown')
           response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
           const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: messageId, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
-          return response.end(chunk({ role: 'assistant', content: messages[result.status] }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
+          return response.end(chunk({ role: 'assistant', content: statuses[result.status] }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
         }
+        if (turn?.settled) { await turn.settled; turn = turns.get(sessionId) }
+        if (turn) return fail(400, 'A PAC turn is already active')
+        messages.set(messageId, 'Duplicate turn; outcome may be unknown')
         const cancellation = new AbortController()
         const channel = createOpencodeTurnChannel({ sessionId })
         turn = { messageId, model: body.model, cancellation, channel, pending: null, streaming: false, notices: new Set() }
@@ -235,7 +258,9 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         const { method, params } = event.event
         const update = params?.update
         if (method === 'opencode/session/child_update') {
-          const visible = Object.fromEntries(['childSessionId', 'parentSessionId', 'depth', 'type', 'status'].filter((key) => Object.hasOwn(params || {}, key)).map((key) => [key, params[key]]))
+          if (params?.background !== undefined && typeof params.background !== 'boolean') throw new Error('Invalid PAC subagent background state')
+          if (params?.name !== undefined && typeof params.name !== 'string') throw new Error('Invalid PAC subagent name')
+          const visible = Object.fromEntries(['childSessionId', 'parentSessionId', 'depth', 'type', 'status', 'name', 'background'].filter((key) => Object.hasOwn(params || {}, key)).map((key) => [key, params[key]]))
           if (update) visible.update = Object.fromEntries(['sessionUpdate', 'toolCallId', 'title', 'kind', 'status', 'rawInput', 'rawOutput', 'content', 'locations']
             .filter((key) => Object.hasOwn(update, key)).map((key) => [key, update[key]]))
           const description = JSON.stringify(visible)
@@ -244,10 +269,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
           continue
         }
         if (method === 'pac/background_tasks_changed') {
-          if (!Array.isArray(params?.tasks) || params.tasks.length > 128) throw new Error('Invalid PAC background task update')
-          const tasks = params.tasks.map((task) => Object.fromEntries(['task_id', 'task_type', 'description'].filter((key) => typeof task?.[key] === 'string').map((key) => [key, task[key]])))
+          const tasks = normalizePacBackgroundTasks(params?.tasks)
           const description = JSON.stringify(tasks)
           if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC background task update exceeds size limit')
+          onBackgroundTasks(sessionId, tasks)
           write({ content: `\n[PAC background tasks]\n${description}\n` })
           continue
         }
@@ -288,8 +313,10 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         'PAC session binding is unavailable', 'PAC cannot load an existing session', 'Unsupported PAC event',
         'PAC turn did not finish normally'].find((value) => error?.message?.includes(value)) || 'other'
       const phase = ['initialize', 'session-new', 'select-model', 'prompt'].includes(error?.pacPhase) ? error.pacPhase : 'unknown'
-      const hint = ['rate limit', 'quota', 'authentication', 'system prompt', 'cancelled', 'timed out', 'connection lost', 'overloaded']
-        .find((term) => error?.message?.toLowerCase().includes(term))
+      const detail = typeof error?.message === 'string' ? error.message.toLowerCase() : ''
+      const authenticationFailure = ['authentication', 'oauth session expired', 'failed to authenticate', 'not logged in'].some((term) => detail.includes(term))
+      const hint = authenticationFailure ? 'authentication' : ['rate limit', 'quota', 'system prompt', 'cancelled', 'timed out', 'connection lost', 'overloaded']
+        .find((term) => detail.includes(term))
       const known = new Map([
         ['PAC interactive questions are not supported by this OpenCode adapter', 'PAC interactive questions are not supported by this OpenCode adapter; the turn was not retried.'],
         ['Previous PAC turn outcome is unknown; reconciliation is required', 'Previous PAC turn outcome is unknown; reconcile it before continuing this session: https://github.com/3ndetz/pac-bridge/blob/main/docs/recovery.md'],
@@ -299,7 +326,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         ['Unsupported PAC event; turn cannot be represented', 'This PAC event cannot be represented in OpenCode; the turn was interrupted and its outcome may be unknown.'],
       ])
       const safeMessage = known.get(error?.message) || (hint === 'authentication'
-        ? 'PAC authentication failed on the controller; sign in there. The turn was not retried.'
+        ? 'PAC reported an authentication-related error; check the relay and controller sign-in. The turn was not retried; review any actions already started before resuming.'
         : `PAC turn failed (${category}, ${phase}); its outcome may be unknown. The turn was not retried.`)
       if (messages?.has(messageId)) messages.set(messageId, safeMessage)
       try { onFailure(`${category} (${phase})${hint ? ` ${hint}` : ''}`) } catch {}
