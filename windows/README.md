@@ -1,6 +1,6 @@
 # Windows: connect another source machine
 
-**Status:** the fresh-profile installer is under verification. See [setup from a Git checkout](../docs/windows-setup.md) and [the reliability checklist](../RELIABILITY-CHECKLIST.md).
+**Status: historical instructions, not a supported installation procedure.** The installers described below target a superseded PAC-patched HAPI runtime and must not be used as a fallback. The current provider installer and recovery are still under verification; see [provider setup](../docs/windows-setup.md) and [the reliability checklist](../RELIABILITY-CHECKLIST.md).
 
 This connects a new Windows runner to the existing HAPI hub specified in the private connection file. It does not enroll a new HAPI hub. Each machine retains its own runner identity and local project files. Claude authentication stays on the PAC controller.
 
