@@ -16,6 +16,13 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
   let loading = Boolean(resumeSessionId)
   let stopped = false
   let phase = 'initialize'
+  let phaseStarted = performance.now()
+  function nextPhase(next) {
+    const elapsed = Math.max(0, Math.round(performance.now() - phaseStarted))
+    try { onDiagnostic(`startup:${phase}:${elapsed}ms`) } catch {}
+    phase = next
+    phaseStarted = performance.now()
+  }
   const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), {
     onRequest: async (method, params) => {
       if (method !== 'session/request_permission' || !id || params?.sessionId !== id) throw new Error('Unsupported ACP client request')
@@ -60,7 +67,7 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
   try {
     const initialized = await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
     if (initialized?.protocolVersion !== 1) throw new Error('Unsupported ACP version')
-    phase = 'session-new'
+    nextPhase('session-new')
     if (resumeSessionId && initialized.agentCapabilities?.loadSession !== true) throw new Error('ACP session cannot be restored')
     const opened = await peer.call(resumeSessionId ? 'session/load' : 'session/new', { cwd, mcpServers: [], ...(resumeSessionId ? { sessionId: resumeSessionId } : {}) })
     id = opened?.sessionId ?? resumeSessionId
@@ -83,8 +90,9 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
         await peer.call('session/set_model', { sessionId: id, modelId: value })
       }
     }
-    phase = 'select-model'
+    nextPhase('select-model')
     await selectModel(model)
+    nextPhase('ready')
     return {
       sourceSessionId: id,
       selectModel,
@@ -111,5 +119,5 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
       },
       close,
     }
-  } catch (error) { error.pacPhase = phase; close(); throw error }
+  } catch (error) { error.pacPhase = phase; nextPhase('failed'); close(); throw error }
 }
