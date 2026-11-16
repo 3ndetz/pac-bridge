@@ -49,13 +49,13 @@ try {
  console.error(`Model check failed: ${error.message}`)
  process.exitCode = 1
 } finally {
- if(sessionId&&jwt){try{await request(`/api/sessions/${sessionId}/archive`,'POST')}catch{};try{archived=(await request(`/api/sessions/${sessionId}`)).session?.metadata?.lifecycleState==='archived'}catch{};console.log(JSON.stringify({stage:'cleanup',archived}));if(!archived)process.exitCode=1}
- if (!spawnAttempted || archived) {
+ if(sessionId&&jwt){try{await request(`/api/sessions/${sessionId}/archive`,'POST')}catch{};try{const session=(await request(`/api/sessions/${sessionId}`)).session;archived=session?.metadata?.lifecycleState==='archived'&&session.active===false}catch{};console.log(JSON.stringify({stage:'cleanup',archived}));if(!archived)process.exitCode=1}
+ if (!spawnAttempted) {
   try {
    // Only the exact project created by this invocation may be removed.
    const parent = await realpath(join(home, 'sma-test')), actual = await realpath(root), child = relative(parent, actual)
    if (isAbsolute(child) || child === '..' || child.startsWith(`..${sep}`) || !/^pac-model-matrix-[0-9a-f-]{36}$/i.test(child)) throw Error('Refusing to remove an unexpected test directory')
    await rm(actual, { recursive: true, force: true })
   } catch (error) { console.error(`Test workspace cleanup failed: ${error.message}; inspect ${root}.`); process.exitCode=1 }
- } else { console.error(`Test session cleanup is uncertain; inspect session ${sessionId || 'unknown'} and workspace ${root}.`); process.exitCode=1 }
+ } else { console.error(`Test workspace retained pending ownership-safe process verification; inspect session ${sessionId || 'unknown'} and workspace ${root}.`); process.exitCode=1 }
 }
