@@ -1,6 +1,6 @@
 # Linux and macOS source-side setup
 
-**Do not run this installer on a real profile yet.** Unique temporary files, non-truncating marker creation, and fail-closed cleanup passed synthetic checks in Git Bash and an isolated Linux container using fake dependency commands. A lock can still remain after interruption; real dependency installation, signal recovery, macOS, directory ownership, and complete file-safety checks remain unverified.
+**Do not run this installer on a real profile yet.** Unique temporary files, non-truncating marker creation, and fail-closed cleanup passed synthetic checks in Git Bash and an isolated Linux container using fake dependency commands. A synthetic Linux SIGTERM test verified cleanup of the owned installer using a pidfd. A lock can still remain after forced termination; real dependency installation, macOS, directory ownership, and complete file-safety checks remain unverified.
 
 Install Git, Node.js 24 or later, npm, Bash and a compatible native OpenCode. Keep the existing HAPI hub and runner. Transfer the private connection directory separately: it must contain `connection.json`, `pac-source-token.txt` and `pac-relay-ca.pem`. Do not copy the Claude login from the controller.
 
