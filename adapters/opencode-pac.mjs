@@ -1,10 +1,13 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { access } from 'node:fs/promises'
+import { appendFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { createOpencodeProvider } from '../src/opencode-provider.mjs'
+import { createOpencodeAcpProxy } from '../src/opencode-acp-proxy.mjs'
+import { createPacStopJournal } from '../src/pac-stop-journal.mjs'
 import { createOpencodeSessionRouter } from '../src/opencode-session-router.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
@@ -23,6 +26,9 @@ if (process.env.PAC_EXPERIMENTAL !== '1' || (model && (model.length > 384 || !/^
 const args = process.argv.slice(2)
 const cwd = opencodeWorkingDirectory(args, process.cwd())
 const acpMode = args[0] === 'acp'
+const snapshotTest = process.env.PAC_TEST_SNAPSHOT_CHANNEL === '1'
+if (snapshotTest && (!acpMode || !process.env.PAC_TEST_STOP_JOURNAL_DIR)) throw new Error('Test snapshot channel requires ACP and a persistent stop journal')
+const snapshotSessions = new Map(), snapshotEpochs = new Map()
 const namedProviders = process.env.PAC_NAMED_PROVIDERS_EXPERIMENT === '1'
 const startedAt = Date.now()
 const sessionRoot = resolve(process.env.PAC_SESSION_DIR || join(homedir(), '.pac-bridge', 'sessions'))
@@ -58,7 +64,7 @@ if (!model && !acpMode) {
     model = catalog.models[selected - 1].id
   } finally { prompt.close() }
 }
-let server
+let server, acpProxy
 const legacyAcpStore = createSessionStore(join(sessionRoot, 'legacy-acp'))
 const router = createOpencodeSessionRouter({ store: createSessionStore(join(sessionRoot, 'opencode')), journal: createOpencodeTurnJournal(join(sessionRoot, 'pending')),
   legacyStore: process.env.PAC_LEGACY_MIGRATION_EXPERIMENT === '1' ? createSessionStore(sessionRoot) : undefined,
@@ -68,13 +74,17 @@ const router = createOpencodeSessionRouter({ store: createSessionStore(join(sess
     if (existing && JSON.stringify(existing) !== JSON.stringify(legacyBinding)) throw new Error('Existing migrated PAC binding does not match')
     if (!existing) await legacyAcpStore.write(legacyBinding)
   }
-  return openOpencodeAcpSession({
+  const opened = await openOpencodeAcpSession({
   command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId,
   env: { ...routerEnv, PAC_SESSION_DIR: join(sessionRoot, legacyMode ? 'legacy-acp' : 'acp') },
   onPermission: (params) => server.requestPermission(sessionId, params),
+  ...(snapshotTest ? { onBackgroundAvailability: (value) => { if (!acpProxy) throw new Error('ACP proxy unavailable'); acpProxy.publishBackgroundAvailability(sessionId, {epoch:value.epoch, availability:'unknown'}) } } : {}),
   onDiagnostic: (category) => { if (process.env.PAC_DIAGNOSTICS === '1' || category.startsWith('no_active_turn:')) process.stderr.write(`PAC ACP ${category}\n`) },
-}) } })
-server = createOpencodeProvider({ router, token, cwd, onFailure: (category) => {
+})
+  if (snapshotTest) snapshotSessions.set(sessionId, opened)
+  return opened
+} })
+server = createOpencodeProvider({ router, token, cwd, stopGuard: process.env.PAC_TEST_STOP_JOURNAL_DIR ? createPacStopJournal(process.env.PAC_TEST_STOP_JOURNAL_DIR) : undefined, onFailure: (category) => {
   if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC provider failure: ${category}\n`)
 } })
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
@@ -102,18 +112,29 @@ try {
       PAC_NAMED_PROVIDER_IDS: JSON.stringify(namedProviders ? Object.keys(providers) : []) }, stdio: acpMode ? ['pipe', 'pipe', 'inherit'] : 'inherit', windowsHide: false,
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   })
+  let proxyFailed = false
   if (acpMode) {
-    // The wrapper may have peeked at the first ACP request. Pipe the Node
-    // stream so its replay buffer reaches OpenCode along with subsequent bytes.
-    child.stdin.on('error', () => {})
-    child.stdout.on('error', () => {})
-    process.stdin.pipe(child.stdin)
-    child.stdout.pipe(process.stdout)
+    acpProxy = createOpencodeAcpProxy({ input: process.stdin, output: process.stdout, childInput: child.stdin, childOutput: child.stdout,
+      providerUrl: `http://127.0.0.1:${server.address().port}`, token, ...(snapshotTest ? { onSnapshotReady: async (sessionId) => {
+        const opened = snapshotSessions.get(sessionId)
+        if (process.env.PAC_TEST_SNAPSHOT_TRACE) appendFileSync(process.env.PAC_TEST_SNAPSHOT_TRACE, opened ? 'ready-source\n' : 'ready-local\n')
+        if (opened) {
+          const result = await opened.requestBackgroundSnapshot()
+          if (process.env.PAC_TEST_SNAPSHOT_TRACE && result.availability === 'unknown') appendFileSync(process.env.PAC_TEST_SNAPSHOT_TRACE, 'source-unknown\n')
+          return result
+        }
+        if (!snapshotEpochs.has(sessionId)) snapshotEpochs.set(sessionId, randomUUID())
+        return {epoch:snapshotEpochs.get(sessionId),availability:'unknown'}
+      } } : {}), onFatal: () => {
+        proxyFailed = true
+        process.stderr.write('PAC ACP proxy transport or framing failure\n')
+        try { stopContained(child) } catch { process.exitCode = 1 }
+      } })
   }
   process.once('SIGINT', () => { if (child) stopContained(child) })
   process.once('SIGTERM', () => { if (child) stopContained(child) })
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve) })
-  process.exitCode = code ?? 1
+  process.exitCode = proxyFailed ? 1 : code ?? 1
 } finally {
   router.close()
   await new Promise((resolve) => server.close(resolve))
