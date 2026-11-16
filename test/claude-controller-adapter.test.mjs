@@ -125,7 +125,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
     }
     peer = connect()
     await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
-    const session = await peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, ...(scopedTest ? { scopedRules: true } : {}), ...(promptHookTest ? { promptHooks: true } : {}), ...(lifecycleTest ? { stopHooks: true } : {}), ...(notificationTest ? { notificationHooks: true } : {}), ...(settingsTest ? { claudeSettings: { effortLevel: 'high', switchModelsOnFlag: process.env.PAC_TEST_SWITCH_ON === '1', env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } } } : {}) } } })
+    const session = await peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, ...(scopedTest ? { scopedRules: true } : {}), ...(promptHookTest ? { promptHooks: true } : {}), ...(lifecycleTest ? { stopHooks: true } : {}), ...(notificationTest ? { notificationHooks: true } : {}), ...(settingsTest ? { claudeSettings: { effortLevel: 'high', switchModelsOnFlag: false, env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } } } : {}) } } })
     if (promptHookTest) {
       assert.deepEqual(await peer.call('pac/hooks/capabilities', { sessionId: session.sessionId }), { promptSubmit: true })
       await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'BLOCK_ME' }] }, 90000)

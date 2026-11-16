@@ -2,6 +2,7 @@ import { open, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { spawnContained, stopContained } from './spawn-contained.mjs'
+import { permitsModelSwitchSetting } from './claude-settings-policy.mjs'
 
 const supportedEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit', 'Stop', 'Notification'])
 
@@ -52,7 +53,7 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
       controllerSettings.effortLevel = settings.effortLevel
     }
     if (global && settings.switchModelsOnFlag !== undefined) {
-      if (typeof settings.switchModelsOnFlag !== 'boolean' || (settings.switchModelsOnFlag && process.env.PAC_TEST_SYNTHETIC_SETTINGS !== '1')) throw new Error('Unsupported global Claude fallback setting')
+      if (!permitsModelSwitchSetting(settings.switchModelsOnFlag)) throw new Error('Unsupported global Claude fallback setting')
       controllerSettings.switchModelsOnFlag = settings.switchModelsOnFlag
     }
     if (global && settings.env !== undefined) {

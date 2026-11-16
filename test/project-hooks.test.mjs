@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import test from 'node:test'
 import { createProjectHooks } from '../src/project-hooks.mjs'
+import { permitsModelSwitchSetting } from '../src/claude-settings-policy.mjs'
 
 test('forwards prompt hook context and blocks rejected prompts on the source', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-hooks-'))
@@ -49,6 +50,28 @@ test('forwards global hooks with project hooks and fails closed for unsupported 
   } finally {
     const actual = await realpath(home), local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-hooks-')) await rm(actual, { recursive: true, force: true })
+  }
+})
+
+test('shared model switching policy accepts only disabled or absent settings', () => {
+  for (const value of [true, null, 0, 1, 'false', {}, []]) assert.equal(permitsModelSwitchSetting(value), false)
+  for (const value of [false, undefined]) assert.equal(permitsModelSwitchSetting(value), true)
+})
+
+test('rejects model switching even in synthetic settings mode', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-hooks-'))
+  const previous = process.env.PAC_TEST_SYNTHETIC_SETTINGS
+  try {
+    await mkdir(join(root, '.claude'))
+    await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify({ switchModelsOnFlag: true }))
+    process.env.PAC_TEST_SYNTHETIC_SETTINGS = '1'
+    await assert.rejects(createProjectHooks({ root, home: root, shell: process.execPath }), /Unsupported global Claude fallback setting/)
+  } finally {
+    if (previous === undefined) delete process.env.PAC_TEST_SYNTHETIC_SETTINGS
+    else process.env.PAC_TEST_SYNTHETIC_SETTINGS = previous
+    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
+    if (!local || isAbsolute(local) || local === '..' || local.startsWith(`..${sep}`) || !local.startsWith('pac-hooks-')) throw new Error('Refusing unexpected test cleanup path')
+    await rm(actual, { recursive: true, force: true })
   }
 })
 

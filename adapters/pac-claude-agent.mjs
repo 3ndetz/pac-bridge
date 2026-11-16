@@ -14,6 +14,7 @@ import { MAX_SCOPED_INSTRUCTION_CHARS } from '../src/source-instructions.mjs'
 import { snapshotHookTranscript } from '../src/hook-transcript.mjs'
 import { createNativeTaskOutput, recoverNativeTaskOutput } from '../src/native-task-output.mjs'
 import { createControllerSourceMcp } from '../src/source-mcp-controller.mjs'
+import { permitsModelSwitchSetting } from '../src/claude-settings-policy.mjs'
 
 // Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
 // notification arrives with the long path. Preserve the target, including a
@@ -298,7 +299,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       if (!sourceSettings || typeof sourceSettings !== 'object' || Array.isArray(sourceSettings) ||
           Object.keys(sourceSettings).some(key => !['effortLevel', 'switchModelsOnFlag', 'env'].includes(key)) ||
           (sourceSettings.effortLevel !== undefined && !['low', 'medium', 'high', 'xhigh'].includes(sourceSettings.effortLevel)) ||
-          (sourceSettings.switchModelsOnFlag !== undefined && (typeof sourceSettings.switchModelsOnFlag !== 'boolean' || (sourceSettings.switchModelsOnFlag && process.env.PAC_TEST_SYNTHETIC_SETTINGS !== '1'))) ||
+          !permitsModelSwitchSetting(sourceSettings.switchModelsOnFlag) ||
           (sourceSettings.env !== undefined && (!sourceSettings.env || typeof sourceSettings.env !== 'object' || Array.isArray(sourceSettings.env) ||
             Object.entries(sourceSettings.env).some(([key, value]) => key !== 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' || value !== '1')))) throw new Error('Unsupported source Claude settings')
       if (Object.keys(sourceSettings).length && options.settings !== undefined) throw new Error('Conflicting Claude settings are not supported')
