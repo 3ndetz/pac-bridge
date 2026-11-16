@@ -31,6 +31,7 @@ import { notifyTurnComplete } from '../src/completion-notifier.mjs'
 
 const { PAC_OPENCODE_BINARY: binary, PAC_RELAY_URL: url, PAC_NAME: name, PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd } = process.env
 if (process.env.PAC_EXPERIMENTAL !== '1' || !binary) throw new Error('Incomplete experimental OpenCode router configuration')
+if (process.env.PAC_TEST_ROUTED_SOURCE_MCP_PROVENANCE === '1') throw new Error('Source MCP provenance discovery is unavailable')
 const records = process.env.PAC_ENDPOINTS_FILE ? JSON.parse(await readFile(process.env.PAC_ENDPOINTS_FILE, 'utf8')) : [{ id: name, name, displayName: process.env.PAC_DISPLAY_NAME, modelPrefix: process.env.PAC_MODEL_PREFIX, url, tokenFile, cwd: remoteCwd }]
 if (!Array.isArray(records) || !records.length) throw new Error('At least one PAC endpoint is required')
 const names = new Set()
@@ -415,19 +416,11 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             const { createSourceMcpSession } = await import('../src/source-mcp-session.mjs')
             const { createSourceMcpPermission } = await import('../src/source-mcp-permission.mjs')
             const fixture = fileURLToPath(new URL('../test/fixtures/mock-source-mcp.mjs', import.meta.url))
-            const provenanceBinary = process.env.PAC_TEST_ROUTED_SOURCE_MCP_PROVENANCE === '1' ? process.env.PAC_TEST_NATIVE_OPENCODE : null
-            if (process.env.PAC_TEST_ROUTED_SOURCE_MCP_PROVENANCE === '1' && (!provenanceBinary || !isAbsolute(provenanceBinary))) throw new Error('Invalid test OpenCode binary')
-            const sourceCwd = await realpath(params.cwd)
-            const provenancePath = provenanceBinary ? await realpath(provenanceBinary) : null
-            const resolveWithOpenCode = provenancePath ? (await import('../src/source-mcp-config.mjs')).readResolvedSourceMcp : null
             state.sourceMcp = createSourceMcpSession({ sourceSessionId: session.id, remoteSessionId: state.remote.sessionId, cwd: params.cwd,
               resolveConfig: async () => {
                 const revision = process.env.PAC_TEST_ROUTED_SOURCE_MCP_CONFIG === '1' ? (await readFile(resolve(params.cwd, '.pac-test-mcp-revision'), 'utf8')).trim() : '0'
                 if (!/^[0-9]{1,12}$/.test(revision)) throw new Error('Invalid test MCP revision')
-                const mcp = { fixture: { type: 'local', enabled: true, command: [process.execPath, fixture], environment: { PAC_TEST_MCP_REVISION: revision } } }
-                if (!resolveWithOpenCode) return mcp
-                return resolveWithOpenCode({ binary: provenancePath, cwd: sourceCwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify({ mcp }), OPENCODE_DISABLE_PROJECT_CONFIG: '1' },
-                  attestRuntime: async ({ binary: executable, cwd }) => await realpath(executable) === provenancePath && await realpath(cwd) === sourceCwd && state.connected })
+                return { fixture: { type: 'local', enabled: true, command: [process.execPath, fixture], environment: { PAC_TEST_MCP_REVISION: revision } } }
               },
               verifyProvenance: async () => process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' && state.connected,
               requestPermission: createSourceMcpPermission({ sourceSessionId: session.id, client }),

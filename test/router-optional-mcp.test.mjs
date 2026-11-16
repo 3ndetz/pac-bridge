@@ -17,3 +17,13 @@ test('disabled MCP route does not load the optional SDK during router startup', 
     return true
   })
 })
+
+test('unavailable MCP provenance discovery fails before opening a session', async () => {
+  const router = fileURLToPath(new URL('../adapters/pac-opencode-router.mjs', import.meta.url))
+  const env = { ...process.env, PAC_EXPERIMENTAL: '1', PAC_OPENCODE_BINARY: process.execPath, PAC_TEST_ROUTED_SOURCE_MCP_PROVENANCE: '1' }
+  delete env.NODE_OPTIONS
+  await assert.rejects(run(process.execPath, [router], { env, windowsHide: true }), error => {
+    assert.match(error.stderr, /Source MCP provenance discovery is unavailable/)
+    return true
+  })
+})
