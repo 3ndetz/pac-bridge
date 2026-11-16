@@ -5,6 +5,8 @@ param(
   [Parameter(Mandatory=$true)][string]$OpenCodePath
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'Assert-ProviderCheckout.ps1')
+Assert-ProviderCheckout -Source (Join-Path $PSScriptRoot '..')
 $kit=(Resolve-Path -LiteralPath $KitPath).Path
 $keys=(Resolve-Path -LiteralPath $KeysPath).Path
 $opencode=(Resolve-Path -LiteralPath $OpenCodePath).Path

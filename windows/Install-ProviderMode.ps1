@@ -3,6 +3,8 @@ param([Parameter(Mandatory=$true)][string]$KitPath, [switch]$Activate, [switch]$
 $ErrorActionPreference='Stop'
 if($LegacyMigration -and !$NamedProviders){throw 'Legacy migration requires named PAC providers.'}
 $source=Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Assert-ProviderCheckout.ps1')
+Assert-ProviderCheckout -Source $source
 $kit=(Resolve-Path -LiteralPath $KitPath).Path
 $runtime=Join-Path $kit 'windows\Runtime.ps1'
 $profileHome=Join-Path $env:USERPROFILE '.hapi-servermall'
