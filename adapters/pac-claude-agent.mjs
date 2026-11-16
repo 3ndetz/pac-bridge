@@ -298,7 +298,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       if (!sourceSettings || typeof sourceSettings !== 'object' || Array.isArray(sourceSettings) ||
           Object.keys(sourceSettings).some(key => !['effortLevel', 'switchModelsOnFlag', 'env'].includes(key)) ||
           (sourceSettings.effortLevel !== undefined && !['low', 'medium', 'high', 'xhigh'].includes(sourceSettings.effortLevel)) ||
-          (sourceSettings.switchModelsOnFlag !== undefined && (process.env.PAC_TEST_SYNTHETIC_SETTINGS !== '1' || typeof sourceSettings.switchModelsOnFlag !== 'boolean')) ||
+          (sourceSettings.switchModelsOnFlag !== undefined && (typeof sourceSettings.switchModelsOnFlag !== 'boolean' || (sourceSettings.switchModelsOnFlag && process.env.PAC_TEST_SYNTHETIC_SETTINGS !== '1'))) ||
           (sourceSettings.env !== undefined && (!sourceSettings.env || typeof sourceSettings.env !== 'object' || Array.isArray(sourceSettings.env) ||
             Object.entries(sourceSettings.env).some(([key, value]) => key !== 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' || value !== '1')))) throw new Error('Unsupported source Claude settings')
       if (Object.keys(sourceSettings).length && options.settings !== undefined) throw new Error('Conflicting Claude settings are not supported')

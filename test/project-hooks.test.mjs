@@ -40,7 +40,7 @@ test('forwards global hooks with project hooks and fails closed for unsupported 
     assert.equal((await hooks.dispatch({ hook_event_name: 'PreToolUse', tool_name: 'Write' })).hookSpecificOutput.permissionDecision, 'deny')
     const homeHooks = await createProjectHooks({ root: home, home, shell: process.execPath })
     assert.equal((await homeHooks.dispatch({ hook_event_name: 'PreToolUse', tool_name: 'Write' })).hookSpecificOutput.permissionDecision, 'deny')
-    for (const settings of [{ permissions: { deny: ['Read'] } }, { disableAllHooks: true }, { permissions: { defaultMode: 'plan' } }, { permissions: { defaultMode: 'dontAsk' } }, { env: { PRIVATE_VALUE: 'secret' } }, { effortLevel: 'unsupported' }, { switchModelsOnFlag: false }, { switchModelsOnFlag: 'invalid' }, { agentPushNotifEnabled: true }, { skipDangerousModePermissionPrompt: 'invalid' }, { skipWorkflowUsageWarning: true }, { autoUpdatesChannel: 'unknown' }, { hooks: { PreToolUse: [{ hooks: [{ type: 'http', url: 'secret' }] }] } }, { hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'x', async: true }] }] } }]) {
+    for (const settings of [{ permissions: { deny: ['Read'] } }, { disableAllHooks: true }, { permissions: { defaultMode: 'plan' } }, { permissions: { defaultMode: 'dontAsk' } }, { env: { PRIVATE_VALUE: 'secret' } }, { effortLevel: 'unsupported' }, { switchModelsOnFlag: true }, { switchModelsOnFlag: 'invalid' }, { agentPushNotifEnabled: true }, { skipDangerousModePermissionPrompt: 'invalid' }, { skipWorkflowUsageWarning: true }, { autoUpdatesChannel: 'unknown' }, { hooks: { PreToolUse: [{ hooks: [{ type: 'http', url: 'secret' }] }] } }, { hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'x', async: true }] }] } }]) {
       await writeFile(join(globalConfig, 'settings.json'), JSON.stringify(settings))
       await assert.rejects(createProjectHooks({ root: project, home, shell: process.execPath }))
     }
@@ -201,10 +201,10 @@ test('validates and supplies the supported global Claude settings', async () => 
   const root = await mkdtemp(join(tmpdir(), 'pac-hooks-'))
   try {
     await mkdir(join(root, '.claude'))
-    const settings = { effortLevel: 'high', env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }, hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', 'process.stdout.write("ENV="+process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)'] }] }] } }
+    const settings = { effortLevel: 'high', switchModelsOnFlag: false, env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }, hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', 'process.stdout.write("ENV="+process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)'] }] }] } }
     await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify(settings))
     const hooks = await createProjectHooks({ root, home: root, shell: process.execPath })
-    assert.deepEqual(hooks.controllerSettings(), { effortLevel: 'high', env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } })
+    assert.deepEqual(hooks.controllerSettings(), { effortLevel: 'high', switchModelsOnFlag: false, env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } })
     assert.equal((await hooks.dispatch({ hook_event_name: 'UserPromptSubmit', prompt: 'test' })).hookSpecificOutput.additionalContext, 'ENV=1')
     settings.env = { HTTP_PROXY: 'synthetic-secret', HTTPS_PROXY: 'synthetic-secret' }
     await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify(settings))

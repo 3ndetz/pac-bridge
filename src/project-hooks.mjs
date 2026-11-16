@@ -52,7 +52,7 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
       controllerSettings.effortLevel = settings.effortLevel
     }
     if (global && settings.switchModelsOnFlag !== undefined) {
-      if (process.env.PAC_TEST_SYNTHETIC_SETTINGS !== '1' || typeof settings.switchModelsOnFlag !== 'boolean') throw new Error('Unsupported global Claude fallback setting')
+      if (typeof settings.switchModelsOnFlag !== 'boolean' || (settings.switchModelsOnFlag && process.env.PAC_TEST_SYNTHETIC_SETTINGS !== '1')) throw new Error('Unsupported global Claude fallback setting')
       controllerSettings.switchModelsOnFlag = settings.switchModelsOnFlag
     }
     if (global && settings.env !== undefined) {
