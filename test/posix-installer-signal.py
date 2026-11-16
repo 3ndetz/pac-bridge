@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import shutil
+import select
 import signal
 import subprocess
 import sys
@@ -14,6 +15,8 @@ if sys.platform != 'linux' or not hasattr(os, 'pidfd_open') or not hasattr(signa
 root = Path(tempfile.mkdtemp(prefix='pac-installer-signal-')).resolve()
 child = None
 handle = None
+npm_handle = None
+safe_cleanup = False
 release = root / 'release'
 try:
     repo, home, keys, fakebin, native = [root / name for name in ('repo', 'home', 'keys', 'bin', 'native')]
@@ -37,11 +40,13 @@ try:
       archive) tar -cf - adapters src source-package scripts/pac-posix-launcher.mjs;;
       *) exit 1;;
     esac''')
-    executable(fakebin / 'npm', '''printf ready > "$PAC_TEST_READY"
+    executable(fakebin / 'npm', '''printf '%s' "$$" > "$PAC_TEST_READY.tmp"
+mv "$PAC_TEST_READY.tmp" "$PAC_TEST_READY"
 while [ ! -f "$PAC_TEST_RELEASE" ]; do sleep 0.1; done
+printf done > "$PAC_TEST_DONE"
 exit 0''')
     env = {'HOME': str(home), 'PATH': str(fakebin) + os.pathsep + os.defpath,
-           'PAC_TEST_READY': str(root / 'ready'), 'PAC_TEST_RELEASE': str(release)}
+           'PAC_TEST_READY': str(root / 'ready'), 'PAC_TEST_RELEASE': str(release), 'PAC_TEST_DONE': str(root / 'done')}
     child = subprocess.Popen(['sh', str(repo / 'scripts' / 'install-posix.sh'), str(keys), str(native / 'opencode')],
                              cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     handle = os.pidfd_open(child.pid)
@@ -52,9 +57,14 @@ exit 0''')
         if time.monotonic() >= deadline:
             raise RuntimeError('Controlled installer wait was not reached; cleanup remains unconfirmed.')
         time.sleep(0.05)
+    npm_pid = int((root / 'ready').read_text(encoding='utf-8'))
+    npm_handle = os.pidfd_open(npm_pid)
     signal.pidfd_send_signal(handle, signal.SIGTERM)
     release.touch()
     code = child.wait(timeout=20)
+    if not select.select([npm_handle], [], [], 20)[0] or not (root / 'done').exists():
+        raise RuntimeError('Owned dependency fixture exit is unconfirmed.')
+    safe_cleanup = True
     if code == 0:
         raise AssertionError('Interrupted installer reported success.')
     base = home / '.local' / 'share' / 'pac-bridge'
@@ -64,7 +74,9 @@ exit 0''')
 finally:
     if handle is not None:
         os.close(handle)
-    if child is None or child.poll() is not None:
+    if npm_handle is not None:
+        os.close(npm_handle)
+    if child is None or safe_cleanup:
         if root.parent != Path(tempfile.gettempdir()).resolve() or not root.name.startswith('pac-installer-signal-'):
             raise RuntimeError('Refusing unexpected test cleanup path.')
         shutil.rmtree(root)
