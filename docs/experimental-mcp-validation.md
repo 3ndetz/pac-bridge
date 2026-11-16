@@ -10,6 +10,10 @@ Remaining work:
 - Diagnose the unconfirmed Windows job-host termination and verify cleanup with ownership evidence.
 - Establish and test client-to-session authorization before enabling shared-provider task controls or source MCP access.
 - Complete the installation, recovery and real-runtime acceptance checks recorded in the reliability checklist before production rollout.
+- Implement and verify private Windows transcript handling in the actual hook path; isolated ACL and cleanup probes alone are insufficient.
+- Verify compatibility with the source profile, including its configured hooks and proxy settings, without silently dropping policy or exposing credentials.
+- Verify process ownership and parent-exit behavior end to end before enabling any unfinished Windows parent watcher.
+- Merge and push only the verified integration, then reconcile remaining local work and check the final repository status.
 
 A separate synthetic ACP-session test encountered the same unconfirmed Windows host stop after rejecting an unrelated background snapshot. This points to a shared process-lifecycle path, but does not establish why termination failed. Keep the failure visible; do not infer successful cleanup from a failed stop request.
 
