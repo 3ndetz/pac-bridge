@@ -1,11 +1,14 @@
-﻿import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
+import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import { appendFileSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { Duplex } from 'node:stream'
 import { createAcpPeer } from '../src/acp-peer.mjs'
+import { watchSourceDisconnect } from '../src/pac-disconnect.mjs'
+import { createUncertaintyNotifier } from '../src/pac-uncertainty-notifier.mjs'
 import { connectSource } from '../src/acp-transport.mjs'
 import { createWorkspace } from '../src/acp-workspace.mjs'
 import { authorizedWrite } from '../src/authorized-write.mjs'
@@ -14,6 +17,8 @@ import { createSubagentTranslator } from '../src/subagent-events.mjs'
 import { createTerminalManager } from '../src/acp-terminal.mjs'
 import { createSearch } from '../src/acp-search.mjs'
 import { createSessionStore } from '../src/session-store.mjs'
+import { withEphemeralHookTranscript } from '../src/hook-transcript.mjs'
+import { createAsyncProjectHooks } from '../src/async-project-hooks.mjs'
 import { createProjectHooks } from '../src/project-hooks.mjs'
 import { createBackgroundTerminal } from '../src/background-terminal.mjs'
 import { createSourceSkills } from '../src/source-skills.mjs'
@@ -76,6 +81,15 @@ function publishBackground(session, state) {
     shellBackgroundCount: state.background?.snapshot().length || 0 }) + '\n')
 }
 
+function availabilityNotifier(session, state) {
+  return createUncertaintyNotifier({
+    notify: () => {
+      if (session.selected === state.endpoint.id) client.notify('pac/background_availability', { rootSessionId: session.id, epoch: session.snapshotEpoch, availability: 'unknown' })
+    },
+    close: () => { client.close(); void shutdown() },
+  })
+}
+
 function combined(response, session, current) {
   const result = structuredClone(response)
   if (session.discoveryWarnings.length) {
@@ -114,7 +128,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       }
       const result = (await native.call(method, params)) || {}
       const session = { id: result.sessionId || params.sessionId, cwd: params.cwd, native: result, selected: binding?.pacId || null,
-        remotes: new Map(), discoveryWarnings: [...endpointWarnings], modelQueue: Promise.resolve(), modelError: null }
+        remotes: new Map(), discoveryWarnings: [...endpointWarnings], modelQueue: Promise.resolve(), modelError: null, ...(process.env.PAC_TEST_SNAPSHOT_CHANNEL === '1' ? { snapshotEpoch: randomUUID() } : {}) }
       const builtinSkills = process.env.PAC_EXPERIMENTAL_SKILLS === '1' && isAbsolute(binary)
         ? (async () => {
             // Do not execute a diagnostic OpenCode process if unsupported user plugins could run.
@@ -130,7 +144,8 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       const targets = binding ? endpoints.filter((endpoint) => endpoint.id === binding.pacId) : endpoints
       if (binding && targets.length !== 1) throw new Error('The original PAC is unavailable; refusing to switch controllers')
       await Promise.all(targets.map(async (endpoint) => {
-        const state = { endpoint, connected: true, automaticCompactions: new Map() }
+        const state = { endpoint, connected: true, automaticCompactions: new Map(), asyncHooks: createAsyncProjectHooks() }
+        if (process.env.PAC_TEST_SNAPSHOT_CHANNEL === '1') state.availability = availabilityNotifier(session, state)
         let sourceReady = false
         const connectionStarted = Date.now()
         const traceConnection = (stage) => {
@@ -140,7 +155,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           traceConnection('starting')
           if (process.env.PAC_EXPERIMENTAL_HOOKS === '1') {
             if (!process.env.PAC_SOURCE_BASH) throw new Error('A source shell is required for project hooks')
-            state.hooks = await createProjectHooks({ root: params.cwd, shell: process.env.PAC_SOURCE_BASH })
+            state.hooks = await createProjectHooks({ root: params.cwd, shell: process.env.PAC_SOURCE_BASH, asyncHooks: state.asyncHooks })
           }
           if (process.env.PAC_EXPERIMENTAL_SKILLS === '1') state.skills = await createSourceSkills({ root: params.cwd, home: homedir(), builtins: await builtinSkills })
           state.allowedSkillRoots = new Set()
@@ -149,22 +164,31 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           sourceReady = true
           const stream = await connectSource(endpoint)
           traceConnection('transport_connected')
-          stream.once('close', () => {
+          const disconnectSource = () => {
+            if (!state.connected) return
             state.connected = false
+            if (state.availability) { try { state.availability.unknown() } catch {} }
+            if (state.sourceMcp) void state.sourceMcp.close().catch(() => {})
+            state.asyncHooks.close()
             for (const pending of state.pendingWrites?.values() || []) pending.abort()
             for (const pending of state.pendingTerminalCreates?.values() || []) pending.abort()
             for (const toolCallId of state.pendingQuestions?.values() || []) {
               try { client.notify('pac/permission/cancelled', { sessionId: session.id, toolCallId }) } catch {}
             }
             if (state.terminal) void state.terminal.close().catch(() => {})
-          })
+          }
+          watchSourceDisconnect(stream, disconnectSource)
           if (binding) state.translator = createSubagentTranslator({ localSessionId: session.id, remoteSessionId: binding.remoteSessionId, pacId: endpoint.id })
           state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
-            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions), promptHooks: !!state.hooks } },
+            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions), promptHooks: !!state.hooks, ...(process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' ? { sourceMcpServers: ['fixture'] } : {}), ...(state.hooks ? { claudeSettings: state.hooks.controllerSettings() } : {}), ...(process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && process.platform === 'linux' && state.hooks?.hasEvent('Stop') ? { stopHooks: true } : {}) } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
             clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {}, session: { compaction: {} } },
           onRequest: async (remoteMethod, remoteParams) => {
             if (session.selected !== endpoint.id) throw new Error('Request from inactive PAC session')
+            if (remoteMethod.startsWith('pac/source_mcp/')) {
+              if (!state.sourceMcp || !state.connected) throw new Error('Source MCP is unavailable')
+              return state.sourceMcp.handle(remoteMethod, remoteParams)
+            }
             if (remoteMethod === 'fs/read_text_file') {
               if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ sourceReadPath: isAbsolute(remoteParams.path || '') ? 'absolute' : 'relative' }) + '\n')
               if (process.env.PAC_TRACE_PATH && /hook-(block|error)\.txt$/.test(remoteParams.path || '')) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ blockedFixtureRead: true }) + '\n')
@@ -207,13 +231,14 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
               if (!state.hooks || remoteParams.sessionId !== state.remote?.sessionId) throw new Error('Project hooks are unavailable for this session')
               let output
               try {
-                const hooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH })
+                const hooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH, asyncHooks: state.asyncHooks })
                 if (remoteParams.input?.hook_event_name === 'UserPromptSubmit') {
-                  if (!hooks.hasEvent('UserPromptSubmit')) return {}
                   if (typeof state.currentUserPrompt !== 'string') throw new Error('The original user prompt is unavailable to the source hook')
                   remoteParams.input = { ...remoteParams.input, prompt: state.currentUserPrompt }
                 }
-                output = await hooks.dispatch(remoteParams.input)
+                output = remoteParams.input?.hook_event_name === 'Stop'
+                  ? await withEphemeralHookTranscript(remoteParams.transcript, (path) => hooks.dispatch({ ...remoteParams.input, transcript_path: path }))
+                  : await hooks.dispatch(remoteParams.input)
               } catch (error) {
                 if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ hookFailure: true }) + '\n')
                 throw error
@@ -386,6 +411,28 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           },
           })
           traceConnection('session_ready')
+          if (process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1') {
+            const { createSourceMcpSession } = await import('../src/source-mcp-session.mjs')
+            const { createSourceMcpPermission } = await import('../src/source-mcp-permission.mjs')
+            const fixture = fileURLToPath(new URL('../test/fixtures/mock-source-mcp.mjs', import.meta.url))
+            const provenanceBinary = process.env.PAC_TEST_ROUTED_SOURCE_MCP_PROVENANCE === '1' ? process.env.PAC_TEST_NATIVE_OPENCODE : null
+            if (process.env.PAC_TEST_ROUTED_SOURCE_MCP_PROVENANCE === '1' && (!provenanceBinary || !isAbsolute(provenanceBinary))) throw new Error('Invalid test OpenCode binary')
+            const sourceCwd = await realpath(params.cwd)
+            const provenancePath = provenanceBinary ? await realpath(provenanceBinary) : null
+            const resolveWithOpenCode = provenancePath ? (await import('../src/source-mcp-config.mjs')).readResolvedSourceMcp : null
+            state.sourceMcp = createSourceMcpSession({ sourceSessionId: session.id, remoteSessionId: state.remote.sessionId, cwd: params.cwd,
+              resolveConfig: async () => {
+                const revision = process.env.PAC_TEST_ROUTED_SOURCE_MCP_CONFIG === '1' ? (await readFile(resolve(params.cwd, '.pac-test-mcp-revision'), 'utf8')).trim() : '0'
+                if (!/^[0-9]{1,12}$/.test(revision)) throw new Error('Invalid test MCP revision')
+                const mcp = { fixture: { type: 'local', enabled: true, command: [process.execPath, fixture], environment: { PAC_TEST_MCP_REVISION: revision } } }
+                if (!resolveWithOpenCode) return mcp
+                return resolveWithOpenCode({ binary: provenancePath, cwd: sourceCwd, env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify({ mcp }), OPENCODE_DISABLE_PROJECT_CONFIG: '1' },
+                  attestRuntime: async ({ binary: executable, cwd }) => await realpath(executable) === provenancePath && await realpath(cwd) === sourceCwd && state.connected })
+              },
+              verifyProvenance: async () => process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' && state.connected,
+              requestPermission: createSourceMcpPermission({ sourceSessionId: session.id, client }),
+              notify: () => { void state.remote.call('pac/source_mcp/changed', { server: 'fixture' }).catch(() => {}) } })
+          }
           state.workspace = await createWorkspace({ root: params.cwd, sessionId: state.remote.sessionId })
           state.pendingTerminalCreates = new Map()
           state.pendingQuestions = new Map()
@@ -405,7 +452,8 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           } })
           state.translator ??= createSubagentTranslator({ localSessionId: session.id, remoteSessionId: state.remote.sessionId, pacId: endpoint.id })
           state.background = createBackgroundTerminal({ terminal: state.terminal, sessionId: state.remote.sessionId,
-            onChange: () => publishBackground(session, state) })
+            onChange: () => publishBackground(session, state),
+            ...(state.availability ? { onUncertain: () => state.availability.unknown(), onDeliveryFailure: () => state.availability.failure() } : {}) })
           if (!state.connected) throw new Error('PAC disconnected during setup')
           session.remotes.set(endpoint.id, state)
         } catch (error) {
@@ -431,6 +479,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
     }
     const session = sessions.get(params.sessionId)
     if (!session) return native.call(method, params)
+    if (method === 'pac/background_tasks/snapshot' && process.env.PAC_TEST_SNAPSHOT_CHANNEL === '1') return { rootSessionId: session.id, epoch: session.snapshotEpoch, availability: 'unknown' }
     if (method === 'session/set_mode') session.mode = params.modeId
     const selection = method === 'session/set_model' ? params.modelId : method === 'session/set_config_option' && params.configId === 'model' ? params.value : undefined
     const endpoint = typeof selection === 'string' ? endpoints.find((entry) => selection.startsWith(`PAC_${entry.name}/`)) : undefined
@@ -501,8 +550,27 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
         throw error
       }
       if (selected.hooks) {
-        const currentHooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH })
-        if (currentHooks.hasEvent('UserPromptSubmit')) {
+        const currentHooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH, asyncHooks: selected.asyncHooks })
+        const initialSettings = selected.hooks.controllerSettings()
+        if (JSON.stringify(currentHooks.controllerSettings()) !== JSON.stringify(initialSettings)) throw new Error('Source Claude settings changed; restart the PAC session')
+        if (Object.keys(initialSettings).length) {
+          let capability
+          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm source Claude settings support') }
+          if (capability?.settings !== true) throw new Error('PAC controller does not support source Claude settings')
+        }
+        if (currentHooks.hasEvent('Notification')) throw new Error('PAC controller cannot safely forward source Stop or Notification hooks')
+        if (currentHooks.hasEvent('Stop')) {
+          if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE !== '1' || process.platform !== 'linux') throw new Error('PAC controller cannot safely forward source Stop or Notification hooks')
+          let capability
+          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm source Stop support') }
+          if (capability?.stop !== true) throw new Error('PAC controller does not support source Stop hooks')
+        }
+        if (currentHooks.hasAsyncHooks() || selected.asyncHooks.hasPending()) {
+          let capability
+          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm async source hook support') }
+          if (capability?.async !== true) throw new Error('PAC controller does not support async source hooks')
+        }
+        if (currentHooks.hasEvent('UserPromptSubmit') || currentHooks.hasAsyncHooks() || selected.asyncHooks.hasPending()) {
           const prompt = method === 'pac/compact' ? '/compact' : Array.isArray(params.prompt) && params.prompt.length === 1 && params.prompt[0]?.type === 'text' ? params.prompt[0].text : undefined
           if (typeof prompt !== 'string') throw new Error('PAC Bridge cannot pass this prompt to the configured source hook')
           let capability
@@ -566,10 +634,14 @@ let stopping = false
 async function shutdown() {
   if (stopping) return
   stopping = true
-  for (const session of sessions.values()) for (const state of session.remotes.values()) { await state.terminal.close(); state.remote.close() }
-  native.close()
-  stopContained(child)
+  try {
+    for (const session of sessions.values()) for (const state of session.remotes.values()) {
+      try { await state.terminal?.close() } catch {}
+      try { state.remote?.close() } catch {}
+    }
+  } finally { native.close(); stopContained(child) }
 }
 process.on('SIGTERM', () => { void shutdown() })
 process.on('SIGINT', () => { void shutdown() })
 process.stdin.on('end', () => { void shutdown() })
+if (process.env.PAC_TEST_SNAPSHOT_CHANNEL === '1') process.stdout.on('error', () => { client.close(); void shutdown() })

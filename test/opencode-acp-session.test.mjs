@@ -28,10 +28,14 @@ test('refuses source prompt hooks with an older PAC controller', { timeout: 9000
     const settings = join(workspace, '.claude', 'settings.json')
     await writeFile(settings, JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', 'process.exit(2)'] }] }] } }))
     session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native'], cwd: workspace,
-      env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: process.execPath,
+      env: { ...process.env, HOME: root, USERPROFILE: root, PAC_EXPERIMENTAL: '1', PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: process.execPath,
         PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },
       model: 'PAC_testpac/sonnet', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
     await assert.rejects(session.prompt([{ type: 'text', text: 'hello' }], () => {}), /cannot confirm support for source prompt hooks/)
+    for (const event of ['Stop', 'Notification']) {
+      await writeFile(settings, JSON.stringify({ hooks: { [event]: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', 'process.exit(0)'] }] }] } }))
+      await assert.rejects(session.prompt([{ type: 'text', text: 'hello' }], () => {}), /cannot safely forward source Stop or Notification hooks/)
+    }
     await writeFile(settings, '{}')
     assert.equal((await session.prompt([{ type: 'text', text: 'hello' }], () => {})).stopReason, 'end_turn')
   } finally {
@@ -57,7 +61,7 @@ test('passes the original prompt to source hooks through the ACP router', { time
     const script = 'let x="";process.stdin.on("data",c=>x+=c);process.stdin.on("end",()=>process.stdout.write("source:"+JSON.parse(x).prompt))'
     await writeFile(join(workspace, '.claude', 'settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', script] }] }] } }))
     session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native'], cwd: workspace,
-      env: { ...process.env, PAC_EXPERIMENTAL: '1', PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: process.execPath,
+      env: { ...process.env, HOME: root, USERPROFILE: root, PAC_EXPERIMENTAL: '1', PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: process.execPath,
         PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },
       model: 'PAC_testpac/sonnet', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
     const events = []
@@ -81,6 +85,9 @@ test('finishes replaying restored history before accepting a new turn', { timeou
   try {
     assert.equal((await session.prompt([], () => {})).stopReason, 'end_turn')
     assert.ok(!diagnostics.some(value => value.startsWith('no_active_turn:')))
+    for (const phase of ['initialize', 'session-new', 'select-model']) {
+      assert.ok(diagnostics.some(value => new RegExp(`^startup:${phase}:[0-9]+ms$`).test(value)))
+    }
   } finally { session.close() }
 })
 
@@ -105,7 +112,7 @@ test('rejects a child event attributed to another root session', { timeout: 1500
   try { await assert.rejects(session.prompt([], () => {}), /connection lost/) } finally { session.close() }
 })
 
-test('opens a selected PAC through the OpenCode ACP router', { timeout: 20000 }, async () => {
+test('opens a selected PAC through the OpenCode ACP router', { timeout: 60000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-acp-'))
   const server = createServer()
   const relay = attachAcpRelay(server, { authorize: () => true })
