@@ -13,3 +13,7 @@ test('prefers a typed error over a marker and recognizes the expected reply', ()
   assert.deepEqual(inspectPacMessages([item('agent','message','MARKER'),item('agent','error','authentication failed')], 'MARKER'),{kind:'error',category:'authentication_related'})
   assert.deepEqual(inspectPacMessages([item('agent','message','MARKER')], 'MARKER'),{kind:'success'})
 })
+
+test('does not accept an empty or missing success marker', () => {
+  for (const marker of ['', '  ', null, undefined]) assert.throws(() => inspectPacMessages([item('agent','message','anything')], marker), /non-empty/)
+})

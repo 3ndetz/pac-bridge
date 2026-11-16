@@ -1,4 +1,5 @@
 export function inspectPacMessages(messages, marker) {
+  if (typeof marker !== 'string' || !marker.trim()) throw new Error('A non-empty expected marker is required')
   let category = null
   for (const entry of Array.isArray(messages) ? messages : []) {
     const content = entry?.content
