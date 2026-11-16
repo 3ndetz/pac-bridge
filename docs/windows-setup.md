@@ -41,9 +41,10 @@ the repository. This sends one real prompt per model and consumes model quota.
 The temporary launcher disables completion notifications for this test only;
 the installed notification configuration is unchanged. The check confirms
 selection and a response for each advertised ID, not the controller's internal
-mapping from aliases to model implementations. It archives its own chat and
-removes its own workspace only after confirming the archive; an uncertain
-cleanup is reported with the test session and workspace for inspection.
+mapping from aliases to model implementations. It attempts to archive its own chat,
+but retains the workspace after any spawn until process ownership and exit can be
+verified. The command reports the retained workspace and exits unsuccessfully while
+cleanup is unresolved.
 
 ## Prompt for an agent on another PC
 
