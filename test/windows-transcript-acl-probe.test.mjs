@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { access, mkdtemp, readdir, realpath, rm, symlink, unlink } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { createInterface } from 'node:readline'
+import { access, mkdtemp, readdir, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import test from 'node:test'
@@ -103,26 +105,39 @@ test('Windows removes the synthetic file when its owner exits without cleanup', 
   }
 })
 
-test('Windows closes the synthetic file on process termination', { skip: !windows || process.env.PAC_TEST_WINDOWS_TRANSCRIPT_CRASH !== '1', timeout: 30000 }, async () => {
+test('Windows deletes the synthetic transcript when its owned job is terminated', { skip: !windows, timeout: 60000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-acl-crash-'))
-  let child
+  const nonce = randomBytes(16).toString('hex')
+  const host = fileURLToPath(new URL('./fixtures/windows-test-owned-job-host.ps1', import.meta.url))
+  const spec = Buffer.from(JSON.stringify({ command: 'powershell.exe', args: args(root, 'crash'), cwd: root, nonce, deadlineMs: 30000 })).toString('base64')
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', host, spec], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  child.stderr.resume()
+  const exited = once(child, 'close')
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  const waitFor = (promise, ms) => { let timer; return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Owned job deadline exceeded')), ms) })]).finally(() => clearTimeout(timer)) }
+  let confirmed = false
   try {
-    child = spawn('powershell.exe', args(root, 'crash'), { env, stdio: ['ignore', 'pipe', 'pipe'] })
-    let output = '', errors = ''
-    child.stderr.on('data', chunk => { errors += chunk })
-    const ready = new Promise((resolveReady, reject) => {
-      child.stdout.on('data', chunk => { output += chunk; if (/READY [^\r\n]+\r?\n/.test(output)) resolveReady() })
-      child.once('exit', () => reject(new Error(`Probe exited before ready: ${errors}`)))
-    })
-    await ready
-    const dir = output.match(/READY ([^\r\n]+)/)?.[1]
-    assert.ok(dir && resolve(dir).toLowerCase().startsWith(`${resolve(await realpath(root)).toLowerCase()}\\`))
-    child.kill()
-    await once(child, 'exit')
-    for (let attempt = 0; attempt < 40; attempt++) {
-      try { await access(join(dir, 'synthetic.jsonl')); await new Promise(resolveWait => setTimeout(resolveWait, 100)) } catch { break }
+    assert.equal((await waitFor(lines.next(), 20000)).value, `OWNED_READY ${nonce}`)
+    let dir
+    const deadline = Date.now() + 15000
+    while (Date.now() < deadline) {
+      const entries = await readdir(root, { withFileTypes: true })
+      const directories = entries.filter(entry => entry.isDirectory() && /^[a-f0-9]{32}$/.test(entry.name))
+      if (directories.length === 1) {
+        const candidate = join(root, directories[0].name)
+        try { await access(join(candidate, 'synthetic.jsonl')); dir = candidate; break } catch (error) { if (error.code !== 'ENOENT') throw error }
+      }
+      await new Promise(resolveWait => setTimeout(resolveWait, 100))
     }
-    await assert.rejects(access(join(dir, 'synthetic.jsonl')))
+    assert.ok(dir, 'Synthetic transcript did not become ready')
+    await writeFile(join(root, 'stop.tmp'), nonce, { flag: 'wx' })
+    await rename(join(root, 'stop.tmp'), join(root, 'stop.signal'))
+    assert.equal((await waitFor(lines.next(), 20000)).value, `OWNED_CLOSED ${nonce}`)
+    assert.equal((await waitFor(exited, 10000))[0], 0)
+    confirmed = true
+    await assert.rejects(access(join(dir, 'synthetic.jsonl')), { code: 'ENOENT' })
     assert.deepEqual(await readdir(dir), [])
-  } finally { child?.kill(); await removeOwnedRoot(root) }
+  } finally {
+    if (confirmed) await removeOwnedRoot(root)
+  }
 })
