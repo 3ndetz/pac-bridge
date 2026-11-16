@@ -24,7 +24,7 @@ mkdir -p "$base/versions" "$base/bin"
 if [ ! -f "$base/.pac-bridge-install" ]; then
   (set -C; : > "$base/.pac-bridge-install") 2>/dev/null || { printf '%s\n' 'Could not safely create installation marker.' >&2; exit 1; }
 fi
-if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Another installation is in progress.' >&2; exit 1; fi
+if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Installation lock exists; inspect its owner and state before retrying.' >&2; exit 1; fi
 stage=''
 temp=''
 cleanup() { case "$stage" in "$base"/versions/.stage.*) [ ! -d "$stage" ] || rm -rf "$stage";; esac; case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp";; esac; rmdir "$base/.install-lock" 2>/dev/null || :; }
