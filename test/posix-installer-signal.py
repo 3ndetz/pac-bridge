@@ -12,15 +12,15 @@ if sys.platform != 'linux' or not hasattr(os, 'pidfd_open') or not hasattr(signa
     print('Linux pidfd support is required for this isolated test.')
     raise SystemExit(77)
 
+mode = os.environ.get('PAC_TEST_SIGNAL', 'TERM')
+if mode not in ('TERM', 'KILL'):
+    raise ValueError('Invalid isolated signal scenario.')
 root = Path(tempfile.mkdtemp(prefix='pac-installer-signal-')).resolve()
 child = None
 handle = None
 npm_handle = None
 safe_cleanup = False
 release = root / 'release'
-mode = os.environ.get('PAC_TEST_SIGNAL', 'TERM')
-if mode not in ('TERM', 'KILL'):
-    raise ValueError('Invalid isolated signal scenario.')
 try:
     repo, home, keys, fakebin, native = [root / name for name in ('repo', 'home', 'keys', 'bin', 'native')]
     for directory in (repo / 'scripts', repo / 'adapters', repo / 'src', repo / 'source-package', home, keys, fakebin, native):
