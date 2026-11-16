@@ -21,7 +21,9 @@ umask 077
 base="$HOME/.local/share/pac-bridge"
 if [ -e "$base" ] && [ ! -f "$base/.pac-bridge-install" ]; then printf '%s\n' 'Existing installation directory is not managed by this installer.' >&2; exit 1; fi
 mkdir -p "$base/versions" "$base/bin"
-: > "$base/.pac-bridge-install"
+if [ ! -f "$base/.pac-bridge-install" ]; then
+  (set -C; : > "$base/.pac-bridge-install") 2>/dev/null || { printf '%s\n' 'Could not safely create installation marker.' >&2; exit 1; }
+fi
 if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Another installation is in progress.' >&2; exit 1; fi
 stage=''
 temp=''

@@ -15,6 +15,8 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$r
 sh "$repo/scripts/install-posix.sh" "$root/keys" "$root/native/opencode" >/dev/null
 base="$HOME/.local/share/pac-bridge"
 printf '%s\n' 'do-not-overwrite' > "$root/sentinel"
+rm "$base/.pac-bridge-install"
+ln "$root/sentinel" "$base/.pac-bridge-install"
 for name in "$base/bin/pac-posix-launcher.mjs.tmp" "$base/bin/opencode.tmp" "$base/connection-directory.tmp" "$base/opencode-path.tmp" "$base/current.tmp"; do ln "$root/sentinel" "$name"; done
 sh "$repo/scripts/install-posix.sh" "$root/keys" "$root/native/opencode" >/dev/null
 [ "$(cat "$root/sentinel")" = 'do-not-overwrite' ] || { printf '%s\n' 'A pre-existing hard link was overwritten.' >&2; exit 1; }
