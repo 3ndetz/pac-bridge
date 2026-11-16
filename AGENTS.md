@@ -1,4 +1,4 @@
-﻿# Agent work continuity
+# Agent work continuity
 
 Не останавливаюсь, пока всё не сделано.
 
