@@ -35,8 +35,8 @@ async function scenario(mode) {
       messages.push({ id: 'agent-message', content: { role: 'agent', content: { data: { type: 'message', message: marker } } } })
       return reply(200, {})
     }
-    if (req.url === '/api/sessions/test-session/archive') { archived = ['success', 'archived-active'].includes(mode); return reply(archived ? 200 : 409, {}) }
-    if (req.url === '/api/sessions/test-session') return reply(200, { session: { active: mode === 'archived-active', metadata: { lifecycleState: archived ? 'archived' : 'running' } } })
+    if (req.url === '/api/sessions/test-session/archive') { archived = ['success', 'archived-active', 'missing-active'].includes(mode); return reply(archived ? 200 : 409, {}) }
+    if (req.url === '/api/sessions/test-session') return reply(200, { session: { ...(mode === 'missing-active' ? {} : { active: mode === 'archived-active' }), metadata: { lifecycleState: archived ? 'archived' : 'running' } } })
     return reply(404, {})
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -73,6 +73,12 @@ test('model check preserves its workspace if spawn outcome is uncertain', { skip
 
 test('model check does not confirm an archived session that remains active', { skip: process.platform !== 'win32' }, async () => {
   const result = await scenario('archived-active')
+  assert.equal(result.code, 1, result.stderr); assert.equal(result.directories.length, 1)
+  assert.match(result.stdout, /\"stage\":\"cleanup\",\"archived\":false/)
+})
+
+test('model check does not confirm archive when activity state is missing', { skip: process.platform !== 'win32' }, async () => {
+  const result = await scenario('missing-active')
   assert.equal(result.code, 1, result.stderr); assert.equal(result.directories.length, 1)
   assert.match(result.stdout, /\"stage\":\"cleanup\",\"archived\":false/)
 })
