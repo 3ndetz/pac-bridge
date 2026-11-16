@@ -1,4 +1,4 @@
-﻿# Experimental MCP validation
+# Experimental MCP validation
 
 The source MCP integration remains experimental and is not approved for production use. Local synthetic tests exercise permissions, session binding, disconnection and cancellation; they do not establish a trusted client identity boundary or end-to-end authorization.
 
@@ -13,6 +13,6 @@ Remaining work:
 
 A separate synthetic ACP-session test encountered the same unconfirmed Windows host stop after rejecting an unrelated background snapshot. This points to a shared process-lifecycle path, but does not establish why termination failed. Keep the failure visible; do not infer successful cleanup from a failed stop request.
 
-The pending source-router candidate imports the MCP SDK, but the source-runtime package and lockfile do not declare it. Its dependency and initialization path have not been validated in the installed source runtime; do not deploy that candidate as-is.
+The source-runtime package and lockfile do not declare the MCP SDK required by the experimental source route. A pending router candidate defers that import until the test-only route is selected; a local disabled-path startup check passed with the SDK deliberately unavailable. The experimental route and its dependency remain unverified in the installed source runtime; do not deploy the candidate as-is.
 
 Node 24.18's [process wrapper](https://github.com/nodejs/node/blob/v24.18.0/src/process_wrap.cc) calls `uv_process_kill` with its process object; [libuv's process documentation](https://docs.libuv.org/en/v1.x/process.html) distinguishes that from signaling a cached PID. The [Node child-process documentation](https://nodejs.org/download/release/v24.22.2/docs/api/child_process.html) nevertheless warns about PID reuse and notes that `kill()` returning successfully does not prove termination. These sources alone do not establish safe ownership or descendant cleanup for this integration; an observed exit and an independently verified owned job lifecycle remain necessary.
