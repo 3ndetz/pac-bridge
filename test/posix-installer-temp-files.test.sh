@@ -33,4 +33,18 @@ if HOME="$root/failing-home" sh "$repo/scripts/install-posix.sh" "$root/keys" "$
 fi
 [ ! -e "$root/failing-home/.local/share/pac-bridge/.install-lock" ] || { printf '%s\n' 'Lock was not released after failure.' >&2; exit 1; }
 [ -z "$(find "$root/failing-home/.local/share/pac-bridge/versions" -mindepth 1 -maxdepth 1 -print -quit)" ] || { printf '%s\n' 'Failed stage was not removed.' >&2; exit 1; }
+real_rm=$(command -v rm)
+export PAC_TEST_REAL_RM="$real_rm"
+cat > "$root/bin/rm" <<'EOF'
+#!/bin/sh
+case "$*" in *'/.stage.'*) exit 1;; esac
+exec "$PAC_TEST_REAL_RM" "$@"
+EOF
+chmod 700 "$root/bin/rm"
+mkdir -p "$root/uncertain-home"
+if HOME="$root/uncertain-home" sh "$repo/scripts/install-posix.sh" "$root/keys" "$root/native/opencode" >/dev/null 2>&1; then
+  printf '%s\n' 'An unconfirmed stage cleanup was accepted.' >&2; exit 1
+fi
+[ -d "$root/uncertain-home/.local/share/pac-bridge/.install-lock" ] || { printf '%s\n' 'Lock was removed despite unconfirmed cleanup.' >&2; exit 1; }
+[ -n "$(find "$root/uncertain-home/.local/share/pac-bridge/versions" -mindepth 1 -maxdepth 1 -print -quit)" ] || { printf '%s\n' 'The uncertain stage was not preserved.' >&2; exit 1; }
 printf '%s\n' 'Installer preserved pre-existing hard-linked files.'

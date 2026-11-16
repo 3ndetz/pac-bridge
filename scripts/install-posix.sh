@@ -28,22 +28,33 @@ if ! mkdir "$base/.install-lock" 2>/dev/null; then printf '%s\n' 'Installation l
 stage=''
 temp=''
 cleanup() {
+  cleanup_uncertain=0
   case "$stage" in
     "$base"/versions/.stage.*)
-      if [ -d "$stage" ]; then
+      if [ -L "$stage" ]; then
+        cleanup_uncertain=1
+      elif [ -d "$stage" ]; then
         resolved_base=$(CDPATH= cd -P "$base" && pwd -P) || resolved_base=''
         resolved_versions=$(CDPATH= cd -P "$base/versions" && pwd -P) || resolved_versions=''
         resolved_stage=$(CDPATH= cd -P "$stage" && pwd -P) || resolved_stage=''
         if [ -n "$resolved_base" ] && [ "$resolved_versions" = "$resolved_base/versions" ] &&
-           [ "$(dirname "$resolved_stage")" = "$resolved_versions" ]; then
-          case "${resolved_stage##*/}" in .stage.*) rm -rf "$resolved_stage";; *) printf '%s\n' 'Stage cleanup requires inspection.' >&2;; esac
+           [ "$resolved_stage" = "$resolved_versions/${stage##*/}" ]; then
+          case "${resolved_stage##*/}" in .stage.*) rm -rf "$resolved_stage" || cleanup_uncertain=1; [ ! -e "$resolved_stage" ] || cleanup_uncertain=1;; *) cleanup_uncertain=1;; esac
         else
-          printf '%s\n' 'Stage cleanup requires inspection.' >&2
+          cleanup_uncertain=1
         fi
+      else
+        cleanup_uncertain=1
       fi;;
+    '') ;;
+    *) cleanup_uncertain=1;;
   esac
-  case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp";; esac
-  rmdir "$base/.install-lock" 2>/dev/null || :
+  case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp" || cleanup_uncertain=1;; esac
+  if [ "$cleanup_uncertain" -ne 0 ]; then
+    printf '%s\n' 'Installer cleanup is unconfirmed; lock retained for inspection.' >&2
+    exit 1
+  fi
+  rmdir "$base/.install-lock" 2>/dev/null || { printf '%s\n' 'Installer lock removal is unconfirmed.' >&2; exit 1; }
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
