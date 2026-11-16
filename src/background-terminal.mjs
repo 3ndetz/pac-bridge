@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 
-export function createBackgroundTerminal({ terminal, sessionId, onChange = () => {}, maxTasks = 16, maxRetainedTasks = 128 }) {
-  if (!terminal || typeof sessionId !== 'string' || !sessionId || typeof onChange !== 'function' ||
+export function createBackgroundTerminal({ terminal, sessionId, onChange = () => {}, onUncertain = () => {}, onDeliveryFailure = () => {}, maxTasks = 16, maxRetainedTasks = 128 }) {
+  if (!terminal || typeof sessionId !== 'string' || !sessionId || typeof onChange !== 'function' || typeof onUncertain !== 'function' || typeof onDeliveryFailure !== 'function' ||
       !Number.isSafeInteger(maxTasks) || maxTasks < 1 || !Number.isSafeInteger(maxRetainedTasks) || maxRetainedTasks < maxTasks) throw new Error('Invalid background task configuration')
   const tasks = new Map()
-  let starting = 0
+  let starting = 0, uncertainStarts = 0, deliveryUncertain = false, revision = 0
 
   function check(params) {
     if (params?.sessionId !== sessionId) throw new Error('Unknown workspace session')
@@ -14,31 +14,55 @@ export function createBackgroundTerminal({ terminal, sessionId, onChange = () =>
   }
 
   function snapshot() {
-    return [...tasks.values()].filter((task) => task.status === 'running').map((task) => ({
+    return [...tasks.values()].filter((task) => task.status === 'running' || task.status === 'unknown').map((task) => ({
       task_id: task.id, task_type: 'local_bash', description: task.description,
     }))
   }
 
-  function changed() { try { onChange(snapshot()) } catch {} }
+  function snapshotState() {
+    const uncertain = uncertainStarts + [...tasks.values()].filter((task) => task.releaseUncertain || task.status === 'unknown').length + (deliveryUncertain ? 1 : 0)
+    return { tasks: snapshot(), starting, uncertain, complete: starting === 0 && uncertain === 0, revision }
+  }
+
+  function changed() {
+    revision++
+    const state = snapshotState()
+    function lostDelivery() {
+      if (deliveryUncertain) return
+      deliveryUncertain = true
+      try { onDeliveryFailure() } catch {}
+    }
+    if (!state.complete) {
+      try { onUncertain(state) } catch { lostDelivery() }
+      return
+    }
+    try { onChange(state.tasks, state) } catch {
+      lostDelivery()
+      try { onUncertain(snapshotState()) } catch { lostDelivery() }
+    }
+  }
 
   return {
-    snapshot,
+    snapshot, snapshotState,
     async start(params, { signal } = {}) {
       if (params?.sessionId !== sessionId) throw new Error('Unknown workspace session')
-      if ([...tasks.values()].filter((task) => task.status === 'running').length + starting >= maxTasks) throw new Error('Background task limit reached')
-      if (tasks.size + starting >= maxRetainedTasks) throw new Error('Background task history limit reached')
+      if ([...tasks.values()].filter((task) => task.status === 'running' || task.status === 'unknown' || task.releaseUncertain).length + starting + uncertainStarts >= maxTasks) throw new Error('Background task limit reached')
+      if (tasks.size + starting + uncertainStarts >= maxRetainedTasks) throw new Error('Background task history limit reached')
       if (params.description !== undefined && (typeof params.description !== 'string' || params.description.length > 512)) throw new Error('Invalid task description')
       if (params.timeoutMs !== undefined && (!Number.isSafeInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > 120000)) throw new Error('Invalid background task timeout')
-      starting++
-      let terminalId
+      starting++; changed()
+      let terminalId, created = false, recorded = false, released = false
       try {
         ;({ terminalId } = await terminal.create(params, { signal }))
+        if (typeof terminalId !== 'string' || !terminalId) throw new Error('Terminal creation outcome is unknown')
+        created = true
         if (signal?.aborted) {
           await terminal.release({ sessionId, terminalId })
+          released = true
           throw new Error('Background command cancelled; outcome may be unknown')
         }
         const task = { id: `pac-shell-${randomUUID()}`, terminalId, description: params.description || 'Background shell command', status: 'running' }
-        tasks.set(task.id, task)
+        tasks.set(task.id, task); recorded = true
         const timer = params.timeoutMs ? setTimeout(() => {
           task.timedOut = true
           void terminal.kill({ sessionId, terminalId }).catch(() => {})
@@ -46,21 +70,26 @@ export function createBackgroundTerminal({ terminal, sessionId, onChange = () =>
         task.done = (async () => {
           try {
             const exit = await terminal.waitForExit({ sessionId, terminalId })
-            const output = terminal.output({ sessionId, terminalId })
-            task.result = { ...output, exitStatus: exit }
+            task.result = { exitStatus: exit }
             task.status = task.timedOut ? 'timed_out' : task.stopping ? 'stopped' : exit.exitCode === 0 ? 'completed' : 'failed'
-          } catch (error) {
-            task.status = 'failed'
-            task.error = error.message
+            try { task.result = { ...terminal.output({ sessionId, terminalId }), exitStatus: exit } }
+            catch { task.error = 'Background task output is unavailable' }
+          } catch {
+            task.status = 'unknown'
+            task.error = 'Background task outcome is unknown'
           } finally {
             clearTimeout(timer)
-            try { await terminal.release({ sessionId, terminalId }) } catch {}
+            task.releaseUncertain = true; changed()
+            try { await terminal.release({ sessionId, terminalId }); task.releaseUncertain = false } catch {}
             changed()
           }
         })()
         changed()
         return { taskId: task.id }
-      } finally { starting-- }
+      } catch (error) {
+        if (!recorded && (!created || !released)) uncertainStarts++
+        throw error
+      } finally { starting--; changed() }
     },
     async output(params) {
       const task = check(params)
@@ -79,9 +108,10 @@ export function createBackgroundTerminal({ terminal, sessionId, onChange = () =>
       const task = check(params)
       if (task.status === 'running') {
         task.stopping = true
-        try { await terminal.kill({ sessionId, terminalId: task.terminalId }) } catch (error) { task.stopping = false; throw error }
+        try { await terminal.kill({ sessionId, terminalId: task.terminalId }) } catch (error) { task.stopping = false; task.releaseUncertain = true; changed(); throw error }
         await task.done
       }
+      if (task.status === 'unknown') throw new Error('Background task outcome is unknown')
       return { status: task.status }
     },
   }
