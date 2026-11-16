@@ -1,5 +1,4 @@
-import { readFile } from 'node:fs/promises'
-import { recordMcpAudit } from './mcp-audit.mjs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 
 let dynamic = false
@@ -19,7 +18,7 @@ lines.on('line', async (line) => {
       if (dynamic) tools.push({ name: 'dynamic_marker', description: 'Return the dynamically registered MCP verification marker.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } })
       result = { tools }
     } else if (message.method === 'tools/call' && message.params?.name === 'read_source_marker') {
-      if (process.env.PAC_TEST_MCP_AUDIT === '1') await recordMcpAudit('mcp-call-audit')
+      if (process.env.PAC_TEST_MCP_AUDIT === '1') await writeFile('mcp-call-audit', 'called', { flag: 'wx' })
       result = { content: [{ type: 'text', text: await readFile('mcp-fixture.txt', 'utf8') }] }
       dynamic = true
     } else if (message.method === 'tools/call' && message.params?.name === 'dynamic_marker' && dynamic) {
