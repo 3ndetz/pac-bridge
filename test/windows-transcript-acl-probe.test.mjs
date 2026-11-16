@@ -59,6 +59,17 @@ test('Windows handle resists an ancestor rename attempt and concurrent writes', 
   } finally { await removeOwnedRoot(root) }
 })
 
+test('Windows read-only sharing blocks replacement of an open synthetic transcript', { skip: !windows, timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-acl-race-'))
+  try {
+    const result = spawnSync('powershell.exe', args(root, 'protected-race'), { env, encoding: 'utf8', timeout: 20000 })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /RENAME_BLOCKED/)
+    assert.match(result.stdout, /OK/)
+    assert.deepEqual(await readdir(root), [])
+  } finally { await removeOwnedRoot(root) }
+})
+
 test('Windows removes the synthetic file when its owner exits without cleanup', { skip: !windows, timeout: 30000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-acl-crash-'))
   let exited = false

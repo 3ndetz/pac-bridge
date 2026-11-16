@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('normal','crash','insecure','policies','race','self-exit')][string]$Mode = 'normal')
+param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('normal','crash','insecure','policies','race','self-exit','protected-race')][string]$Mode = 'normal')
 $ErrorActionPreference = 'Stop'
 if ($env:PAC_TEST_WINDOWS_TRANSCRIPT_ACL -ne '1' -or [Environment]::OSVersion.Platform -ne 'Win32NT') { throw 'Test-only Windows ACL probe is disabled' }
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -62,7 +62,7 @@ try {
   $bytes = [Text.Encoding]::UTF8.GetBytes('PAC_SYNTHETIC_TRANSCRIPT_ONLY')
   $stream.Write($bytes, 0, $bytes.Length)
   $stream.Flush($true)
-  if ($Mode -eq 'race') {
+  if ($Mode -in @('race', 'protected-race')) {
     $blocked = $false
     try { $other = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite); $other.Dispose() } catch [IO.IOException] { $blocked = $true }
     if (-not $blocked) { throw 'Concurrent write was not blocked' }
@@ -71,6 +71,7 @@ try {
     if ([IO.Path]::GetDirectoryName($verifiedDir) -ine $rootPath -or
         [IO.Path]::GetDirectoryName($moved) -ine $rootPath) { throw 'Unexpected test move path' }
     try { [IO.Directory]::Move($verifiedDir, $moved) } catch [IO.IOException] { $moved = $null }
+    if ($moved -and $Mode -eq 'protected-race') { throw 'Protected directory rename was not blocked' }
     if ($moved) {
       [void][IO.Directory]::CreateDirectory($dir, (New-PrivateSecurity $true))
       [IO.File]::WriteAllText($path, 'PAC_SYNTHETIC_REPLACEMENT')
