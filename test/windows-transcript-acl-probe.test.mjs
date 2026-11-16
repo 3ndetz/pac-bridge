@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { randomBytes } from 'node:crypto'
 import { createInterface } from 'node:readline'
-import { access, mkdtemp, readdir, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import test from 'node:test'
@@ -125,7 +125,7 @@ test('Windows deletes the synthetic transcript when its owned job is terminated'
       const directories = entries.filter(entry => entry.isDirectory() && /^[a-f0-9]{32}$/.test(entry.name))
       if (directories.length === 1) {
         const candidate = join(root, directories[0].name)
-        try { await access(join(candidate, 'synthetic.jsonl')); dir = candidate; break } catch (error) { if (error.code !== 'ENOENT') throw error }
+        try { if (await readFile(join(candidate, 'synthetic.jsonl'), 'utf8') === 'PAC_SYNTHETIC_TRANSCRIPT_ONLY') { dir = candidate; break } } catch (error) { if (!['ENOENT', 'EBUSY', 'EPERM'].includes(error.code)) throw error }
       }
       await new Promise(resolveWait => setTimeout(resolveWait, 100))
     }
