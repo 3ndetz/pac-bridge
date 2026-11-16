@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('normal','crash','insecure','policies','race')][string]$Mode = 'normal')
+param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('normal','crash','insecure','policies','race','self-exit')][string]$Mode = 'normal')
 $ErrorActionPreference = 'Stop'
 if ($env:PAC_TEST_WINDOWS_TRANSCRIPT_ACL -ne '1' -or [Environment]::OSVersion.Platform -ne 'Win32NT') { throw 'Test-only Windows ACL probe is disabled' }
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -77,6 +77,11 @@ try {
       Write-Output 'RENAME_REPLACED'
     } else { Write-Output 'RENAME_BLOCKED' }
     Assert-Private ($stream.GetAccessControl())
+  }
+  if ($Mode -eq 'self-exit') {
+    Write-Output ('READY ' + $dir)
+    [Console]::Out.Flush()
+    [Environment]::Exit(23)
   }
   if ($Mode -eq 'crash') {
     Write-Output ('READY ' + $dir)

@@ -59,6 +59,26 @@ test('Windows handle resists an ancestor rename attempt and concurrent writes', 
   } finally { await removeOwnedRoot(root) }
 })
 
+test('Windows removes the synthetic file when its owner exits without cleanup', { skip: !windows, timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-acl-crash-'))
+  let exited = false
+  try {
+    const child = spawn('powershell.exe', args(root, 'self-exit'), { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = '', errors = ''
+    child.stdout.on('data', chunk => { output += chunk })
+    child.stderr.on('data', chunk => { errors += chunk })
+    const [code] = await once(child, 'close')
+    exited = true
+    assert.equal(code, 23, errors)
+    const dir = output.match(/READY ([^\r\n]+)/)?.[1]
+    assert.ok(dir && resolve(dir).toLowerCase().startsWith(resolve(await realpath(root)).toLowerCase() + sep))
+    await assert.rejects(access(join(dir, 'synthetic.jsonl')), { code: 'ENOENT' })
+    assert.deepEqual(await readdir(dir), [])
+  } finally {
+    if (exited) await removeOwnedRoot(root)
+  }
+})
+
 test('Windows closes the synthetic file on process termination', { skip: !windows || process.env.PAC_TEST_WINDOWS_TRANSCRIPT_CRASH !== '1', timeout: 30000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-acl-crash-'))
   let child

@@ -23,4 +23,4 @@ Node 24.18's [process wrapper](https://github.com/nodejs/node/blob/v24.18.0/src/
 
 A separate isolated Linux container checked the unlinked hook transcript after a synthetic process was terminated through a retained pidfd. The test verified process exit and disappearance of the transcript path; it does not establish Windows transcript privacy or recovery from every crash.
 
-A synthetic Windows ACL probe rejected broad access and reparse roots, and verified handle behavior during a rename attempt and concurrent writes. Its process-termination scenario remains opt-in and was not run in this check. These tests do not establish private Windows transcript handling or crash recovery.
+A synthetic Windows ACL probe rejected broad access and reparse roots, and verified handle behavior during a rename attempt and concurrent writes. An isolated process that exited through Environment.Exit without cleanup also released its synthetic delete-on-close file; the external process-termination scenario remains opt-in and was not run. These tests do not establish private Windows transcript handling or recovery from every crash.
