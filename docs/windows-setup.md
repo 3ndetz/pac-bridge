@@ -2,7 +2,7 @@
 
 This procedure targets an **existing configured HAPI runner**, under the Windows account that owns it. It uses the existing hub and machine identity, and installs PAC Bridge as a separate OpenCode provider. It does not install or replace HAPI. Linux and macOS installation is not yet fully verified.
 
-The provider has been exercised on two Windows profiles. The bootstrap below is new and needs a clean-profile end-to-end test before it can be regarded as a finished installer. Existing PAC deployments must follow their migration procedure rather than overwrite their configuration.
+**Do not run the bootstrap, provider-disable, live-dispatch or notification-configuration scripts on a real profile yet.** Isolated audits found incomplete failure recovery and retry; disable and live dispatch can overwrite concurrent changes, and notification setup can follow pre-existing hard links or junctions. Crash-safe updates and protection against path substitution are not established. The provider has been exercised on two Windows profiles, but those checks do not make these scripts production-ready. Existing PAC deployments must not be overwritten.
 
 1. Install Git for Windows, Node.js 24 with npm, and OpenCode 1.19.5. The verified OpenCode version can be installed for the current user:
 
