@@ -32,3 +32,5 @@ A separate synthetic Windows job harness confirmed its own job had zero active p
 Two synthetic ACP invalid-or-stale snapshot cases were rerun on Windows inside an owned job. The harness verified both cases ran and passed, then confirmed the job had no active processes before cleanup. This does not establish the cause of the earlier job-host failure or prove all shutdown paths safe.
 
 The earlier failing local synthetic MCP disconnect/timeout case was rerun on Windows inside an owned job: the intended case passed and the harness confirmed zero active processes before cleaning up. The earlier failure's cause remains unknown, and this isolated repeat does not establish safe behavior for all shutdown paths.
+
+All 15 local synthetic MCP transport tests subsequently passed on Windows inside the owned job, whose zero-active-process check completed before cleanup. No user MCP configuration or real server was used. The earlier failure's cause remains unknown and real-runtime authorization remains unverified.
