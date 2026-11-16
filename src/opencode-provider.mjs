@@ -252,15 +252,12 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
           continue
         }
         if (method === 'session/update' && update?.sessionUpdate === 'available_commands_update') {
-          turn.notices.add('[PAC: remote slash commands are not yet available in OpenCode.]')
           continue
         }
         if (method === '_auth/status_update') {
-          turn.notices.add('[PAC: remote authentication status changed.]')
           continue
         }
         if (method === 'session/update' && update?.sessionUpdate === 'usage_update') {
-          turn.notices.add('[PAC: remote usage metrics are not yet displayed.]')
           continue
         }
         if (method === 'session/update' && update?.sessionUpdate === 'session_info_update') {
