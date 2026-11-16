@@ -12,3 +12,5 @@ Remaining work:
 - Complete the installation, recovery and real-runtime acceptance checks recorded in the reliability checklist before production rollout.
 
 A separate synthetic ACP-session test encountered the same unconfirmed Windows host stop after rejecting an unrelated background snapshot. This points to a shared process-lifecycle path, but does not establish why termination failed. Keep the failure visible; do not infer successful cleanup from a failed stop request.
+
+The pending source-router candidate imports the MCP SDK, but the source-runtime package and lockfile do not declare it. Its dependency and initialization path have not been validated in the installed source runtime; do not deploy that candidate as-is.
