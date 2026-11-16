@@ -26,6 +26,18 @@ test('supports bidirectional concurrent requests and notifications', async () =>
   } finally { first.close(); second.close() }
 })
 
+test('preserves the remote JSON-RPC error code and data across a relay', async () => {
+  const [clientStream, inboundStream] = streams()
+  const [outboundStream, serverStream] = streams()
+  const client = createAcpPeer(clientStream)
+  const outbound = createAcpPeer(outboundStream)
+  const inbound = createAcpPeer(inboundStream, { onRequest: (method, params) => outbound.call(method, params) })
+  const server = createAcpPeer(serverStream, { onRequest: () => { throw Object.assign(new Error('Authentication required'), { code: -32000, rpc: { data: { kind: 'fixture' } } }) } })
+  try {
+    await assert.rejects(client.call('session/prompt', {}), error => error.message === 'Authentication required' && error.code === -32000 && error.rpc?.data?.kind === 'fixture')
+  } finally { client.close(); inbound.close(); outbound.close(); server.close() }
+})
+
 test('reports unknown outcome on timeout or disconnect, without retrying', async () => {
   const [firstStream, secondStream] = streams()
   let calls = 0
