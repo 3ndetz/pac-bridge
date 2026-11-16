@@ -15,6 +15,7 @@ input.on('line', (line) => {
       if (process.env.PAC_TEST_BAD_CHILD_OWNER === '1') return setTimeout(() => reply({ stopReason: 'end_turn' }), 100)
       reply({ stopReason: 'end_turn' })
       setTimeout(() => send({ jsonrpc: '2.0', method: 'opencode/session/child_update', params: { rootSessionId: 'root', childSessionId: 'pac:child', parentSessionId: 'root', depth: 1, type: 'status', status: 'completed' } }), 100)
+      if (process.env.PAC_TEST_IDLE_BACKGROUND) setTimeout(() => send({ jsonrpc: '2.0', method: 'pac/background_tasks_changed', params: { rootSessionId: process.env.PAC_TEST_IDLE_BACKGROUND === 'foreign' ? 'other' : 'root', tasks: [{ task_id: process.env.PAC_TEST_IDLE_BACKGROUND === 'invalid' ? '' : 'pac:child', task_type: 'agent', description: 'working', secret: 'private' }] } }), 150)
     } else reply({ stopReason: 'end_turn' })
   }
 })

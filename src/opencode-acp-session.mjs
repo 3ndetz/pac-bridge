@@ -1,11 +1,12 @@
 import { Duplex } from 'node:stream'
 import { createAcpPeer } from './acp-peer.mjs'
 import { spawnContained, stopContained } from './spawn-contained.mjs'
+import { normalizePacBackgroundTasks } from './pac-background-tasks.mjs'
 
 // Opens a single PAC-bound session through the same ACP router used by HAPI.
 // The caller must present permissions and updates to the originating user.
-export async function openOpencodeAcpSession({ command, args, env, cwd, model, resumeSessionId, onPermission, onDiagnostic = () => {} }) {
-  if (typeof command !== 'string' || !command || !Array.isArray(args) || typeof onPermission !== 'function') throw new Error('Invalid ACP launcher')
+export async function openOpencodeAcpSession({ command, args, env, cwd, model, resumeSessionId, onPermission, onDiagnostic = () => {}, onIdleBackgroundTasks, onBackgroundAvailability }) {
+  if (typeof command !== 'string' || !command || !Array.isArray(args) || typeof onPermission !== 'function' || (onIdleBackgroundTasks !== undefined && typeof onIdleBackgroundTasks !== 'function') || (onBackgroundAvailability !== undefined && typeof onBackgroundAvailability !== 'function')) throw new Error('Invalid ACP launcher')
   const child = spawnContained(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
   child.stderr.resume()
   child.on('error', () => {})
@@ -15,8 +16,34 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
   let id = resumeSessionId
   let loading = Boolean(resumeSessionId)
   let stopped = false
+  let availabilityEpoch = null, availabilityReady = false, availabilityRevision = 0, availabilityClosed = false, availabilitySnapshotPending = false
+  function parseAvailability(value) {
+    if (!value || value.rootSessionId !== id || typeof value.epoch !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.epoch) || !['unknown', 'ready'].includes(value.availability) || (value.availability === 'unknown' && value.tasks !== undefined)) throw new Error('Invalid PAC background availability')
+    return { rootSessionId: id, epoch: value.epoch, availability: value.availability, ...(value.availability === 'ready' ? { tasks: normalizePacBackgroundTasks(value.tasks) } : {}) }
+  }
+  function invalidateAvailability() {
+    if (availabilityClosed) return
+    availabilityClosed = true
+    availabilityReady = false
+    availabilityRevision++
+    if (id && onBackgroundAvailability) {
+      try { onBackgroundAvailability({ rootSessionId: id, epoch: availabilityEpoch, availability: 'unknown' }) } catch {}
+    }
+  }
+  child.once('exit', invalidateAvailability)
   let phase = 'initialize'
-  const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), {
+  let phaseStarted = performance.now()
+  function nextPhase(next) {
+    const elapsed = Math.max(0, Math.round(performance.now() - phaseStarted))
+    try { onDiagnostic(`startup:${phase}:${elapsed}ms`) } catch {}
+    phase = next
+    phaseStarted = performance.now()
+  }
+  const transport = Duplex.from({ readable: child.stdout, writable: child.stdin })
+  transport.once('end', invalidateAvailability)
+  transport.once('close', invalidateAvailability)
+  transport.once('error', invalidateAvailability)
+  const peer = createAcpPeer(transport, {
     onRequest: async (method, params) => {
       if (method !== 'session/request_permission' || !id || params?.sessionId !== id) throw new Error('Unsupported ACP client request')
       return onPermission(params)
@@ -33,10 +60,23 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
       const safeMethod = typeof method === 'string' && /^[a-z_/]{1,64}$/.test(method) ? method.replaceAll('/', 'Z') : 'other'
       try { onDiagnostic(`notification:${safeMethod}__${typeof type === 'string' && /^[a-z_]{1,64}$/.test(type) ? type : 'none'}`) } catch {}
       if ((params?.sessionId && params.sessionId !== id) || (params?.rootSessionId && params.rootSessionId !== id) ||
-          (['opencode/session/child_update', 'pac/background_tasks_changed'].includes(method) && params?.rootSessionId !== id)) {
+          (['opencode/session/child_update', 'pac/background_tasks_changed', 'pac/background_availability'].includes(method) && params?.rootSessionId !== id)) {
         onDiagnostic('bad_session'); throw new Error('ACP update belongs to another session')
       }
+      if (method === 'pac/background_availability' && onBackgroundAvailability) {
+        const value = parseAvailability(params)
+        availabilityRevision++
+        if (availabilityEpoch !== value.epoch) availabilityReady = false
+        availabilityEpoch = value.epoch
+        if (value.availability === 'unknown') availabilityReady = false
+        onBackgroundAvailability(value.availability === 'ready' && !availabilityReady ? { rootSessionId: id, epoch: value.epoch, availability: 'unknown' } : value)
+        return
+      }
       if (!activeUpdate) {
+        if (method === 'pac/background_tasks_changed' && onIdleBackgroundTasks) {
+          onIdleBackgroundTasks({ rootSessionId: id, tasks: normalizePacBackgroundTasks(params.tasks) })
+          return
+        }
         const metadata = method === '_auth/status_update' || method === 'opencode/session/child_update' || method === 'pac/background_tasks_changed' ||
           (method === 'session/update' && ['session_info_update', 'usage_update', 'available_commands_update'].includes(type))
         const bytes = Buffer.byteLength(JSON.stringify({ method, params }))
@@ -54,13 +94,14 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
   function close() {
     if (stopped) return
     stopped = true
+    invalidateAvailability()
     peer.close()
     stopContained(child)
   }
   try {
     const initialized = await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
     if (initialized?.protocolVersion !== 1) throw new Error('Unsupported ACP version')
-    phase = 'session-new'
+    nextPhase('session-new')
     if (resumeSessionId && initialized.agentCapabilities?.loadSession !== true) throw new Error('ACP session cannot be restored')
     const opened = await peer.call(resumeSessionId ? 'session/load' : 'session/new', { cwd, mcpServers: [], ...(resumeSessionId ? { sessionId: resumeSessionId } : {}) })
     id = opened?.sessionId ?? resumeSessionId
@@ -83,11 +124,32 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
         await peer.call('session/set_model', { sessionId: id, modelId: value })
       }
     }
-    phase = 'select-model'
+    nextPhase('select-model')
     await selectModel(model)
+    nextPhase('ready')
     return {
       sourceSessionId: id,
       selectModel,
+      async requestBackgroundSnapshot() {
+        if (stopped || availabilityClosed || availabilitySnapshotPending) throw new Error('ACP session is unavailable or snapshot is pending')
+        availabilitySnapshotPending = true
+        try {
+          const revision = availabilityRevision
+          const result = parseAvailability(await peer.call('pac/background_tasks/snapshot', { sessionId: id }, 5000))
+          await peer.drainNotifications()
+          if (availabilityClosed || availabilityRevision !== revision) throw new Error('PAC background availability changed during snapshot')
+          availabilityEpoch = result.epoch
+          availabilityReady = result.availability === 'ready'
+          return result
+        } catch (error) {
+          availabilityReady = false
+          availabilityRevision++
+          if (!availabilityClosed && onBackgroundAvailability) {
+            try { onBackgroundAvailability({ rootSessionId: id, epoch: availabilityEpoch, availability: 'unknown' }) } catch {}
+          }
+          throw error
+        } finally { availabilitySnapshotPending = false }
+      },
       async prompt(prompt, onUpdate) {
         if (stopped || activeUpdate) throw new Error('ACP session is unavailable or busy')
         activeUpdate = onUpdate
@@ -97,7 +159,23 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
           await peer.drainNotifications()
           return result
         }
-        catch (error) { error.pacPhase = 'prompt'; throw error }
+        catch (error) {
+          if (env?.PAC_DIAGNOSTICS === '1') {
+            const detail = [error?.message, error?.rpc?.data?.details].filter(value => typeof value === 'string').join(' ')
+            const category = [
+              ['settings_unsupported', 'does not support source Claude settings'],
+              ['settings_unconfirmed', 'cannot confirm source Claude settings'],
+              ['settings_changed', 'Source Claude settings changed'],
+              ['source_setup', 'source_setup_failed'],
+              ['authentication', 'Authentication required'],
+              ['model_unavailable', 'Selected PAC model is unavailable'],
+              ['disconnected', 'ACP connection lost'],
+              ['timeout', 'ACP request timed out'],
+            ].find(([, value]) => detail.includes(value))?.[0] || 'other'
+            try { onDiagnostic(`prompt_failure:${category}`) } catch {}
+          }
+          error.pacPhase = 'prompt'; throw error
+        }
         finally { activeUpdate = null }
       },
       cancel() { if (!stopped) peer.notify('session/cancel', { sessionId: id }) },
@@ -111,5 +189,5 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
       },
       close,
     }
-  } catch (error) { error.pacPhase = phase; close(); throw error }
+  } catch (error) { error.pacPhase = phase; nextPhase('failed'); close(); throw error }
 }
