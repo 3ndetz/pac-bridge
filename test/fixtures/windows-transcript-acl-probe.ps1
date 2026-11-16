@@ -66,6 +66,15 @@ try {
     $blocked = $false
     try { $other = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite); $other.Dispose() } catch [IO.IOException] { $blocked = $true }
     if (-not $blocked) { throw 'Concurrent write was not blocked' }
+    if ($Mode -eq 'protected-race') {
+      $readShare = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+      $reader = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $readShare)
+      try {
+        $readProbe = [byte[]]::new($bytes.Length)
+        if ($reader.Read($readProbe, 0, $readProbe.Length) -ne $bytes.Length -or [Text.Encoding]::UTF8.GetString($readProbe) -ne 'PAC_SYNTHETIC_TRANSCRIPT_ONLY') { throw 'Concurrent read failed' }
+      } finally { $reader.Dispose() }
+      Write-Output 'READ_OK'
+    }
     $moved = [IO.Path]::GetFullPath($dir + '-moved')
     $verifiedDir = (Resolve-Path -LiteralPath $dir).ProviderPath
     if ([IO.Path]::GetDirectoryName($verifiedDir) -ine $rootPath -or
