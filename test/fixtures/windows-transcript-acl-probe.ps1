@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('normal','crash','insecure','policies','race','self-exit','protected-race')][string]$Mode = 'normal')
+param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('normal','crash','insecure','policies','race','self-exit','protected-race','ancestor-race')][string]$Mode = 'normal')
 $ErrorActionPreference = 'Stop'
 if ($env:PAC_TEST_WINDOWS_TRANSCRIPT_ACL -ne '1' -or [Environment]::OSVersion.Platform -ne 'Win32NT') { throw 'Test-only Windows ACL probe is disabled' }
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -41,7 +41,12 @@ if ($Mode -eq 'policies') {
   Write-Output 'POLICIES_OK'
   return
 }
-$dir = Join-Path $rootPath ([Guid]::NewGuid().ToString('N'))
+$ancestor = $null
+if ($Mode -eq 'ancestor-race') {
+  $ancestor = Join-Path $rootPath ([Guid]::NewGuid().ToString('N'))
+  [void][IO.Directory]::CreateDirectory($ancestor, (New-PrivateSecurity $true))
+  $dir = Join-Path $ancestor 'inner'
+} else { $dir = Join-Path $rootPath ([Guid]::NewGuid().ToString('N')) }
 $stream = $null
 $moved = $null
 try {
@@ -88,6 +93,20 @@ try {
     } else { Write-Output 'RENAME_BLOCKED' }
     Assert-Private ($stream.GetAccessControl())
   }
+  if ($Mode -eq 'ancestor-race') {
+    $verifiedAncestor = (Resolve-Path -LiteralPath $ancestor).ProviderPath
+    $destination = [IO.Path]::GetFullPath($ancestor + '-moved')
+    if ([IO.Path]::GetDirectoryName($verifiedAncestor) -ine $rootPath -or
+        [IO.Path]::GetDirectoryName($destination) -ine $rootPath -or
+        [IO.Directory]::Exists($destination)) { throw 'Unexpected ancestor test path' }
+    $renamed = $false
+    try {
+      try { [IO.Directory]::Move($verifiedAncestor, $destination); $renamed = $true } catch [IO.IOException] { }
+      if ($renamed) { Write-Output 'ANCESTOR_RENAMED' } else { Write-Output 'ANCESTOR_BLOCKED' }
+    } finally {
+      if ($renamed) { [IO.Directory]::Move($destination, $verifiedAncestor) }
+    }
+  }
   if ($Mode -eq 'self-exit') {
     Write-Output ('READY ' + $dir)
     [Console]::Out.Flush()
@@ -115,5 +134,6 @@ try {
 } finally {
   if ($stream) { $stream.Dispose() }
   if ($Mode -ne 'crash' -and [IO.Directory]::Exists($dir) -and [IO.Directory]::GetFileSystemEntries($dir).Count -eq 0) { [IO.Directory]::Delete($dir) }
+  if ($ancestor -and [IO.Directory]::Exists($ancestor) -and [IO.Directory]::GetFileSystemEntries($ancestor).Count -eq 0) { [IO.Directory]::Delete($ancestor) }
   if ($moved -and [IO.Directory]::Exists($moved) -and [IO.Directory]::GetFileSystemEntries($moved).Count -eq 0) { [IO.Directory]::Delete($moved) }
 }

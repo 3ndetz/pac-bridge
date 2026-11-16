@@ -71,6 +71,18 @@ test('Windows read-only sharing blocks replacement of an open synthetic transcri
   } finally { await removeOwnedRoot(root) }
 })
 
+test('Windows reports whether an open file protects higher ancestors', { skip: !windows, timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-acl-race-'))
+  try {
+    const result = spawnSync('powershell.exe', args(root, 'ancestor-race'), { env, encoding: 'utf8', timeout: 20000 })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /ANCESTOR_(BLOCKED|RENAMED)/)
+    assert.match(result.stdout, /OK/)
+    assert.deepEqual(await readdir(root), [])
+    console.log(result.stdout.match(/ANCESTOR_(?:BLOCKED|RENAMED)/)[0])
+  } finally { await removeOwnedRoot(root) }
+})
+
 test('Windows removes the synthetic file when its owner exits without cleanup', { skip: !windows, timeout: 30000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-acl-crash-'))
   let exited = false
