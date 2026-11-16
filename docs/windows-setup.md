@@ -4,6 +4,8 @@ This procedure targets an **existing configured HAPI runner**, under the Windows
 
 **Do not run the bootstrap, provider-disable, live-dispatch or notification-configuration scripts on a real profile yet.** Isolated audits found incomplete failure recovery and retry; disable and live dispatch can overwrite concurrent changes, and notification setup can follow pre-existing hard links or junctions. Crash-safe updates and protection against path substitution are not established. The provider has been exercised on two Windows profiles, but those checks do not make these scripts production-ready. Existing PAC deployments must not be overwritten.
 
+The bootstrap now checks the source checkout and required tracked files before creating a profile. Synthetic tests cover ZIP snapshots, nested and modified checkouts, missing files, and a clean checkout through input validation; full installation and recovery remain unverified.
+
 1. Install Git for Windows, Node.js 24 with npm, and OpenCode 1.19.5. The verified OpenCode version can be installed for the current user:
 
    ```powershell
