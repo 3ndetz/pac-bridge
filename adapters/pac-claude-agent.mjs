@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
@@ -10,7 +11,9 @@ import { waitForTerminal } from '../src/terminal-wait.mjs'
 import { stopNativeTask } from '../src/native-task-stop.mjs'
 import { createInstructionLedger } from '../src/instruction-ledger.mjs'
 import { MAX_SCOPED_INSTRUCTION_CHARS } from '../src/source-instructions.mjs'
+import { snapshotHookTranscript } from '../src/hook-transcript.mjs'
 import { createNativeTaskOutput, recoverNativeTaskOutput } from '../src/native-task-output.mjs'
+import { createControllerSourceMcp } from '../src/source-mcp-controller.mjs'
 
 // Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
 // notification arrives with the long path. Preserve the target, including a
@@ -50,6 +53,9 @@ console.info = console.error
 console.warn = console.error
 
 let activeAgent
+const testStopSessions = new Set()
+const sourceSettingsSessions = new Set()
+const testSourceMcpSessions = new Map()
 const app = acp.v1AgentApp(undefined, (agent) => {
   activeAgent = agent
   const backgroundCalls = new Map()
@@ -66,6 +72,16 @@ const app = acp.v1AgentApp(undefined, (agent) => {
         _meta: { ...update._meta, pacBridge: { background: backgroundCalls.get(match[0]), toolUseId: match[0] } } } }
     }
     return publish(notification)
+  }
+  const failedStopHooks = new Set()
+  const originalPrompt = agent.prompt.bind(agent)
+  agent.prompt = async (params) => {
+    failedStopHooks.delete(params.sessionId)
+    try {
+      const result = await originalPrompt(params)
+      if (failedStopHooks.has(params.sessionId)) throw new Error('PAC Bridge could not execute a source Stop hook')
+      return result
+    } finally { failedStopHooks.delete(params.sessionId) }
   }
   const originalNew = agent.newSession.bind(agent)
   const originalLoad = agent.loadSession.bind(agent)
@@ -277,16 +293,41 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       { ...(meta.systemPrompt || {}), append: [meta.systemPrompt?.append, sourcePrompt].filter(Boolean).join('\n\n') } : meta.systemPrompt
     const claudeCode = meta.claudeCode || {}
     const options = claudeCode.options || {}
+    const sourceSettings = meta.pac?.claudeSettings
+    if (sourceSettings !== undefined) {
+      if (!sourceSettings || typeof sourceSettings !== 'object' || Array.isArray(sourceSettings) ||
+          Object.keys(sourceSettings).some(key => !['effortLevel', 'switchModelsOnFlag', 'env'].includes(key)) ||
+          (sourceSettings.effortLevel !== undefined && !['low', 'medium', 'high', 'xhigh'].includes(sourceSettings.effortLevel)) ||
+          (sourceSettings.switchModelsOnFlag !== undefined && (process.env.PAC_TEST_SYNTHETIC_SETTINGS !== '1' || typeof sourceSettings.switchModelsOnFlag !== 'boolean')) ||
+          (sourceSettings.env !== undefined && (!sourceSettings.env || typeof sourceSettings.env !== 'object' || Array.isArray(sourceSettings.env) ||
+            Object.entries(sourceSettings.env).some(([key, value]) => key !== 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' || value !== '1')))) throw new Error('Unsupported source Claude settings')
+      if (Object.keys(sourceSettings).length && options.settings !== undefined) throw new Error('Conflicting Claude settings are not supported')
+    }
     if (options.mcpServers && Object.hasOwn(options.mcpServers, 'pac')) throw new Error('The pac MCP server name is reserved by the bridge')
-    if (process.env.PAC_TEST_SOURCE_MCP === '1' && options.mcpServers && Object.hasOwn(options.mcpServers, 'source_tools')) throw new Error('The source_tools MCP server name is reserved by the bridge')
+    if ((process.env.PAC_TEST_SOURCE_MCP === '1' || meta.pac?.sourceMcpServers !== undefined) && options.mcpServers && Object.hasOwn(options.mcpServers, 'source_tools')) throw new Error('The source_tools MCP server name is reserved by the bridge')
+    let sourceMcp
+    if (meta.pac?.sourceMcpServers !== undefined) {
+      if (process.env.PAC_TEST_ROUTED_SOURCE_MCP !== '1' || process.env.PAC_TEST_SOURCE_MCP === '1' || JSON.stringify(meta.pac.sourceMcpServers) !== '["fixture"]') throw new Error('Unsupported source MCP configuration')
+      sourceMcp = createControllerSourceMcp({ remoteSessionId: 'pending', serverName: 'fixture', peer: { call: (method, request) => {
+        if (!sessionId) throw new Error('Source MCP session is not ready')
+        return agent.client.inner.ctx.request(method, { ...request, sessionId })
+      } } })
+    }
     if (sourcePrompt && options.systemPrompt !== undefined) throw new Error('Source instructions with an SDK-level custom system prompt are not yet supported')
     const aliases = process.env.PAC_USE_ALIASES !== '0'
     const projectHook = async (input) => {
       if (!hooksEnabled) return {}
       const toolName = typeof input.tool_name === 'string' ? input.tool_name.replace(/^mcp__pac__/, '') : input.tool_name
       try {
-        return await agent.client.inner.ctx.request('pac/hooks/dispatch', { sessionId, input: { ...input, tool_name: toolName } })
+        if (input.hook_event_name === 'Stop' && input.session_id !== sessionId) throw new Error('Source hook session identity mismatch')
+        const transcript = input.hook_event_name === 'Stop' ? await snapshotHookTranscript(input.transcript_path, { root: join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects'), sessionId: input.session_id }) : undefined
+        return await agent.client.inner.ctx.request('pac/hooks/dispatch', { sessionId, input: { ...input, tool_name: toolName, ...(transcript === undefined ? {} : { transcript_path: '' }) }, ...(transcript === undefined ? {} : { transcript }) })
       } catch (error) {
+        if (input.hook_event_name === 'Stop') {
+          failedStopHooks.add(sessionId)
+          await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'PAC Bridge could not execute a source Stop hook; the turn was stopped.' } } }).catch(() => {})
+          return { continue: false, stopReason: 'PAC Bridge could not execute a source Stop hook.' }
+        }
         if (input.hook_event_name === 'UserPromptSubmit') return { decision: 'block', reason: `Source project hook failed: ${error.message}` }
         if (input.hook_event_name !== 'PreToolUse') throw error
         return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
@@ -294,19 +335,20 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       }
     }
     const opened = await (loading ? originalLoad : originalNew)({ ...params, _meta: { ...meta, ...(systemPrompt ? { systemPrompt } : {}), claudeCode: { ...claudeCode, options: {
-      ...options, tools: aliases ? { type: 'preset', preset: 'claude_code' } : [], mcpServers: { ...(options.mcpServers || {}), pac: server,
+      ...options, ...(sourceSettings && Object.keys(sourceSettings).length ? { settings: sourceSettings } : {}), tools: aliases ? { type: 'preset', preset: 'claude_code' } : [], mcpServers: { ...(options.mcpServers || {}), pac: server,
+        ...(sourceMcp ? { source_tools: { ...sourceMcp.config, name: 'source_tools' } } : {}),
         ...(process.env.PAC_TEST_SOURCE_MCP === '1' ? { source_tools: { type: 'stdio', command: process.execPath,
           args: [fileURLToPath(new URL('./pac-acp-source.mjs', import.meta.url)), 'testmcp', process.env.PAC_TEST_MCP_URL, process.env.PAC_TEST_MCP_TOKEN_FILE] } } : {}) },
       allowedTools: aliases ? ['mcp__pac__Read', 'mcp__pac__Write', 'mcp__pac__Edit', 'mcp__pac__Bash', 'mcp__pac__Glob', 'mcp__pac__Grep', 'mcp__pac__Skill', 'mcp__pac__AskUserQuestion', 'mcp__pac__TaskOutput', 'mcp__pac__TaskStop'] : ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill', 'AskUserQuestion', 'TaskOutput', 'TaskStop'],
       ...(aliases ? { toolAliases: { Read: 'mcp__pac__Read', Write: 'mcp__pac__Write', Edit: 'mcp__pac__Edit', Bash: 'mcp__pac__Bash', Glob: 'mcp__pac__Glob', Grep: 'mcp__pac__Grep', Skill: 'mcp__pac__Skill', AskUserQuestion: 'mcp__pac__AskUserQuestion' },
         disallowedTools: ['PowerShell', 'NotebookEdit', 'WebFetch', 'WebSearch',
           ...(backgroundEnabled ? [] : ['Agent', 'Task', 'TaskOutput', 'TaskStop'])] } : {}),
-      hooks: { ...options.hooks, ...(meta.pac?.promptHooks === true ? { UserPromptSubmit: [...(options.hooks?.UserPromptSubmit || []), { hooks: [projectHook], onFailure: 'block' }] } : {}),
+      hooks: { ...options.hooks, ...(process.env.PAC_TEST_SYNTHETIC_NOTIFICATION === '1' && meta.pac?.notificationHooks === true ? { Notification: [...(options.hooks?.Notification || []), { hooks: [projectHook] }] } : {}), ...(process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && meta.pac?.stopHooks === true ? { Stop: [...(options.hooks?.Stop || []), { hooks: [projectHook] }] } : {}), ...(meta.pac?.promptHooks === true ? { UserPromptSubmit: [...(options.hooks?.UserPromptSubmit || []), { hooks: [projectHook], onFailure: 'block' }] } : {}),
         PostToolUse: [...(options.hooks?.PostToolUse || []), { hooks: [projectHook, scopedRulesHook] }],
         PostToolUseFailure: [...(options.hooks?.PostToolUseFailure || []), { hooks: [projectHook] }],
         PreToolUse: [...(options.hooks?.PreToolUse || []), { hooks: [projectHook], onFailure: 'block' }, { hooks: [async (input) => {
         return prototypeToolDecision(input.tool_name, { aliases, allowSubagents: backgroundEnabled, allowQuestions: questionsEnabled,
-          allowSourceMcp: process.env.PAC_TEST_SOURCE_MCP === '1' })
+          allowSourceMcp: process.env.PAC_TEST_SOURCE_MCP === '1' || !!sourceMcp })
       }] }, { matcher: 'Agent|Task', hooks: [async (input, toolUseId) => {
         if (toolUseId) backgroundCalls.set(toolUseId, input.tool_input?.run_in_background === true)
         await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'session_info_update', _meta: { pacProbe: { background: input.tool_input?.run_in_background === true } } } })
@@ -315,6 +357,9 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       forwardSubagentText: true, settingSources: [],
     } } } })
     sessionId = opened.sessionId || sessionId
+    if (sourceMcp) testSourceMcpSessions.set(sessionId, sourceMcp)
+    if (sourceSettings !== undefined) sourceSettingsSessions.add(sessionId)
+    if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && meta.pac?.stopHooks === true && process.platform === 'linux') testStopSessions.add(sessionId)
     return opened
   }
   agent.newSession = (params) => prepareSession(params, false)
@@ -323,11 +368,15 @@ const app = acp.v1AgentApp(undefined, (agent) => {
 const extendedApp = app.onRequest('pac/hooks/capabilities', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || !params.sessionId) throw new Error('Invalid hook capability request')
   return params
-} }, async ({ params }) => ({ promptSubmit: hooksEnabled && !!activeAgent.sessions[params.sessionId] }))
+} }, async ({ params }) => ({ promptSubmit: hooksEnabled && !!activeAgent.sessions[params.sessionId], ...(testStopSessions.has(params.sessionId) ? { stop: true } : {}), ...(sourceSettingsSessions.has(params.sessionId) ? { settings: true } : {}), ...(process.env.PAC_TEST_ASYNC_HOOKS === '1' && hooksEnabled && activeAgent.sessions[params.sessionId] ? { async: true } : {}) }))
+  .onRequest('pac/source_mcp/changed', { parse: (params) => {
+  if (!params || typeof params.sessionId !== 'string' || params.server !== 'fixture') throw new Error('Invalid source MCP change')
+  return params
+} }, async ({ params }) => { const bridge = testSourceMcpSessions.get(params.sessionId); if (!bridge) throw new Error('Source MCP session unavailable'); await bridge.changed(); return {} })
   .onRequest('pac/tasks/stop_native', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || typeof params.taskId !== 'string' || !params.taskId) throw new Error('Invalid native task stop request')
   return params
 } }, async ({ params }) => stopNativeTask(activeAgent.sessions[params.sessionId], params.taskId))
 const connection = extendedApp.connect(ndJsonStream(utils.nodeToWebWritable(process.stdout), utils.nodeToWebReadable(process.stdin)))
-connection.closed.finally(async () => { await activeAgent?.dispose(); process.exit(0) })
+connection.closed.finally(async () => { await Promise.allSettled([...testSourceMcpSessions.values()].map(bridge => bridge.close())); await activeAgent?.dispose(); process.exit(0) })
 process.stdin.resume()
