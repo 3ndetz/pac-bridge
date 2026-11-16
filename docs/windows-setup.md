@@ -35,6 +35,8 @@ To update an already configured provider, fetch and pull the repository, then ru
 
 New provider-mode wrappers follow the selected staged revision for newly launched OpenCode processes, including after a runner restart. Existing chats keep their original process and version. For an older running runner whose generated wrapper still pins a particular revision, `windows/Enable-LiveProviderDispatch.ps1 -WrapperRevision <full-revision>` can migrate that wrapper after checking its exact contents; `-Restore` restores its verified backup. Determine the wrapper actually used by that runner before running this command. A running conversation is not migrated by this operation. Disabling the loader takes effect after restarting the runner; use the verified wrapper restore as well when immediately undoing a live-dispatch migration.
 
+For startup diagnosis, set `PAC_DIAGNOSTICS=1` in the environment of a new provider process. Its stderr includes elapsed milliseconds for ACP initialization, session creation or loading, and model selection, including the failed stage. These measurements omit model IDs, prompts, paths and credentials; they do not diagnose delays inside an individual stage. Do not restart an active runner solely to enable diagnostics.
+
 Older `Install-FromRepo.ps1`, `Install-PacRunner.ps1`, and `Install-ExistingProfile.ps1` describe the superseded PAC-patched runtime and should not be used for this provider setup. Follow [RELIABILITY-CHECKLIST.md](../RELIABILITY-CHECKLIST.md) for remaining limitations.
 
 To check every currently advertised PAC model in one temporary HAPI chat, run
