@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict'
+import { spawn, spawnSync } from 'node:child_process'
+import { once } from 'node:events'
+import { access, mkdtemp, readdir, realpath, rm, symlink, unlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+const windows = process.platform === 'win32'
+const script = fileURLToPath(new URL('./fixtures/windows-transcript-acl-probe.ps1', import.meta.url))
+const args = (root, mode) => ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Root', root, '-Mode', mode]
+const env = { ...process.env, PAC_TEST_WINDOWS_TRANSCRIPT_ACL: '1' }
+
+async function removeOwnedRoot(root) {
+  const actual = await realpath(root)
+  const local = relative(await realpath(tmpdir()), actual)
+  if (!local || isAbsolute(local) || local === '..' || local.startsWith('..' + sep) ||
+      (!local.startsWith('pac-acl-probe-') && !local.startsWith('pac-acl-race-') && !local.startsWith('pac-acl-crash-'))) {
+    throw new Error('Refusing unexpected test cleanup path')
+  }
+  await rm(actual, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 })
+}
+
+test('Windows synthetic ACL probe rejects broad access and reparse roots', { skip: !windows, timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-acl-probe-'))
+  const link = join(root, 'link')
+  try {
+    const run = (path, mode, variables = env) => spawnSync('powershell.exe', args(path, mode), { env: variables, encoding: 'utf8', timeout: 10000 })
+    const disabled = run(root, 'normal', { ...env, PAC_TEST_WINDOWS_TRANSCRIPT_ACL: '0' })
+    assert.notEqual(disabled.status, 0)
+    const normal = run(root, 'normal')
+    assert.equal(normal.status, 0, normal.stderr)
+    assert.match(normal.stdout, /OK/)
+    const insecure = run(root, 'insecure')
+    assert.notEqual(insecure.status, 0)
+    assert.match(insecure.stderr, /ACL is not private/)
+    const policies = run(root, 'policies')
+    assert.equal(policies.status, 0, policies.stderr)
+    assert.match(policies.stdout, /POLICIES_OK/)
+    await symlink(root, link, 'junction')
+    const reparse = run(link, 'normal')
+    assert.notEqual(reparse.status, 0)
+    assert.match(reparse.stderr, /Reparse point rejected/)
+  } finally {
+    try { await unlink(link) } catch (error) { if (error.code !== 'ENOENT') throw error }
+    await removeOwnedRoot(root)
+  }
+})
+
+test('Windows handle resists an ancestor rename attempt and concurrent writes', { skip: !windows, timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-acl-race-'))
+  try {
+    const result = spawnSync('powershell.exe', args(root, 'race'), { env, encoding: 'utf8', timeout: 20000 })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /OK/)
+    assert.match(result.stdout, /RENAME_(BLOCKED|REPLACED)/)
+    assert.deepEqual(await readdir(root), [])
+  } finally { await removeOwnedRoot(root) }
+})
+
+test('Windows closes the synthetic file on process termination', { skip: !windows || process.env.PAC_TEST_WINDOWS_TRANSCRIPT_CRASH !== '1', timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pac-acl-crash-'))
+  let child
+  try {
+    child = spawn('powershell.exe', args(root, 'crash'), { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = '', errors = ''
+    child.stderr.on('data', chunk => { errors += chunk })
+    const ready = new Promise((resolveReady, reject) => {
+      child.stdout.on('data', chunk => { output += chunk; if (/READY [^\r\n]+\r?\n/.test(output)) resolveReady() })
+      child.once('exit', () => reject(new Error(`Probe exited before ready: ${errors}`)))
+    })
+    await ready
+    const dir = output.match(/READY ([^\r\n]+)/)?.[1]
+    assert.ok(dir && resolve(dir).toLowerCase().startsWith(`${resolve(await realpath(root)).toLowerCase()}\\`))
+    child.kill()
+    await once(child, 'exit')
+    for (let attempt = 0; attempt < 40; attempt++) {
+      try { await access(join(dir, 'synthetic.jsonl')); await new Promise(resolveWait => setTimeout(resolveWait, 100)) } catch { break }
+    }
+    await assert.rejects(access(join(dir, 'synthetic.jsonl')))
+    assert.deepEqual(await readdir(dir), [])
+  } finally { child?.kill(); await removeOwnedRoot(root) }
+})
