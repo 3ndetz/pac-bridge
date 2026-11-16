@@ -108,6 +108,17 @@ test('failed owned-process cleanup is reported consistently on repeated close', 
   await assert.rejects(transport.close(), /stop failed/)
 })
 
+test('a failed stop request is accepted only after the owned child closes', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null })
+  const transport = new ContainedTransport({}, tmpdir(), {}, 100, () => {
+    queueMicrotask(() => child.emit('close'))
+    throw new Error('stop request failed')
+  }, 100)
+  transport.child = child
+  await transport.close()
+  await transport.close()
+})
+
 test('a stalled transport write is bounded and terminates its child', async () => {
   let stops = 0
   const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, stdin: { writable: true, write() {} } })
