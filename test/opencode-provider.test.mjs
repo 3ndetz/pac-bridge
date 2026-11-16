@@ -637,6 +637,11 @@ test('cancels a native question when OpenCode continues without an answer', asyn
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
+test('rejects non-boolean experimental stop configuration', () => {
+  assert.throws(() => createOpencodeProvider({ token: 'local-test-token-with-at-least-32-characters', cwd: '/source',
+    router: { async prompt() {} }, enableExperimentalTaskStop: 'false' }), /Invalid provider configuration/)
+})
+
 test('experimental independent task stop is disabled by default', async () => {
   const token = 'local-test-token-with-at-least-32-characters'
   let calls = 0

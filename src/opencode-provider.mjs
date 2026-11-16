@@ -19,7 +19,7 @@ function userPrompt(content) {
 // Experimental transport. Unsupported events and permissions terminate the
 // turn rather than being translated into a successful text answer.
 export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {}, onBackgroundTasks = () => {}, stopGuard, enableExperimentalTaskStop = false }) {
-  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1 || typeof onBackgroundTasks !== 'function' || (stopGuard !== undefined && typeof stopGuard?.claim !== 'function')) throw new Error('Invalid provider configuration')
+  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1 || typeof onBackgroundTasks !== 'function' || typeof enableExperimentalTaskStop !== 'boolean' || (stopGuard !== undefined && typeof stopGuard?.claim !== 'function')) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
   const turns = new Map()
