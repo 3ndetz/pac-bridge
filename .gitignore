@@ -5,3 +5,6 @@ bridge.env
 tg-notify.env
 pac-source-token.txt
 hapi-token.txt
+
+__pycache__/
+*.pyc
