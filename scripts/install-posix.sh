@@ -49,7 +49,21 @@ cleanup() {
     '') ;;
     *) cleanup_uncertain=1;;
   esac
-  case "$temp" in "$base"/.install.*|"$base"/bin/.install.*) [ ! -e "$temp" ] || rm -f "$temp" || cleanup_uncertain=1;; esac
+  if [ -n "$temp" ] && { [ -e "$temp" ] || [ -L "$temp" ]; }; then
+    resolved_base=$(CDPATH= cd -P "$base" && pwd -P) || resolved_base=''
+    resolved_parent=$(CDPATH= cd -P "$(dirname "$temp")" && pwd -P) || resolved_parent=''
+    case "$temp" in
+      "$base"/.install.*) expected_parent=$resolved_base;;
+      "$base"/bin/.install.*) expected_parent=$resolved_base/bin;;
+      *) expected_parent='';;
+    esac
+    if [ -z "$resolved_base" ] || [ -z "$expected_parent" ] || [ "$resolved_parent" != "$expected_parent" ] || [ -L "$temp" ]; then
+      cleanup_uncertain=1
+    else
+      rm -f "$temp" || cleanup_uncertain=1
+      if [ -e "$temp" ] || [ -L "$temp" ]; then cleanup_uncertain=1; fi
+    fi
+  fi
   if [ "$cleanup_uncertain" -ne 0 ]; then
     printf '%s\n' 'Installer cleanup is unconfirmed; lock retained for inspection.' >&2
     exit 1

@@ -37,7 +37,7 @@ real_rm=$(command -v rm)
 export PAC_TEST_REAL_RM="$real_rm"
 cat > "$root/bin/rm" <<'EOF'
 #!/bin/sh
-case "$*" in *'/.stage.'*) exit 1;; esac
+case "$*" in *'/.stage.'*|*'/.install.'*) exit 1;; esac
 exec "$PAC_TEST_REAL_RM" "$@"
 EOF
 chmod 700 "$root/bin/rm"
@@ -47,4 +47,20 @@ if HOME="$root/uncertain-home" sh "$repo/scripts/install-posix.sh" "$root/keys" 
 fi
 [ -d "$root/uncertain-home/.local/share/pac-bridge/.install-lock" ] || { printf '%s\n' 'Lock was removed despite unconfirmed cleanup.' >&2; exit 1; }
 [ -n "$(find "$root/uncertain-home/.local/share/pac-bridge/versions" -mindepth 1 -maxdepth 1 -print -quit)" ] || { printf '%s\n' 'The uncertain stage was not preserved.' >&2; exit 1; }
+real_mv=$(command -v mv)
+export PAC_TEST_REAL_MV="$real_mv"
+cat > "$root/bin/mv" <<'EOF'
+#!/bin/sh
+case "$*" in *'/bin/.install.'*) exit 1;; esac
+exec "$PAC_TEST_REAL_MV" "$@"
+EOF
+chmod 700 "$root/bin/mv"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$root/bin/npm"
+chmod 700 "$root/bin/npm"
+mkdir -p "$root/uncertain-temp-home"
+if HOME="$root/uncertain-temp-home" sh "$repo/scripts/install-posix.sh" "$root/keys" "$root/native/opencode" >/dev/null 2>&1; then
+  printf '%s\n' 'An unconfirmed temporary-file cleanup was accepted.' >&2; exit 1
+fi
+[ -d "$root/uncertain-temp-home/.local/share/pac-bridge/.install-lock" ] || { printf '%s\n' 'Lock was removed despite unconfirmed temporary-file cleanup.' >&2; exit 1; }
+[ -n "$(find "$root/uncertain-temp-home/.local/share/pac-bridge/bin" -name '.install.*' -print -quit)" ] || { printf '%s\n' 'The uncertain temporary file was not preserved.' >&2; exit 1; }
 printf '%s\n' 'Installer preserved pre-existing hard-linked files.'
