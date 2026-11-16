@@ -32,7 +32,7 @@ async function scenario(mode) {
       return reply(200, {})
     }
     if (request.url === '/api/sessions/fixture-session/archive') { archived = mode !== 'unconfirmed'; return reply(mode === 'lost-response' ? 500 : 200, {}) }
-    if (request.url === '/api/sessions/fixture-session') return reply(200, { session: { active: mode === 'archived-active' ? true : false, metadata: { lifecycleState: archived ? 'archived' : 'running' } } })
+    if (request.url === '/api/sessions/fixture-session') return reply(200, { session: { ...(mode === 'missing-active' ? {} : { active: mode === 'archived-active' }), metadata: { lifecycleState: archived ? 'archived' : 'running' } } })
     return reply(404, {})
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -68,6 +68,12 @@ test('reports the session when archive is not confirmed', async () => {
 
 test('does not confirm archive while the session remains active', async () => {
   const result = await scenario('archived-active')
+  assert.equal(result.code, 1, result.output)
+  assert.match(result.output, /archive is unconfirmed; inspect session fixture-session/)
+})
+
+test('does not confirm archive when activity state is missing', async () => {
+  const result = await scenario('missing-active')
   assert.equal(result.code, 1, result.output)
   assert.match(result.output, /archive is unconfirmed; inspect session fixture-session/)
 })
