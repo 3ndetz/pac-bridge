@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { WebSocketServer, WebSocket } from 'ws'
+import { sourcePrincipal } from './source-principal.mjs'
 
 const namePattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
 const channelPattern = /^[0-9a-f-]{36}$/
@@ -54,9 +55,14 @@ export function attachAcpRelay(server, { authorize, openTimeoutMs = 15000, maxBu
     if (!['register', 'source', 'agent'].includes(role) || typeof name !== 'string' || !namePattern.test(name) ||
         typeof authorization !== 'string' || !authorization.startsWith('Bearer ') ||
         (role === 'agent' && (typeof channel !== 'string' || !channelPattern.test(channel)))) return reject(socket, '400 Bad Request')
-    let allowed = false
-    try { allowed = authorize({ role, name, token: authorization.slice(7) }) === true } catch {}
-    if (!allowed) return reject(socket, '401 Unauthorized')
+    let context
+    try {
+      const credentials = { role, name, token: authorization.slice(7) }
+      if (typeof authorize.context === 'function') context = authorize.context(credentials)
+      else if (authorize(credentials) === true) context = { allowed: true, ...(role === 'source'
+        ? { sourcePrincipal: sourcePrincipal(name, createHash('sha256').update(credentials.token).digest('hex')) } : {}) }
+    } catch {}
+    if (context?.allowed !== true || (role === 'source' && (typeof context.sourcePrincipal !== 'string' || !/^[0-9a-f]{64}$/.test(context.sourcePrincipal)))) return reject(socket, '401 Unauthorized')
     if (role === 'register' && agents.has(name)) return reject(socket, '409 Conflict')
     if (role === 'source' && agents.get(name)?.readyState !== WebSocket.OPEN) return reject(socket, '503 Service Unavailable')
     if (role === 'source' && pending.size >= maxPending) return reject(socket, '503 Service Unavailable')
@@ -92,7 +98,7 @@ export function attachAcpRelay(server, { authorize, openTimeoutMs = 15000, maxBu
           const entry = cleanupPending(id)
           if (entry?.agent) disconnect(entry.agent, 'source disconnected')
         })
-        agents.get(name).send(JSON.stringify({ type: 'open', channel: id }), (error) => {
+        agents.get(name).send(JSON.stringify({ type: 'open', channel: id, sourcePrincipal: context.sourcePrincipal }), (error) => {
           if (error) { cleanupPending(id); disconnect(ws, 'PAC unavailable') }
         })
       } else {
