@@ -85,7 +85,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
     server.listen(0, '127.0.0.1'); await once(server, 'listening')
     const adapter = fileURLToPath(new URL('../adapters/pac-claude-agent.mjs', import.meta.url))
     const launch = () => spawn(process.execPath, [adapter], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: {
-      ...process.env, HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key',
+      ...process.env, PAC_SOURCE_PRINCIPAL: 'a'.repeat(64), PAC_SESSION_OWNERS_DIR: join(root, 'session-owners'), HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key',
       ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`, NO_PROXY: '127.0.0.1,localhost',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1',
       ...(settingsTest ? { PAC_TEST_SYNTHETIC_SETTINGS: '1' } : {}),
@@ -162,5 +162,25 @@ test('runs the installed controller against a local synthetic model endpoint', {
     peer?.close(); child?.kill(); await new Promise((resolve) => server.close(resolve))
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-controller-test-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+})
+
+
+test('controller refuses session access without a relay identity before creating or reading history', { timeout: 30000 }, async () => {
+  const adapter = fileURLToPath(new URL('../adapters/pac-claude-agent.mjs', import.meta.url))
+  const root = await mkdtemp(join(tmpdir(), 'pac-controller-no-owner-'))
+  const env = { ...process.env, HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), PAC_SESSION_OWNERS_DIR: join(root, 'owners') }
+  for (const key of Object.keys(env)) if (key.toUpperCase() === 'PAC_SOURCE_PRINCIPAL') delete env[key]
+  const child = spawn(process.execPath, [adapter], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  child.stderr.resume()
+  const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }))
+  try {
+    await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
+    for (const method of ['session/new', 'session/load', 'session/resume', 'session/fork', 'session/list', 'session/delete']) {
+      await assert.rejects(peer.call(method, { sessionId: 'not-owned', cwd: root, mcpServers: [], _meta: { sourcePrincipal: 'a'.repeat(64), pac: { workspaceCwd: root } } }), /access denied/)
+    }
+  } finally {
+    const closed = once(child, 'close'); peer.close(); child.kill(); await closed
+    await rm(root, { recursive: true, force: true, maxRetries: 5 })
   }
 })

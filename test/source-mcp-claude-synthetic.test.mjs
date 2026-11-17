@@ -42,7 +42,7 @@ test('Claude controller routes source MCP via ACP with source permissions', { sk
     await writeFile(join(root, 'mcp-fixture.txt'), 'SOURCE_MCP_MARKER')
     server.listen(0, '127.0.0.1'); await once(server, 'listening')
     child = spawnContained(process.execPath, [fileURLToPath(new URL('../adapters/pac-claude-agent.mjs', import.meta.url))], { cwd: root, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, env: {
-      ...process.env, HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key', ANTHROPIC_AUTH_TOKEN: '',
+      ...process.env, PAC_SOURCE_PRINCIPAL: 'a'.repeat(64), PAC_SESSION_OWNERS_DIR: join(root, 'session-owners'), HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key', ANTHROPIC_AUTH_TOKEN: '',
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`, NO_PROXY: '127.0.0.1,localhost', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1', PAC_TEST_ROUTED_SOURCE_MCP: '1' } })
     const permissionClient = { call: async (method, params) => { permissions.push({ method, params }); return { outcome: { outcome: 'selected', optionId: 'allow' } } }, notify() {} }
     peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { timeoutMs: 60000,

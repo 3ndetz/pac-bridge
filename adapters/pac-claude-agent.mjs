@@ -14,6 +14,7 @@ import { MAX_SCOPED_INSTRUCTION_CHARS } from '../src/source-instructions.mjs'
 import { snapshotHookTranscript } from '../src/hook-transcript.mjs'
 import { createNativeTaskOutput, recoverNativeTaskOutput } from '../src/native-task-output.mjs'
 import { createControllerSourceMcp } from '../src/source-mcp-controller.mjs'
+import { createSessionOwnership, createSessionOwnershipStore, enforceSessionOwnership } from '../src/session-ownership.mjs'
 import { permitsModelSwitchSetting } from '../src/claude-settings-policy.mjs'
 
 // Windows' abbreviated 8.3 paths can crash Node's directory watcher when a
@@ -53,6 +54,8 @@ console.log = console.error
 console.info = console.error
 console.warn = console.error
 
+const ownership = createSessionOwnership({ principal: process.env.PAC_SOURCE_PRINCIPAL,
+  store: createSessionOwnershipStore(process.env.PAC_SESSION_OWNERS_DIR || join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'pac-session-owners-v1')) })
 let activeAgent
 const testStopSessions = new Set()
 const sourceSettingsSessions = new Set()
@@ -86,7 +89,9 @@ const app = acp.v1AgentApp(undefined, (agent) => {
   }
   const originalNew = agent.newSession.bind(agent)
   const originalLoad = agent.loadSession.bind(agent)
-  async function prepareSession(params, loading) {
+  const originalResume = agent.resumeSession.bind(agent)
+  async function prepareSession(params, mode) {
+    const loading = mode !== 'new'
     params = { ...params, cwd: expandWindowsPath(params.cwd) }
     let sessionId = loading ? params.sessionId : undefined
     async function writeSource(path, content, signal) {
@@ -335,7 +340,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
           permissionDecisionReason: `Source project hook failed: ${error.message}` } }
       }
     }
-    const opened = await (loading ? originalLoad : originalNew)({ ...params, _meta: { ...meta, ...(systemPrompt ? { systemPrompt } : {}), claudeCode: { ...claudeCode, options: {
+    const opened = await (mode === 'load' ? originalLoad : mode === 'resume' ? originalResume : originalNew)({ ...params, _meta: { ...meta, ...(systemPrompt ? { systemPrompt } : {}), claudeCode: { ...claudeCode, options: {
       ...options, ...(sourceSettings && Object.keys(sourceSettings).length ? { settings: sourceSettings } : {}), tools: aliases ? { type: 'preset', preset: 'claude_code' } : [], mcpServers: { ...(options.mcpServers || {}), pac: server,
         ...(sourceMcp ? { source_tools: { ...sourceMcp.config, name: 'source_tools' } } : {}),
         ...(process.env.PAC_TEST_SOURCE_MCP === '1' ? { source_tools: { type: 'stdio', command: process.execPath,
@@ -363,21 +368,23 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && meta.pac?.stopHooks === true && process.platform === 'linux') testStopSessions.add(sessionId)
     return opened
   }
-  agent.newSession = (params) => prepareSession(params, false)
-  agent.loadSession = (params) => prepareSession(params, true)
+  agent.newSession = (params) => prepareSession(params, 'new')
+  agent.loadSession = (params) => prepareSession(params, 'load')
+  agent.resumeSession = (params) => prepareSession(params, 'resume')
+  enforceSessionOwnership(agent, ownership)
 })
 const extendedApp = app.onRequest('pac/hooks/capabilities', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || !params.sessionId) throw new Error('Invalid hook capability request')
   return params
-} }, async ({ params }) => ({ promptSubmit: hooksEnabled && !!activeAgent.sessions[params.sessionId], ...(testStopSessions.has(params.sessionId) ? { stop: true } : {}), ...(sourceSettingsSessions.has(params.sessionId) ? { settings: true } : {}), ...(process.env.PAC_TEST_ASYNC_HOOKS === '1' && hooksEnabled && activeAgent.sessions[params.sessionId] ? { async: true } : {}) }))
+} }, async ({ params }) => { await ownership.assert(params.sessionId); return ({ promptSubmit: hooksEnabled && !!activeAgent.sessions[params.sessionId], ...(testStopSessions.has(params.sessionId) ? { stop: true } : {}), ...(sourceSettingsSessions.has(params.sessionId) ? { settings: true } : {}), ...(process.env.PAC_TEST_ASYNC_HOOKS === '1' && hooksEnabled && activeAgent.sessions[params.sessionId] ? { async: true } : {}) }) })
   .onRequest('pac/source_mcp/changed', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || params.server !== 'fixture') throw new Error('Invalid source MCP change')
   return params
-} }, async ({ params }) => { const bridge = testSourceMcpSessions.get(params.sessionId); if (!bridge) throw new Error('Source MCP session unavailable'); await bridge.changed(); return {} })
+} }, async ({ params }) => { await ownership.assert(params.sessionId); const bridge = testSourceMcpSessions.get(params.sessionId); if (!bridge) throw new Error('Source MCP session unavailable'); await bridge.changed(); return {} })
   .onRequest('pac/tasks/stop_native', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || typeof params.taskId !== 'string' || !params.taskId) throw new Error('Invalid native task stop request')
   return params
-} }, async ({ params }) => stopNativeTask(activeAgent.sessions[params.sessionId], params.taskId))
+} }, async ({ params }) => { await ownership.assert(params.sessionId); return stopNativeTask(activeAgent.sessions[params.sessionId], params.taskId) })
 const connection = extendedApp.connect(ndJsonStream(utils.nodeToWebWritable(process.stdout), utils.nodeToWebReadable(process.stdin)))
 connection.closed.finally(async () => { await Promise.allSettled([...testSourceMcpSessions.values()].map(bridge => bridge.close())); await activeAgent?.dispose(); process.exit(0) })
 process.stdin.resume()

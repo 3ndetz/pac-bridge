@@ -48,6 +48,9 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
     let request
     try { request = JSON.parse(data.toString()) } catch { return }
     if (stopped || request.type !== 'open' || typeof request.channel !== 'string' || active.size >= maxSessions) return
+    if (typeof request.sourcePrincipal !== 'string' || !/^[0-9a-f]{64}$/.test(request.sourcePrincipal)) {
+      report(new Error('PAC relay did not provide an authenticated source identity')); return
+    }
     const session = { socket: null, child: null }
     active.add(session)
     try {
@@ -58,7 +61,10 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
       if (stopped) { release(session); socket.close(); return }
       const stream = createWebSocketStream(socket)
       stream.on('error', report)
-      const child = spawnChild(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      const childEnv = { ...(env || process.env) }
+      for (const key of Object.keys(childEnv)) if (key.toUpperCase() === 'PAC_SOURCE_PRINCIPAL') delete childEnv[key]
+      childEnv.PAC_SOURCE_PRINCIPAL = request.sourcePrincipal
+      const child = spawnChild(command, args, { cwd, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       session.child = child
       child.stderr.once('data', () => report(new Error('Agent wrote to stderr; contents suppressed to protect session data')))
       child.stderr.resume()
