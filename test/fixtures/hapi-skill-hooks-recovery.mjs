@@ -34,11 +34,11 @@ try{
  const after=await turn('Use the pac-proof skill again, read its resource and state its exact contents, then repeat the remembered PAC_CONTEXT_MEMORY marker. Do not modify files.','PAC_CONTEXT_MEMORY_23974')
  const hooksAfter=await countHooks(), skillAfter=after.includes('pac-proof')&&after.includes('[PAC tool event]')&&after.includes('PAC_CONTEXT_SKILL_RESOURCE_74193');if(!skillAfter||hooksAfter<=hooksBefore)throw Error('Skill or hooks were not observed after compaction')
  console.log(JSON.stringify({stage:'after_compaction',skill:skillAfter,hookEvents:hooksAfter,recall:true}))
- archiveAttempted=true;await request(`/api/sessions/${id}/archive`,'POST');archived=true
- const state=await request(`/api/sessions/${id}`);if(state.session?.metadata?.lifecycleState!=='archived')throw Error('Archive state was not confirmed')
+ archiveAttempted=true;try{await request(`/api/sessions/${id}/archive`,'POST')}catch{}
+ const state=await request(`/api/sessions/${id}`);if(state.session?.metadata?.lifecycleState!=='archived')throw Error(`Archive state is unconfirmed for test session ${id}`);archived=true
  const resumed=await request(`/api/sessions/${id}/resume`,'POST',{});if(resumed.type!=='success'||resumed.sessionId!==id)throw Error('Resume did not preserve the original test session identity')
  archived=false;archiveAttempted=false
  const resumedOutput=await turn('Use the pac-proof skill, read its resource, then repeat the remembered PAC_CONTEXT_MEMORY marker. Do not modify files.','PAC_CONTEXT_MEMORY_23974')
  const hooksResumed=await countHooks(), skillResumed=resumedOutput.includes('pac-proof')&&resumedOutput.includes('[PAC tool event]')&&resumedOutput.includes('PAC_CONTEXT_SKILL_RESOURCE_74193');if(!skillResumed||hooksResumed<=hooksAfter)throw Error('Skill or hooks were not observed after resume')
  console.log(JSON.stringify({stage:'after_resume',sameSession:true,skill:skillResumed,hookEvents:hooksResumed,recall:true}))
-}finally{if(id&&jwt&&!archived&&!archiveAttempted){try{await request(`/api/sessions/${id}/archive`,'POST')}catch{let confirmed=false;try{confirmed=(await request(`/api/sessions/${id}`)).session?.metadata?.lifecycleState==='archived'}catch{}if(!confirmed){console.error('Test session cleanup outcome is uncertain');process.exitCode=1}}}}
+}finally{if(id&&jwt&&!archived){if(!archiveAttempted)try{await request(`/api/sessions/${id}/archive`,'POST')}catch{};let confirmed=false;try{confirmed=(await request(`/api/sessions/${id}`)).session?.metadata?.lifecycleState==='archived'}catch{}if(!confirmed){console.error(`Test session cleanup is unconfirmed: ${id}`);process.exitCode=1}}}
