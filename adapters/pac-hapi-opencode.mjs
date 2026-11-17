@@ -3,6 +3,9 @@ import { accessSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { isHapiModelProbe } from '../src/acp-probe-detection.mjs'
 
+// Local Claude configuration is outside the source OpenCode contract.
+process.env.OPENCODE_DISABLE_CLAUDE_CODE = '1'
+
 // HAPI invokes `opencode acp`; other commands, including its version probe,
 // must continue to reach the actual OpenCode executable.
 const binary = process.env.PAC_OPENCODE_BINARY
@@ -18,7 +21,7 @@ if (process.argv[2] === 'acp') {
       try { accessSync(candidate); process.env.PAC_SOURCE_BASH = candidate; break } catch {}
     }
   }
-  for (const name of ['PAC_EXPERIMENTAL_HOOKS', 'PAC_EXPERIMENTAL_SKILLS', 'PAC_EXPERIMENTAL_INSTRUCTIONS']) process.env[name] ??= '1'
+  for (const name of ['PAC_EXPERIMENTAL_SKILLS', 'PAC_EXPERIMENTAL_INSTRUCTIONS']) process.env[name] ??= '1'
   if (process.env.PAC_HAPI_PROVIDER_EXPERIMENT === '1') {
     if (await isHapiModelProbe(process.stdin)) {
       const { startHapiModelProbe } = await import('../src/hapi-model-probe.mjs')

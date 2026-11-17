@@ -10,16 +10,15 @@ import { attachAcpRelay } from '../src/acp-relay.mjs'
 import { startAgent } from '../src/acp-transport.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 
-test('forwards Stop through router to source and continues a blocked turn', { skip: process.platform !== 'linux' || process.env.PAC_TEST_SYNTHETIC_CLAUDE !== '1', timeout: 120000 }, async () => {
+test('keeps local Claude Stop hooks out of OpenCode turns and resumed sessions', { skip: process.platform !== 'linux' || process.env.PAC_TEST_SYNTHETIC_CLAUDE !== '1', timeout: 120000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-stop-router-'))
   const relayServer = createServer(), relay = attachAcpRelay(relayServer, { authorize: () => true })
-  let requests = 0, sawEffort = false, agent, session
+  let requests = 0, agent, session
   const modelServer = createServer(async (request, response) => {
     if (request.method !== 'POST' || !request.url.startsWith('/v1/messages')) { response.writeHead(404).end(); return }
     let input = ''
     for await (const chunk of request) input += chunk
     const parsed = JSON.parse(input), model = parsed.model
-    sawEffort ||= parsed.output_config?.effort === 'high'
     requests++
     response.writeHead(200, { 'content-type': 'text/event-stream' })
     const emit = (type, value) => response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`)
@@ -55,18 +54,17 @@ test('forwards Stop through router to source and continues a blocked turn', { sk
     session = await openSession()
     const events = []
     assert.equal((await session.prompt([{ type: 'text', text: 'Respond briefly.' }], value => events.push(value))).stopReason, 'end_turn')
-    assert.ok(requests >= 2)
-    assert.equal(sawEffort, true)
-    assert.match(await readFile(join(root, 'stop-events'), 'utf8'), /initial\ncontinued/)
+    assert.ok(requests >= 1)
+    await assert.rejects(readFile(join(root, 'stop-events'), 'utf8'), {code:'ENOENT'})
     assert.match(JSON.stringify(events), /SYNTHETIC_STOP_RESULT/)
     const sessionId = session.sourceSessionId
     session.close()
     session = await openSession(sessionId)
     assert.equal((await session.prompt([{ type: 'text', text: 'Resume the same session.' }], () => {})).stopReason, 'end_turn')
-    assert.match(await readFile(join(root, 'stop-events'), 'utf8'), /initial\ncontinued\ninitial\ncontinued/)
-    assert.ok(requests >= 4)
+    await assert.rejects(readFile(join(root, 'stop-events'), 'utf8'), {code:'ENOENT'})
+    assert.ok(requests >= 2)
     await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify({ effortLevel: 'high', env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }, hooks: { Stop: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', 'process.exit(1)'] }] }] } }))
-    await assert.rejects(session.prompt([{ type: 'text', text: 'The hook should fail.' }], () => {}))
+    assert.equal((await session.prompt([{ type: 'text', text: 'Local Claude hook changes must not affect OpenCode.' }], () => {})).stopReason, 'end_turn')
   } finally {
     session?.close(); agent?.close(); relay.close(); relayServer.close(); modelServer.close()
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })

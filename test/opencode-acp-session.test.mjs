@@ -11,68 +11,53 @@ import { startAgent } from '../src/acp-transport.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
+import { createSourceSkills } from '../src/source-skills.mjs'
+import { readOpenCodeInstructions } from '../src/opencode-instructions.mjs'
 
-test('refuses source prompt hooks with an older PAC controller', { timeout: 90000 }, async () => {
+for (const unsolicitedHook of [false, true]) test(unsolicitedHook ? 'OpenCode adapter refuses unsolicited Claude hook execution' : 'OpenCode skills and rules reach PAC without reading local Claude configuration', { timeout: 90000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-opencode-acp-'))
   const server = createServer(), relay = attachAcpRelay(server, { authorize: () => true })
   let agent, session
   try {
-    server.listen(0, '127.0.0.1'); await once(server, 'listening')
-    const url = `ws://127.0.0.1:${server.address().port}`, workspace = join(root, 'workspace')
-    const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
-    const router = fileURLToPath(new URL('../adapters/pac-opencode-router.mjs', import.meta.url))
-    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--text-response'] })
-    const tokenFile = join(root, 'token')
-    await writeFile(tokenFile, 'test-token')
-    await mkdir(join(workspace, '.claude'), { recursive: true })
-    const settings = join(workspace, '.claude', 'settings.json')
-    await writeFile(settings, JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', 'process.exit(2)'] }] }] } }))
-    session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native'], cwd: workspace,
-      env: { ...process.env, HOME: root, USERPROFILE: root, PAC_EXPERIMENTAL: '1', PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: process.execPath,
-        PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },
-      model: 'PAC_testpac/sonnet', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
-    await assert.rejects(session.prompt([{ type: 'text', text: 'hello' }], () => {}), /cannot confirm support for source prompt hooks/)
-    for (const event of ['Stop', 'Notification']) {
-      await writeFile(settings, JSON.stringify({ hooks: { [event]: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', 'process.exit(0)'] }] }] } }))
-      await assert.rejects(session.prompt([{ type: 'text', text: 'hello' }], () => {}), /cannot safely forward source Stop or Notification hooks/)
+    server.listen(0,'127.0.0.1'); await once(server,'listening')
+    const url=`ws://127.0.0.1:${server.address().port}`, workspace=join(root,'workspace')
+    const fake=fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs',import.meta.url))
+    const router=fileURLToPath(new URL('../adapters/pac-opencode-router.mjs',import.meta.url))
+    agent=await startAgent({url,name:'testpac',token:'test-token',command:process.execPath,args:[fake, unsolicitedHook ? '--prompt-hook' : '--source-context']})
+    const tokenFile=join(root,'token'); await writeFile(tokenFile,'test-token')
+    await mkdir(join(root,'.claude','skills','invalid'),{recursive:true})
+    await mkdir(join(workspace,'.claude','rules'),{recursive:true})
+    await writeFile(join(root,'.claude','settings.json'),'{INVALID_CLAUDE_SETTINGS')
+    await writeFile(join(root,'.claude','CLAUDE.md'),'PRIVATE_CLAUDE_GLOBAL_CANARY')
+    await writeFile(join(root,'.claude','skills','invalid','SKILL.md'),'INVALID_CLAUDE_SKILL_CANARY')
+    await writeFile(join(workspace,'.claude','settings.json'),JSON.stringify({env:{HTTPS_PROXY:'http://synthetic.invalid:9999'},hooks:{Stop:[{hooks:[{type:'command',command:'DO_NOT_EXECUTE_SYNTHETIC_HOOK'}]}]}}))
+    await writeFile(join(workspace,'CLAUDE.md'),'PRIVATE_CLAUDE_PROJECT_CANARY')
+    await writeFile(join(workspace,'.claude','rules','private.md'),'PRIVATE_CLAUDE_RULE_CANARY')
+    await writeFile(join(workspace,'AGENTS.md'),'OPENCODE_PROJECT_RULE')
+    await mkdir(join(root,'.config','opencode'),{recursive:true})
+    await writeFile(join(root,'.config','opencode','AGENTS.md'),'OPENCODE_GLOBAL_RULE')
+    const skill=join(workspace,'.opencode','skills','source-only');await mkdir(skill,{recursive:true})
+    await writeFile(join(skill,'SKILL.md'),'---\nname: source-only\ndescription: Source OpenCode skill\n---\nSource skill body')
+    const env={...process.env,HOME:root,USERPROFILE:root,XDG_CONFIG_HOME:join(root,'.config'),OPENCODE_CONFIG:'',OPENCODE_CONFIG_CONTENT:'',OPENCODE_CONFIG_DIR:'',PAC_TRACE_PATH:join(root,'trace.jsonl'),PAC_EXPERIMENTAL:'1',PAC_EXPERIMENTAL_HOOKS:'1',PAC_SOURCE_BASH:'',PAC_EXPERIMENTAL_SKILLS:'1',PAC_EXPERIMENTAL_INSTRUCTIONS:'1',PAC_OPENCODE_BINARY:process.execPath,PAC_RELAY_URL:url,PAC_NAME:'testpac',PAC_SOURCE_TOKEN_FILE:tokenFile,PAC_CONTROLLER_CWD:root}
+    assert.equal((await createSourceSkills({root:workspace,home:root,env})).list.length,1)
+    assert.equal((await readOpenCodeInstructions({root:workspace,home:root,env})).length,2)
+    try { session=await openOpencodeAcpSession({command:process.execPath,args:[router,fake,'--native'],cwd:workspace,env,model:'PAC_testpac/sonnet',onPermission:async()=>({outcome:{outcome:'cancelled'}})}) } catch(error) { throw new Error(error.message+' '+await readFile(join(root,'trace.jsonl'),'utf8')) }
+    if(unsolicitedHook) {
+      await assert.rejects(session.prompt([{type:'text',text:'hello'}],()=>{}),/Claude source hooks are not part of the OpenCode adapter/)
+    } else {
+      const events=[]
+      assert.equal((await session.prompt([{type:'text',text:'hello'}],event=>events.push(event))).stopReason,'end_turn')
+      const content=events.filter(event=>event.params?.update?.sessionUpdate==='agent_message_chunk').map(event=>event.params.update.content.text).join('')
+      assert.match(content,/OPENCODE_PROJECT_RULE/);assert.match(content,/OPENCODE_GLOBAL_RULE/);assert.match(content,/source-only/)
+      assert.doesNotMatch(content,/PRIVATE_CLAUDE|INVALID_CLAUDE|claudeSettings|promptHooks|stopHooks/)
+      const discovery=await discoverPacsDirect({cwd:workspace,env})
+      assert.equal(discovery.warnings.length,0)
+      assert.ok(discovery.models.some(model=>model.id==='PAC_testpac/sonnet'))
     }
-    await writeFile(settings, '{}')
-    assert.equal((await session.prompt([{ type: 'text', text: 'hello' }], () => {})).stopReason, 'end_turn')
   } finally {
-    session?.close(); agent?.close(); relay.close(); server.close()
-    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
-    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-opencode-acp-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-  }
-})
-
-test('passes the original prompt to source hooks through the ACP router', { timeout: 90000 }, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'pac-opencode-acp-'))
-  const server = createServer(), relay = attachAcpRelay(server, { authorize: () => true })
-  let agent, session
-  try {
-    server.listen(0, '127.0.0.1'); await once(server, 'listening')
-    const url = `ws://127.0.0.1:${server.address().port}`, workspace = join(root, 'workspace')
-    const fake = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
-    const router = fileURLToPath(new URL('../adapters/pac-opencode-router.mjs', import.meta.url))
-    agent = await startAgent({ url, name: 'testpac', token: 'test-token', command: process.execPath, args: [fake, '--prompt-hook'] })
-    const tokenFile = join(root, 'token')
-    await writeFile(tokenFile, 'test-token')
-    await mkdir(join(workspace, '.claude'), { recursive: true })
-    const script = 'let x="";process.stdin.on("data",c=>x+=c);process.stdin.on("end",()=>process.stdout.write("source:"+JSON.parse(x).prompt))'
-    await writeFile(join(workspace, '.claude', 'settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', script] }] }] } }))
-    session = await openOpencodeAcpSession({ command: process.execPath, args: [router, fake, '--native'], cwd: workspace,
-      env: { ...process.env, HOME: root, USERPROFILE: root, PAC_EXPERIMENTAL: '1', PAC_EXPERIMENTAL_HOOKS: '1', PAC_SOURCE_BASH: process.execPath,
-        PAC_OPENCODE_BINARY: process.execPath, PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: root },
-      model: 'PAC_testpac/sonnet', onPermission: async () => ({ outcome: { outcome: 'cancelled' } }) })
-    const events = []
-    assert.equal((await session.prompt([{ type: 'text', text: 'original-user-text' }], (event) => events.push(event))).stopReason, 'end_turn')
-    assert.match(JSON.stringify(events), /source:original-user-text/)
-    assert.doesNotMatch(JSON.stringify(events), /INTERNAL_WRAPPER/)
-    await assert.rejects(session.prompt([{ type: 'image', data: 'eA==', mimeType: 'image/png' }], () => {}), /cannot pass this prompt/)
-  } finally {
-    session?.close(); agent?.close(); relay.close(); server.close()
-    const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
-    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-opencode-acp-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    session?.close();await agent?.close();relay.close();server.close()
+    const actual=await realpath(root),local=relative(await realpath(tmpdir()),actual)
+    if(local&&!isAbsolute(local)&&local!=='..'&&!local.startsWith('..'+sep)&&local.startsWith('pac-opencode-acp-'))await rm(actual,{recursive:true,force:true,maxRetries:5,retryDelay:200})
   }
 })
 

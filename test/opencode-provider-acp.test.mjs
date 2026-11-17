@@ -12,7 +12,7 @@ import { startAgent } from '../src/acp-transport.mjs'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 
-test('HAPI model probe keeps native models and checks the requested workspace', { skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000 }, async () => {
+test('HAPI model probe keeps native models and ignores local Claude configuration', { skip: !process.env.PAC_OPENCODE_BINARY, timeout: 120000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-model-probe-'))
   const server = createServer(), relay = attachAcpRelay(server, { authorize: () => true })
   let agent
@@ -30,7 +30,7 @@ test('HAPI model probe keeps native models and checks the requested workspace', 
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider: { native_test: { npm: '@ai-sdk/openai-compatible', name: 'Native test', options: { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'test' }, models: { 'native-model': { name: 'Native model' } } } } }),
       PAC_EXPERIMENTAL: '1', PAC_HAPI_PROVIDER_EXPERIMENT: '1', PAC_NAMED_PROVIDERS_EXPERIMENT: '1', PAC_RELAY_URL: url, PAC_NAME: 'testpac', PAC_DISPLAY_NAME: '#1', PAC_MODEL_PREFIX: 'Claude', PAC_SOURCE_TOKEN_FILE: tokenFile,
       PAC_CONTROLLER_CWD: root, PAC_SOURCE_BASH: process.env.PAC_SOURCE_BASH }
-    for (const [cwd, expectPac, offline] of [[allowed, true, false], [rejected, false, false], [allowed, false, true]]) {
+    for (const [cwd, expectPac, offline] of [[allowed, true, false], [rejected, true, false], [allowed, false, true]]) {
       const child = spawnContained(process.execPath, [launcher, 'acp'], { cwd: root, env: offline ? { ...env, PAC_RELAY_URL: 'ws://127.0.0.1:1' } : env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       child.stderr.resume()
       const peer = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { onNotification() {}, onRequest: async () => ({}) })

@@ -1,5 +1,7 @@
 # PAC Bridge reliability and acceptance checklist
 
+Source contract correction (17 November 2026): local Claude hook/skill/rule experiment results below are historical evidence and do not count as OpenCode feature acceptance. The source path now excludes local Claude configuration; see [the current contract](docs/skills-hooks.md).
+
 ## Reconciliation requirements (2026-11-17)
 
 The saved experimental integration is not a completed production rollout. Retired one-off probes and historical draft claims are preserved privately; they do not close the following acceptance requirements. See [current isolated checks](ACCEPTANCE.md#workspace-reconciliation-checks-2026-11-17).
@@ -10,7 +12,7 @@ The saved experimental integration is not a completed production rollout. Retire
 - [ ] Verify production process ownership, serve shutdown, session-stop races and recovery without PID-only tree termination. The unintegrated parent-watcher draft supplied no verified owner identity and has been removed from the launcher; test-owned Job Object evidence is separate.
 - [ ] Diagnose bounded initialization, concurrent initialization, dependency-install failures, missing responses and slow archive acknowledgements. Safe startup timing is available; it does not establish a root cause.
 - [ ] Distinguish native OpenCode auxiliary model requests from genuine user turns without silently losing supported requests or starting duplicate remote turns.
-- [ ] Complete global settings and hook support with source permissions, asynchronous lifecycle semantics, private Windows transcripts and explicit handling of configured proxies. Unsupported source settings remain rejected; do not silently omit a policy or forward credentials.
+- [ ] Complete native OpenCode configuration, plugin/hook and permission support. Do not import local Claude configuration or proxy settings. Claude transcript experiments are not OpenCode plugin acceptance.
 - [ ] Establish trusted source OpenCode MCP/plugin configuration provenance, permissions and dynamic updates before enabling real configuration forwarding. Provenance discovery remains unavailable; synthetic transports do not verify installed configurations.
 - [ ] Audit every Windows installer/disable/dispatch entrypoint and POSIX installer path for preflight, no-clobber updates, links, interruption recovery, retry and rollback while preserving user data. Verify installed Linux and macOS workflows independently.
 - [ ] Reconcile old test-owned remote staging and process trees using verified ownership; preserve unrelated sessions and workspaces.
@@ -53,7 +55,7 @@ This checklist tracks outstanding work for the OpenCode-first integration. A che
 - [x] Discover and invoke the installed OpenCode built-in `customize-opencode` skill with real Claude without granting a filesystem root. See [the evidence](ACCEPTANCE.md#provider-skill-checks-2026-11-12).
 - [ ] Inventory the actual installed OpenCode version's project and global instructions, skill search paths, metadata, plugin and hook events, tool permissions, and precedence.
 - [ ] Implement and test each supported capability end to end on the source machine, including skill resources and before/after tool hooks. Explicitly reject or clearly warn about unsupported security-relevant configurations rather than silently skipping them.
-- [ ] Implement and verify global Claude Code hook forwarding. The user's global `~/.claude/settings.json` is not currently forwarded; this also applies when the workspace is the home directory. Project-local settings remain checked. The separate Telegram completion notifier is not general global-hook support.
+- [ ] Verify source OpenCode plugins and hooks through their actual native interfaces. Automatic local Claude hook forwarding has been removed as an incorrect source-harness dependency. The separate completion notifier does not establish native hook support.
 - [ ] Verify project `UserPromptSubmit` hooks through both installed HAPI runners after deployment. On the first runner, the selected installed provider and controller blocked a prompt and delivered hook-provided context in a real Claude reply; the temporary launcher only disabled test notifications. The second profile remains unverified for this event.
 - [ ] Verify project instructions, scoped rules, hooks and skills before and after compaction and resume, for main agents and subagents, with allow, deny, and failure cases.
 - [ ] Document exactly which OpenCode and Claude capabilities are supported, unsupported, or not yet verified; do not claim complete parity without evidence.

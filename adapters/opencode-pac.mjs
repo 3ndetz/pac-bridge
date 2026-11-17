@@ -17,6 +17,9 @@ import { discoverPacsDirect } from '../src/pac-direct-discovery.mjs'
 import { discoverOpencodePacs } from '../src/opencode-discovery.mjs'
 import { normalizeOpencodeWorkingDirectory, opencodeWorkingDirectory } from '../src/opencode-working-directory.mjs'
 
+// Local Claude configuration is outside the source OpenCode contract.
+process.env.OPENCODE_DISABLE_CLAUDE_CODE = '1'
+
 // Experimental launcher: text only, unsupported tools/events fail closed.
 const binary = process.env.PAC_OPENCODE_BINARY || (process.platform === 'win32' ? 'opencode.exe' : 'opencode')
 let model = process.env.PAC_MODEL
@@ -44,7 +47,7 @@ for (const candidate of shellCandidates.filter(Boolean)) {
   try { await access(candidate); sourceBash = candidate; break } catch {}
 }
 if (!sourceBash) throw new Error('A local Bash executable is required for source project hooks and commands')
-const routerEnv = { ...process.env, PAC_OPENCODE_BINARY: binary, PAC_SOURCE_BASH: sourceBash, PAC_EXPERIMENTAL_HOOKS: '1', PAC_EXPERIMENTAL_SKILLS: '1', PAC_EXPERIMENTAL_INSTRUCTIONS: '1' }
+const routerEnv = { ...process.env, PAC_OPENCODE_BINARY: binary, PAC_SOURCE_BASH: sourceBash, PAC_EXPERIMENTAL_SKILLS: '1', PAC_EXPERIMENTAL_INSTRUCTIONS: '1' }
 const catalog = process.env.PAC_DISCOVERY_ACP === '1'
   ? await discoverOpencodePacs({ command: process.execPath, args: [routerPath, 'acp'], cwd, env: routerEnv })
   : await discoverPacsDirect({ cwd, env: routerEnv })

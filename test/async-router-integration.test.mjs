@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +10,7 @@ import { attachAcpRelay } from '../src/acp-relay.mjs'
 import { startAgent } from '../src/acp-transport.mjs'
 import { openOpencodeAcpSession } from '../src/opencode-acp-session.mjs'
 
-test('forwards asynchronous hook context on the next turn', { skip: process.platform !== 'linux' || process.env.PAC_TEST_SYNTHETIC_CLAUDE !== '1', timeout: 120000 }, async () => {
+test('does not execute local Claude async hooks or inject their context into OpenCode', { skip: process.platform !== 'linux' || process.env.PAC_TEST_SYNTHETIC_CLAUDE !== '1', timeout: 120000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-stop-router-'))
   const relayServer = createServer(), relay = attachAcpRelay(relayServer, { authorize: () => true })
   let requests = 0, sawAsyncContext = false, agent, session
@@ -33,7 +33,7 @@ test('forwards asynchronous hook context on the next turn', { skip: process.plat
   })
   try {
     await mkdir(join(root, '.claude'))
-    const script = `process.stdin.resume();process.stdin.on('end',()=>setTimeout(()=>process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'UserPromptSubmit',additionalContext:'ASYNC_SOURCE_CONTEXT'},decision:'block'})),700))`
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(join(root,'local-hook-executed'))},'executed');process.stdin.resume();process.stdin.on('end',()=>setTimeout(()=>process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'UserPromptSubmit',additionalContext:'ASYNC_SOURCE_CONTEXT'},decision:'block'})),700))`
     await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', script], async: true }] }] } }))
     await writeFile(join(root, 'token'), 'synthetic-relay-token')
     relayServer.listen(0, '127.0.0.1'); modelServer.listen(0, '127.0.0.1')
@@ -58,7 +58,8 @@ test('forwards asynchronous hook context on the next turn', { skip: process.plat
     assert.equal(sawAsyncContext, false)
     await new Promise(resolve => setTimeout(resolve, 2500))
     assert.equal((await session.prompt([{ type: 'text', text: 'Second synthetic prompt.' }], value => events.push(value))).stopReason, 'end_turn')
-    assert.equal(sawAsyncContext, true)
+    assert.equal(sawAsyncContext, false)
+    await assert.rejects(readFile(join(root,'local-hook-executed'),'utf8'), {code:'ENOENT'})
     assert.ok(requests >= 2)
   } finally {
     session?.close(); agent?.close(); relay.close(); relayServer.close(); modelServer.close()

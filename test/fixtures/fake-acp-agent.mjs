@@ -9,6 +9,7 @@ let selected = 'initial'
 let firstPrompt
 let cancelTurn
 let workspace
+let sourceContext
 const models = [{ value: 'initial', name: 'Initial' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'opus', name: 'Opus' }]
 if (process.argv.includes('--nested-model')) models.push({ value: 'openai/gpt-5-codex', name: 'Codex' })
 const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.stdout }), {
@@ -22,6 +23,7 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
     if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
     if (method === 'pac/hooks/capabilities' && process.argv.includes('--prompt-hook')) return { promptSubmit: true }
     if (method === 'session/new') {
+      sourceContext = params?._meta?.pac
       workspace = params?._meta?.pac?.workspaceCwd
       return { sessionId: native ? 'native-session' : 'remote-session',
       ...(process.argv.includes('--empty-model-block') ? { models: { availableModels: [] } } : {}), configOptions: [
@@ -38,6 +40,10 @@ const peer = createAcpPeer(Duplex.from({ readable: process.stdin, writable: proc
       return { configOptions: [{ id: 'model', category: 'model', currentValue: selected, options: models }] }
     }
     if (method === 'session/prompt') {
+      if (process.argv.includes('--source-context')) {
+        peer.notify('session/update', {sessionId:params.sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify(sourceContext)}}})
+        return {stopReason:'end_turn'}
+      }
       if (process.argv.includes('--prompt-hook')) {
         const result = await peer.call('pac/hooks/dispatch', { sessionId: params.sessionId, input: { hook_event_name: 'UserPromptSubmit', prompt: 'INTERNAL_WRAPPER' } })
         peer.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(result) } } })

@@ -8,6 +8,10 @@ This document consolidates the owner's requests made on 7–10 November 2026. It
 
 On 17 November 2026 the owner deferred macOS acceptance because no Mac is available. Windows and Linux remain in the current delivery; macOS is a future platform requirement rather than a blocker for this delivery.
 
+## Source harness clarification, 17 November 2026
+
+The source machine runs OpenCode. Skills, instructions, configuration, permissions and plugins refer to OpenCode features on that machine. A local Claude Code installation or its configuration is not a source dependency. Local Claude settings, hooks, rules and skills must not be implicitly imported or forwarded. Claude Code is the remote PAC runtime; its authentication and runtime network settings stay on the PAC. Earlier Claude-specific hook experiments do not satisfy OpenCode plugin/hook acceptance.
+
 ## Required user experience
 
 1. On a source machine, open the existing HAPI, choose that machine and an installed harness, initially OpenCode, and create a session in the normal new-session interface.
@@ -24,7 +28,7 @@ The user must select the existing source machine, such as the first Windows mach
 - **Tools and workspaces:** source-side file reads, writes, edits, searches, shell commands and other tool calls must operate in the intended source workspace. Exchange commands and results over the bridge; do not require a shared filesystem, a mounted workspace, or copying the whole workspace between machines.
 - **Models:** discover, display and use the models available to the selected PAC. The catalog must not be limited by the UI or bridge to Claude; future PAC runtimes may expose Codex and other model families, with each model routed to its actual supporting runtime. The chosen model must be the model actually used by the remote runtime, including when the user changes it where supported.
 - **Background work:** carry tasks, background commands and subagents, including their events, progress, results and controls; nested and concurrent work must remain attributable to the right parent and session.
-- **Claude Code features:** retain hooks, skills, instructions, custom commands and other exposed features, with their intended execution context and effects. The target integration must have at least the functionality of the Claude Code features it bridges; similar feature names do not establish parity.
+- **Source OpenCode features:** retain OpenCode skills, instructions, custom commands, plugins, hooks and other exposed features, with their intended execution context and effects on the source machine. Claude-specific helpers with similar feature names do not establish OpenCode parity. Remote PAC runtime features remain a separate capability contract.
 - **Named PACs and multiple clients:** support several independently authenticated PACs, distinguish them by name and identity, and allow clients on different machines to select and use the intended PAC. The architecture must allow multiple source and destination harness adapters.
 - **Platforms:** support Windows, macOS and Linux as controller and workspace hosts. Preserve the semantics of the platform on which an operation runs. Git Bash may be used on Windows when appropriate; Docker is optional, not a prerequisite.
 - **HAPI:** integrate with the existing HAPI user workflow and its installed harness selection. The bridge's transport can be independent of HAPI if that is the suitable design; the owner's question about using HAPI sessions as transport was an architectural option, not a mandate to use them as the data plane.

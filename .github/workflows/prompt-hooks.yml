@@ -1,4 +1,4 @@
-name: Prompt hook compatibility
+name: Source harness boundaries
 
 on:
   push:
@@ -33,9 +33,9 @@ jobs:
         run: npm test
         env:
           PAC_TEST_BASH: ${{ runner.os == 'Windows' && 'C:\Program Files\Git\bin\bash.exe' || '' }}
-      - name: Source hooks and ACP routing
-        run: node --test --test-concurrency=1 --test-name-pattern='source prompt hooks|original prompt|forwards prompt hook' test/opencode-acp-session.test.mjs test/project-hooks.test.mjs
-      - name: Controller with synthetic model
+      - name: OpenCode source isolation and instruction precedence
+        run: node --test --test-concurrency=1 test/opencode-instructions.test.mjs test/source-skills.test.mjs test/source-settings-router.test.mjs test/opencode-acp-session.test.mjs
+      - name: Claude controller callback regression with synthetic model
         run: node --test test/claude-controller-adapter.test.mjs
         env:
           PAC_TEST_SYNTHETIC_CLAUDE: '1'

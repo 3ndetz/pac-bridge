@@ -17,17 +17,17 @@ import { createSubagentTranslator } from '../src/subagent-events.mjs'
 import { createTerminalManager } from '../src/acp-terminal.mjs'
 import { createSearch } from '../src/acp-search.mjs'
 import { createSessionStore } from '../src/session-store.mjs'
-import { withEphemeralHookTranscript } from '../src/hook-transcript.mjs'
-import { createAsyncProjectHooks } from '../src/async-project-hooks.mjs'
-import { createProjectHooks } from '../src/project-hooks.mjs'
 import { createBackgroundTerminal } from '../src/background-terminal.mjs'
 import { createSourceSkills } from '../src/source-skills.mjs'
 import { loadOpenCodeBuiltins } from '../src/opencode-builtins.mjs'
-import { readSourceInstructions } from '../src/source-instructions.mjs'
-import { matchesProjectRule, simpleBashReadPath } from '../src/scoped-rules.mjs'
+import { readOpenCodeInstructions } from '../src/opencode-instructions.mjs'
+import { simpleBashReadPath } from '../src/scoped-rules.mjs'
 import { assertNoUnsupportedOpenCodePlugins } from '../src/opencode-plugin-guard.mjs'
 import { pacModelLabel } from '../src/pac-model-label.mjs'
 import { notifyTurnComplete } from '../src/completion-notifier.mjs'
+
+// Local Claude configuration is outside the source OpenCode contract.
+process.env.OPENCODE_DISABLE_CLAUDE_CODE = '1'
 
 const { PAC_OPENCODE_BINARY: binary, PAC_RELAY_URL: url, PAC_NAME: name, PAC_SOURCE_TOKEN_FILE: tokenFile, PAC_CONTROLLER_CWD: remoteCwd } = process.env
 if (process.env.PAC_EXPERIMENTAL !== '1' || !binary) throw new Error('Incomplete experimental OpenCode router configuration')
@@ -145,7 +145,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
       const targets = binding ? endpoints.filter((endpoint) => endpoint.id === binding.pacId) : endpoints
       if (binding && targets.length !== 1) throw new Error('The original PAC is unavailable; refusing to switch controllers')
       await Promise.all(targets.map(async (endpoint) => {
-        const state = { endpoint, connected: true, automaticCompactions: new Map(), asyncHooks: createAsyncProjectHooks() }
+        const state = { endpoint, connected: true, automaticCompactions: new Map() }
         if (process.env.PAC_TEST_SNAPSHOT_CHANNEL === '1') state.availability = availabilityNotifier(session, state)
         let sourceReady = false
         const connectionStarted = Date.now()
@@ -154,13 +154,9 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
         }
         try {
           traceConnection('starting')
-          if (process.env.PAC_EXPERIMENTAL_HOOKS === '1') {
-            if (!process.env.PAC_SOURCE_BASH) throw new Error('A source shell is required for project hooks')
-            state.hooks = await createProjectHooks({ root: params.cwd, shell: process.env.PAC_SOURCE_BASH, asyncHooks: state.asyncHooks })
-          }
           if (process.env.PAC_EXPERIMENTAL_SKILLS === '1') state.skills = await createSourceSkills({ root: params.cwd, home: homedir(), builtins: await builtinSkills })
           state.allowedSkillRoots = new Set()
-          if (process.env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') state.instructions = await readSourceInstructions({ root: params.cwd,
+          if (process.env.PAC_EXPERIMENTAL_INSTRUCTIONS === '1') state.instructions = await readOpenCodeInstructions({ root: params.cwd,
             ...(process.env.PAC_TEST_INSTRUCTION_BOUNDARY === 'workspace' ? { stopAt: params.cwd } : {}) })
           sourceReady = true
           const stream = await connectSource(endpoint)
@@ -170,8 +166,6 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             state.connected = false
             if (state.availability) { try { state.availability.unknown() } catch {} }
             if (state.sourceMcp) void state.sourceMcp.close().catch(() => {})
-            state.asyncHookCleanup = state.asyncHooks.close()
-            state.asyncHookCleanup.catch(error => { state.asyncHookCleanupError = error })
             for (const pending of state.pendingWrites?.values() || []) pending.abort()
             for (const pending of state.pendingTerminalCreates?.values() || []) pending.abort()
             for (const toolCallId of state.pendingQuestions?.values() || []) {
@@ -182,7 +176,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           watchSourceDisconnect(stream, disconnectSource)
           if (binding) state.translator = createSubagentTranslator({ localSessionId: session.id, remoteSessionId: binding.remoteSessionId, pacId: endpoint.id })
           state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
-            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions), promptHooks: !!state.hooks, ...(process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' ? { sourceMcpServers: ['fixture'] } : {}), ...(state.hooks ? { claudeSettings: state.hooks.controllerSettings() } : {}), ...(process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && ['linux', 'win32'].includes(process.platform) && state.hooks?.hasEvent('Stop') ? { stopHooks: true } : {}) } },
+            skills: state.skills?.list || [], instructions: state.instructions || [], scopedRules: Array.isArray(state.instructions), ...(process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' ? { sourceMcpServers: ['fixture'] } : {}) } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
             clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {}, session: { compaction: {} } },
           onRequest: async (remoteMethod, remoteParams) => {
@@ -219,36 +213,15 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
               catch (error) { if (error.code === 'ENOENT') return { instructions: [] }; throw error }
               const local = relative(workspace, actual)
               if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) return { instructions: [] }
-              const matching = (state.instructions || []).filter((entry) => entry.paths && matchesProjectRule(workspace, actual, entry.paths))
-              const nested = await readSourceInstructions({ root: workspace, stopAt: workspace, nestedTarget: actual, nestedOnly: true })
-              const nestedMatches = nested.filter((entry) => !entry.paths || matchesProjectRule(entry.base || workspace, actual, entry.paths))
-              return { instructions: [...nestedMatches, ...matching].map(({ path, content }) => ({ path, content })) }
+              const nested = await readOpenCodeInstructions({ root: workspace, stopAt: workspace, nestedTarget: actual, nestedOnly: true })
+              return { instructions: nested.map(({path,content}) => ({path,content})) }
             }
             if (remoteMethod === 'pac/fs/read_image') {
               const result = await state.workspace.readImageFile(remoteParams)
               if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ imageRead: true }) + '\n')
               return result
             }
-            if (remoteMethod === 'pac/hooks/dispatch') {
-              if (!state.hooks || remoteParams.sessionId !== state.remote?.sessionId) throw new Error('Project hooks are unavailable for this session')
-              let output
-              try {
-                const hooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH, asyncHooks: state.asyncHooks })
-                if (remoteParams.input?.hook_event_name === 'UserPromptSubmit') {
-                  if (typeof state.currentUserPrompt !== 'string') throw new Error('The original user prompt is unavailable to the source hook')
-                  remoteParams.input = { ...remoteParams.input, prompt: state.currentUserPrompt }
-                }
-                output = remoteParams.input?.hook_event_name === 'Stop'
-                  ? await withEphemeralHookTranscript(remoteParams.transcript, (path) => hooks.dispatch({ ...remoteParams.input, transcript_path: path }))
-                  : await hooks.dispatch(remoteParams.input)
-              } catch (error) {
-                if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ hookFailure: true }) + '\n')
-                throw error
-              }
-              if (process.env.PAC_TRACE_PATH) appendFileSync(process.env.PAC_TRACE_PATH, JSON.stringify({ hookEvent: remoteParams.input?.hook_event_name,
-                tool: remoteParams.input?.tool_name, denied: output.hookSpecificOutput?.permissionDecision === 'deny' }) + '\n')
-              return output
-            }
+            if (remoteMethod === 'pac/hooks/dispatch') throw new Error('Claude source hooks are not part of the OpenCode adapter')
             if (remoteMethod === 'pac/skills/invoke') {
               if (!state.skills || remoteParams.sessionId !== state.remote?.sessionId) throw new Error('Source skills are unavailable for this session')
               const skills = await createSourceSkills({ root: session.cwd, home: homedir(), builtins: await builtinSkills })
@@ -453,11 +426,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
         } catch (error) {
           traceConnection('failed')
           state.remote?.close()
-          const reason = error instanceof Error ? error.message : 'Unknown error'
-          const code = sourceReady ? 'unavailable'
-            : ['Unsupported project rule paths', 'Rule aliases are not supported', 'Rule glob expansion exceeds the supported limit'].includes(reason) ? 'rule_frontmatter_unsupported'
-              : reason === 'External instruction imports require approval and are not supported' ? 'external_import_unsupported'
-                : 'source_setup_failed'
+          const code = sourceReady ? 'unavailable' : 'source_setup_failed'
           session.discoveryWarnings.push({ name: endpoint.name, code })
           const errno = typeof error?.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(error.code) ? ` (${error.code})` : ''
           process.stderr.write(`PAC ${endpoint.name} unavailable: ${code}${errno}\n`)
@@ -542,35 +511,6 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             : 'PAC Bridge could not verify the OpenCode configuration; the turn was stopped.'
         client.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: message } } })
         throw error
-      }
-      if (selected.hooks) {
-        const currentHooks = await createProjectHooks({ root: session.cwd, shell: process.env.PAC_SOURCE_BASH, asyncHooks: selected.asyncHooks })
-        const initialSettings = selected.hooks.controllerSettings()
-        if (JSON.stringify(currentHooks.controllerSettings()) !== JSON.stringify(initialSettings)) throw new Error('Source Claude settings changed; restart the PAC session')
-        if (Object.keys(initialSettings).length) {
-          let capability
-          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm source Claude settings support') }
-          if (capability?.settings !== true) throw new Error('PAC controller does not support source Claude settings')
-        }
-        if (currentHooks.hasEvent('Notification')) throw new Error('PAC controller cannot safely forward source Stop or Notification hooks')
-        if (currentHooks.hasEvent('Stop')) {
-          if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE !== '1' || process.platform !== 'linux') throw new Error('PAC controller cannot safely forward source Stop or Notification hooks')
-          let capability
-          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm source Stop support') }
-          if (capability?.stop !== true) throw new Error('PAC controller does not support source Stop hooks')
-        }
-        if (currentHooks.hasAsyncHooks() || selected.asyncHooks.hasPending()) {
-          let capability
-          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm async source hook support') }
-          if (capability?.async !== true) throw new Error('PAC controller does not support async source hooks')
-        }
-        if (currentHooks.hasEvent('UserPromptSubmit') || currentHooks.hasAsyncHooks() || selected.asyncHooks.hasPending()) {
-          const prompt = method === 'pac/compact' ? '/compact' : Array.isArray(params.prompt) && params.prompt.length === 1 && params.prompt[0]?.type === 'text' ? params.prompt[0].text : undefined
-          if (typeof prompt !== 'string') throw new Error('PAC Bridge cannot pass this prompt to the configured source hook')
-          let capability
-          try { capability = await selected.remote.call('pac/hooks/capabilities', {}) } catch { throw new Error('PAC controller cannot confirm support for source prompt hooks') }
-          if (capability?.promptSubmit !== true) throw new Error('PAC controller does not support source prompt hooks')
-        }
       }
     }
     if (method === 'pac/compact') {

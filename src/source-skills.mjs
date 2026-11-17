@@ -51,7 +51,7 @@ function parseSkill(text, directoryName) {
   return { name, description: fields.description, body: match[2] }
 }
 
-export async function createSourceSkills({ root, home, builtins = [], maxBytes = 256 * 1024, maxSkills = 100 }) {
+export async function createSourceSkills({ root, home, builtins = [], env = process.env, maxBytes = 256 * 1024, maxSkills = 100 }) {
   if (!isAbsolute(root) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isSafeInteger(maxSkills) || maxSkills < 1) throw new Error('Invalid skill configuration')
   if (!Array.isArray(builtins) || builtins.length > maxSkills) throw new Error('Invalid built-in skills')
   const workspace = await realpath(root)
@@ -71,17 +71,23 @@ export async function createSourceSkills({ root, home, builtins = [], maxBytes =
     if (gitBoundary || current === systemHome || current === homeRoot || parent === current || parent === systemHome || parent === homeRoot) break
     current = parent
   }
+  const globalConfigs = []
+  if (homeRoot) globalConfigs.push(env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'opencode') : join(homeRoot, '.config', 'opencode'))
+  if (env.OPENCODE_CONFIG_DIR) globalConfigs.push(env.OPENCODE_CONFIG_DIR)
+  if (globalConfigs.some(path => !isAbsolute(path))) throw new Error('Relative OpenCode skill configuration directory is unsupported')
   const roots = [
-    ...ancestors.flatMap((base, rank) => [['.opencode', 'skill'], ['.opencode', 'skills'], ['.agents', 'skills'], ['.claude', 'skills']]
-      .filter((parts) => (base !== systemHome && base !== homeRoot) || parts[0] === '.opencode')
-      .map((parts) => ({ base, parts, rank, global: false }))),
-    ...(homeRoot ? [['.config', 'opencode', 'skill'], ['.config', 'opencode', 'skills'], ['.agents', 'skills'], ['.claude', 'skills']].map((parts) => ({ base: homeRoot, parts, rank: ancestors.length, global: true })) : []),
+    ...(!['1','true'].includes(env.OPENCODE_DISABLE_PROJECT_CONFIG) ? ancestors.flatMap((base, rank) => [['.opencode', 'skill'], ['.opencode', 'skills'], ['.agents', 'skills']]
+      .filter(parts => (base !== systemHome && base !== homeRoot) || parts[0] === '.opencode')
+      .map(parts => ({base, parts, rank, global:false}))) : []),
+    ...globalConfigs.flatMap(base => [['skill'], ['skills']].map(parts => ({base, parts, rank:ancestors.length, global:true}))),
+    ...(homeRoot ? [{base:homeRoot,parts:['.agents','skills'],rank:ancestors.length,global:true}] : []),
   ]
   for (const { base, parts, rank, global } of roots) {
     const skillsPath = join(base, ...parts)
     let directory
     try { directory = await realpath(skillsPath) } catch (error) { if (error.code === 'ENOENT') continue; throw error }
-    const local = relative(base, directory)
+    const scope = await realpath(base)
+    const local = relative(scope, directory)
     if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) throw new Error('Skill directory resolves outside the workspace')
     if (seenDirectories.has(directory)) continue
     seenDirectories.add(directory)
@@ -102,7 +108,7 @@ export async function createSourceSkills({ root, home, builtins = [], maxBytes =
         return
       }
       const actual = await realpath(path)
-      const relativePath = relative(base, actual)
+      const relativePath = relative(scope, actual)
       if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) throw new Error('Skill file resolves outside the workspace')
       const file = await open(actual, 'r')
       let text

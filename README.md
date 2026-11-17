@@ -4,6 +4,8 @@
 
 This repository contains the PAC relay, Claude controller adapter, OpenCode router, and setup scripts. Start with [setup documentation](docs/README.md), including [Windows installation from a Git checkout](docs/windows-setup.md). An experimental provider integration uses repository scripts and an existing OpenCode/HAPI installation, without downloading a custom HAPI executable. Linux and macOS installation is not yet fully verified.
 
+The source harness is OpenCode. Its skills and rules are forwarded to the PAC; local Claude Code configuration is excluded. Claude Code authentication and execution stay on the remote PAC. Native OpenCode plugin/hook support remains incomplete; see [the source feature contract](docs/skills-hooks.md).
+
 Run `npm test` for the scoped automated test suite. Live fixtures in `test/fixtures/` require their own explicit opt-in and configuration; do not run the entire fixture directory as a test suite.
 
 **Current deployment limitation:** both existing runners use the managed corporate HAPI runtime with PAC in a separate OpenCode provider; their PAC-specific runtime pins were removed. The corporate runtime itself contains earlier SMA maintenance changes. The second hub uses the corporate baseline; the first hub and shared UI still contain PAC-specific changes. Their removal and complete update verification remain outstanding; see the [acceptance checklist](RELIABILITY-CHECKLIST.md).

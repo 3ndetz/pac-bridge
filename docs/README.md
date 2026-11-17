@@ -5,6 +5,6 @@
 - [Updating, coordinated migration and rollback](updating.md).
 - [Authenticated source and session ownership](session-authorization.md).
 - [Optional Telegram completion notifications](telegram-notifications.md).
-- [Supported skills and hooks](skills-hooks.md), [acceptance and limitations](../RELIABILITY-CHECKLIST.md).
+- [OpenCode source skills, rules and plugin limitations](skills-hooks.md), [acceptance and limitations](../RELIABILITY-CHECKLIST.md).
 
 Scripts live in `windows/`, `adapters/`, and `src/` in this repository. Credentials and private connection files are distributed separately; never commit them.

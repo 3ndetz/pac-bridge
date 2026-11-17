@@ -9,7 +9,7 @@ test('discovers and invokes simple source skills without accepting unsupported f
   const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
   try {
     assert.deepEqual((await createSourceSkills({ root })).list, [])
-    const directory = join(root, '.claude', 'skills', 'demo')
+    const directory = join(root, '.opencode', 'skills', 'demo')
     await mkdir(directory, { recursive: true })
     const path = join(directory, 'SKILL.md')
     await writeFile(path, '---\nname: demo\ndescription: A simple test skill\n---\n\nPerform $ARGUMENTS.\n')
@@ -55,7 +55,7 @@ test('discovers supported skills from project OpenCode and agents directories an
     const skills = await createSourceSkills({ root })
     assert.deepEqual(skills.list.map((item) => item.name).sort(), ['one', 'three', 'two'])
     assert.match((await skills.invoke({ name: 'two', args: 'source' })).content, /use source/)
-    const duplicate = join(root, '.claude', 'skills', 'one')
+    const duplicate = join(root, '.agents', 'skills', 'one')
     await mkdir(duplicate, { recursive: true })
     await writeFile(join(duplicate, 'SKILL.md'), '---\nname: one\ndescription: duplicate\n---\nBody')
     await assert.rejects(createSourceSkills({ root }), /Duplicate source skill/)
@@ -91,7 +91,7 @@ test('discovers global skills with project precedence and parses folded descript
 test('discovers nested skills and accepts literal examples without executing substitutions', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-skills-'))
   try {
-    const folder = join(root, '.claude', 'skills', 'synced', '123', 'nested')
+    const folder = join(root, '.opencode', 'skills', 'synced', '123', 'nested')
     await mkdir(folder, { recursive: true })
     const path = join(folder, 'SKILL.md')
     await writeFile(path, '---\nname: nested\ndescription: Nested skill\nlicense: MIT\ncompatibility: OpenCode\n---\n`$2`\n```sh\n!`echo example`\n${HOME}\n```\n')
@@ -176,4 +176,21 @@ test('treats home compatibility directories as global when home is the workspace
     const local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-skills-')) await rm(actual, { recursive: true, force: true })
   }
+})
+
+
+test('OpenCode skills use explicit config roots and never inspect local Claude skill files', async () => {
+  const root=await realpath(await mkdtemp(join(tmpdir(),'pac-skills-')))
+  try {
+    const home=join(root,'home'),workspace=join(root,'repo'),xdg=join(root,'xdg'),custom=join(root,'custom')
+    for(const [base,name] of [[join(workspace,'.opencode'),'project'],[join(xdg,'opencode'),'xdg'],[custom,'custom'],[join(home,'.config','opencode'),'wrong-default']]) {
+      const folder=join(base,'skills',name);await mkdir(folder,{recursive:true})
+      await writeFile(join(folder,'SKILL.md'),`---\nname: ${name}\ndescription: Test ${name}\n---\n${name}`)
+    }
+    for(const base of [home,workspace]) {const folder=join(base,'.claude','skills','invalid');await mkdir(folder,{recursive:true});await writeFile(join(folder,'SKILL.md'),'INVALID_PRIVATE_CLAUDE_SKILL')}
+    const env={XDG_CONFIG_HOME:xdg,OPENCODE_CONFIG_DIR:custom}
+    assert.deepEqual((await createSourceSkills({root:workspace,home,env})).list.map(x=>x.name).sort(),['custom','project','xdg'])
+    assert.deepEqual((await createSourceSkills({root:workspace,home,env:{...env,OPENCODE_DISABLE_PROJECT_CONFIG:'1'}})).list.map(x=>x.name).sort(),['custom','xdg'])
+    await assert.rejects(createSourceSkills({root:workspace,home,env:{XDG_CONFIG_HOME:'relative'}}),/Relative/)
+  } finally {assert.equal(relative(await realpath(tmpdir()),root).startsWith('pac-skills-'),true);await rm(root,{recursive:true,force:true,maxRetries:5})}
 })
