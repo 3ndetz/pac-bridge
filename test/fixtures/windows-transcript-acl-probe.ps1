@@ -113,6 +113,12 @@ try {
     [Environment]::Exit(23)
   }
   if ($Mode -eq 'crash') {
+    $stream.Position = 0
+    $readinessProbe = [byte[]]::new($bytes.Length)
+    if ($stream.Read($readinessProbe, 0, $readinessProbe.Length) -ne $bytes.Length -or [Text.Encoding]::UTF8.GetString($readinessProbe) -ne 'PAC_SYNTHETIC_TRANSCRIPT_ONLY') { throw 'Synthetic transcript readiness verification failed' }
+    $readyBytes = [Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFileName($dir))
+    $ready = [IO.FileStream]::new((Join-Path $rootPath 'crash-ready'), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    try { $ready.Write($readyBytes, 0, $readyBytes.Length); $ready.Flush($true) } finally { $ready.Dispose() }
     Write-Output ('READY ' + $dir)
     [Console]::Out.Flush()
     [Threading.Thread]::Sleep([Timeout]::Infinite)
@@ -131,6 +137,11 @@ try {
     } else { [IO.File]::Delete($path) }
   }
   Write-Output 'OK'
+} catch {
+  if ($Mode -eq 'crash') {
+    try { [IO.File]::WriteAllText((Join-Path $rootPath 'crash-error'), $_.Exception.GetType().FullName) } catch {}
+  }
+  throw
 } finally {
   if ($stream) { $stream.Dispose() }
   if ($Mode -ne 'crash' -and [IO.Directory]::Exists($dir) -and [IO.Directory]::GetFileSystemEntries($dir).Count -eq 0) { [IO.Directory]::Delete($dir) }

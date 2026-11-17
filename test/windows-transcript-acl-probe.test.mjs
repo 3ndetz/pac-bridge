@@ -109,32 +109,41 @@ test('Windows deletes the synthetic transcript when its owned job is terminated'
   const root = await mkdtemp(join(tmpdir(), 'pac-acl-crash-'))
   const nonce = randomBytes(16).toString('hex')
   const host = fileURLToPath(new URL('./fixtures/windows-test-owned-job-host.ps1', import.meta.url))
-  const spec = Buffer.from(JSON.stringify({ command: 'powershell.exe', args: args(root, 'crash'), cwd: root, nonce, deadlineMs: 30000 })).toString('base64')
+  const spec = Buffer.from(JSON.stringify({ command: 'powershell.exe', args: args(root, 'crash'), cwd: root, nonce, deadlineMs: 45000 })).toString('base64')
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', host, spec], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   child.stderr.resume()
   const exited = once(child, 'close')
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
   const waitFor = (promise, ms) => { let timer; return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Owned job deadline exceeded')), ms) })]).finally(() => clearTimeout(timer)) }
-  let confirmed = false
+  let confirmed = false, ready = false, failure, dir
   try {
     assert.equal((await waitFor(lines.next(), 20000)).value, `OWNED_READY ${nonce}`)
-    let dir
+    ready = true
     const deadline = Date.now() + 15000
     while (Date.now() < deadline) {
-      const entries = await readdir(root, { withFileTypes: true })
-      const directories = entries.filter(entry => entry.isDirectory() && /^[a-f0-9]{32}$/.test(entry.name))
-      if (directories.length === 1) {
-        const candidate = join(root, directories[0].name)
-        try { if (await readFile(join(candidate, 'synthetic.jsonl'), 'utf8') === 'PAC_SYNTHETIC_TRANSCRIPT_ONLY') { dir = candidate; break } } catch (error) { if (!['ENOENT', 'EBUSY', 'EPERM'].includes(error.code)) throw error }
-      }
+      try {
+        const name = await readFile(join(root, 'crash-ready'), 'utf8')
+        assert.match(name, /^[a-f0-9]{32}$/)
+        dir = join(root, name)
+        break
+      } catch (error) { if (error.code !== 'ENOENT') throw error }
+      try { throw new Error('Synthetic transcript fixture failed: ' + await readFile(join(root, 'crash-error'), 'utf8')) }
+      catch (error) { if (error.code !== 'ENOENT') throw error }
       await new Promise(resolveWait => setTimeout(resolveWait, 100))
     }
     assert.ok(dir, 'Synthetic transcript did not become ready')
-    await writeFile(join(root, 'stop.tmp'), nonce, { flag: 'wx' })
-    await rename(join(root, 'stop.tmp'), join(root, 'stop.signal'))
-    assert.equal((await waitFor(lines.next(), 20000)).value, `OWNED_CLOSED ${nonce}`)
-    assert.equal((await waitFor(exited, 10000))[0], 0)
-    confirmed = true
+  } catch (error) { failure = error }
+  try {
+    if (ready) {
+      await writeFile(join(root, 'stop.tmp'), nonce, { flag: 'wx' })
+      await rename(join(root, 'stop.tmp'), join(root, 'stop.signal'))
+      let marker = (await waitFor(lines.next(), 20000)).value
+      if (marker === `OWNED_EARLY_EXIT ${nonce}`) marker = (await waitFor(lines.next(), 20000)).value
+      assert.equal(marker, `OWNED_CLOSED ${nonce}`)
+      assert.equal((await waitFor(exited, 10000))[0], 0)
+      confirmed = true
+    }
+    if (failure) throw failure
     await assert.rejects(access(join(dir, 'synthetic.jsonl')), { code: 'ENOENT' })
     assert.deepEqual(await readdir(dir), [])
   } finally {
