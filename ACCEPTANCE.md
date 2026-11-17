@@ -337,3 +337,11 @@ Four router shutdown failures were reproduced with controlled asynchronous reads
 Cancellation of a stalled initialize also reproduced a redundant Windows child-handle kill: the first accepted request was followed by a second request before the exit event, which could return false. Accepted stop requests are now idempotent for the same retained child object; a refused first request still throws and can be retried. Acceptance of a stop remains distinct from exit confirmation. This reproduces one concrete failure path; it does not establish the cause of every earlier job-host failure.
 
 All 24 focused Windows checks passed, including real contained-process initialize cancellation, pre-cancellation, pending approval, unfinished HTTP body, router races and synthetic owned-handle stop responses. Full platform runs and installed HAPI shutdown acceptance remain required.
+
+## Model-probe cleanup and host cache (2026-11-17)
+
+The Linux scoped run at the shutdown integration passed 315 cases with 66 skips. The first Windows full run passed 341 with 38 skips and two failures: its allowlisted PATH omitted ripgrep, and a synthetic model-probe directory remained busy. The test-owned outer Job Object confirmed zero remaining active processes before its temporary root was removed.
+
+The native model probe previously ignored a failed stop and treated its one-second cleanup timeout as success. It now requires owned-child exit evidence and reports an unconfirmed exit instead of silently continuing. Twelve focused Windows checks passed, including the real synthetic probe and a minimal-environment job-host invocation. Test-directory removal retries transient Windows file locks only within the already verified disposable root.
+
+Minimal-environment PowerShell hosting could create ModuleAnalysisCache under the working directory. The host now defaults PSModuleAnalysisCachePath to NUL when the caller did not supply it, as documented in [Microsoft's Windows PowerShell environment guidance](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_windows_powershell_5.1). A real Windows contained-child check confirmed the expected variable and an empty disposable workspace. An explicitly provided cache setting remains unchanged.

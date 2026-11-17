@@ -2,7 +2,7 @@ import { isAbsolute } from 'node:path'
 import { Duplex } from 'node:stream'
 import { createAcpPeer } from './acp-peer.mjs'
 import { discoverPacsDirect } from './pac-direct-discovery.mjs'
-import { spawnContained, stopContained } from './spawn-contained.mjs'
+import { spawnContained, stopContainedAndWait } from './spawn-contained.mjs'
 
 export function mergeProbeModels(native, catalog) {
   if (!native || typeof native !== 'object' || Array.isArray(native) || !Array.isArray(catalog?.models)) throw new Error('Invalid model probe response')
@@ -45,12 +45,7 @@ export async function nativeModels({ binary, cwd, init, params, env, timeoutMs =
     // Killing the Windows job host is asynchronous. Wait briefly for its
     // handles and working directory to be released before returning, while
     // keeping the entire probe inside HAPI's 30-second deadline.
-    const closed = new Promise((resolve) => {
-      const timer = setTimeout(resolve, 1000)
-      child.once('close', () => { clearTimeout(timer); resolve() })
-    })
-    try { stopContained(child) } catch {}
-    await closed
+    await stopContainedAndWait(child, 1000)
   }
 }
 

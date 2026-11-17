@@ -16,7 +16,7 @@ test('shares the native model probe deadline between initialize and session crea
     await assert.rejects(nativeModels({ ...options, timeoutMs: 150 }), /timed out/)
   } finally {
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
-    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-native-deadline-')) await rm(actual, { recursive: true, force: true })
+    if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-native-deadline-')) await rm(actual, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })
 
