@@ -30,13 +30,15 @@ export async function connectSource({ url, name, token, signal }) {
   } finally { signal?.removeEventListener('abort', abort) }
 }
 
-export async function startAgent({ url, name, token, command, args = [], cwd, env, maxSessions = 8, onError = () => {}, onDisconnect = () => {} }) {
+export async function startAgent({ url, name, token, command, args = [], cwd, env, maxSessions = 8, onError = () => {}, onDisconnect = () => {}, spawnChild = spawnContained, stopChild = stopContained }) {
   if (typeof command !== 'string' || !command || !Array.isArray(args) || args.some((arg) => typeof arg !== 'string') ||
-      !Number.isSafeInteger(maxSessions) || maxSessions < 1 || typeof onError !== 'function' || typeof onDisconnect !== 'function') throw new Error('Invalid agent configuration')
+      !Number.isSafeInteger(maxSessions) || maxSessions < 1 || typeof onError !== 'function' || typeof onDisconnect !== 'function' || typeof spawnChild !== 'function' || typeof stopChild !== 'function') throw new Error('Invalid agent configuration')
+  // Diagnostics must not interrupt ownership cleanup of the other children.
+  const report = (error) => { try { onError(error) } catch {} }
   const active = new Set()
   let stopped = false
   const registration = connect(url, 'register', name, token)
-  registration.on('error', onError)
+  registration.on('error', report)
 
   registration.on('message', async (data) => {
     let request
@@ -47,39 +49,41 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
     try {
       const socket = connect(url, 'agent', name, token, request.channel)
       session.socket = socket
-      socket.on('error', onError)
+      socket.on('error', report)
       await once(socket, 'open')
-      if (stopped) { socket.close(); return }
+      if (stopped) { active.delete(session); socket.close(); return }
       const stream = createWebSocketStream(socket)
-      stream.on('error', onError)
-      const child = spawnContained(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      stream.on('error', report)
+      const child = spawnChild(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       session.child = child
-      child.stderr.once('data', () => onError(new Error('Agent wrote to stderr; contents suppressed to protect session data')))
+      child.stderr.once('data', () => report(new Error('Agent wrote to stderr; contents suppressed to protect session data')))
       child.stderr.resume()
-      child.on('error', (error) => { onError(error); stream.destroy(error) })
-      child.stdin.on('error', (error) => { if (error.code !== 'EPIPE') onError(error) })
+      child.on('error', (error) => { report(error); stream.destroy(error) })
+      child.stdin.on('error', (error) => { if (error.code !== 'EPIPE') report(error) })
       stream.pipe(child.stdin)
       child.stdout.pipe(stream)
-      stream.once('close', () => { try { stopContained(child) } catch (error) { onError(error) } })
-      child.once('close', () => stream.end())
+      stream.once('close', () => { try { stopChild(child) } catch (error) { report(error) } })
+      child.once('close', () => { active.delete(session); stream.end() })
       socket.once('close', () => {
-        active.delete(session)
-        try { stopContained(child) } catch (error) { onError(error) }
+        // A closed transport does not confirm the owned child's exit. Keep its
+        // capacity and stop ownership until the child's own close event.
+        try { stopChild(child) } catch (error) { report(error) }
       })
       socket.send('ready')
     } catch (error) {
-      active.delete(session)
+      if (!session.child) active.delete(session)
+      else try { stopChild(session.child) } catch (stopError) { report(stopError) }
       session.socket?.terminate()
-      onError(error)
+      report(error)
     }
   })
 
   function stopSessions() {
     for (const session of active) {
       session.socket?.terminate()
-      if (session.child) try { stopContained(session.child) } catch (error) { onError(error) }
+      if (session.child) try { stopChild(session.child) } catch (error) { report(error) }
+      else active.delete(session)
     }
-    active.clear()
   }
   registration.once('close', () => {
     const unexpected = !stopped

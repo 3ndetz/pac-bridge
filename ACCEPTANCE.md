@@ -353,3 +353,11 @@ A git archive of `56e2e91d550eb916991c0137fd65bb7a17045433` passed the complete 
 A subsequent cancellation audit reproduced remote opening after a user cancelled while journal or binding reads were pending. User-turn cancellation now reaches the lifetime signal of an in-flight ACP opening, and cancellation observed before opening prevents the spawn. All 21 focused Windows session-router, shutdown and ACP cancellation cases passed. Cancellation cannot establish whether a remote session was created before interruption, so uncertain opening remains non-retryable.
 
 The owner deferred macOS acceptance on this date; current platform acceptance targets Windows and Linux.
+
+## Controller child ownership after disconnect (2026-11-17)
+
+The controller transport removed a session when its WebSocket closed, even if stopping its child failed or the child had not exited; shutdown also cleared the complete ownership set unconditionally. It now retains the child and its max-session capacity until the child's close event. Repeated owner shutdown can retry a refused stop. Diagnostic callback failures cannot interrupt cleanup of other owned children. Local spawn/stop dependencies are injectable for deterministic tests; they are never obtained from relay requests.
+
+Three synthetic loopback regressions passed on Windows: admission remains blocked until owned-child closure, refused stops remain available to the owner for retry, and diagnostic failures do not skip another child. The existing relay run also passed its 14 applicable scenarios, including real contained-child disconnect and descendant termination; the real OMP opt-in was skipped. These checks do not establish production parent-exit or restart cleanup.
+
+The exact `56e2e91` Linux archive passed all 384 scoped cases: 317 passed, 67 skipped, zero failures, with network disabled and development dependencies mounted read-only. The audit image's inherited OPENCODE_CONFIG override was explicitly cleared for this synthetic run. Earlier snapshot attempts with that override produced eight configuration-policy rejections and are not counted as passing evidence.
