@@ -1,3 +1,4 @@
+import { snapshotWindowsHookTranscript, withWindowsHookTranscript } from './windows-hook-transcript.mjs'
 import { constants } from 'node:fs'
 import { mkdtemp, open, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +7,7 @@ import { basename, isAbsolute, join, relative, sep } from 'node:path'
 export const MAX_HOOK_TRANSCRIPT_BYTES = 1024 * 1024
 
 export async function snapshotHookTranscript(path, { root, sessionId } = {}) {
+  if (process.platform === 'win32') return snapshotWindowsHookTranscript(path, { root, sessionId })
   if (process.platform !== 'linux') throw new Error('Source hook transcript privacy is not supported on ' + (process.platform === 'win32' ? 'Windows' : 'this platform'))
   if (typeof path !== 'string' || !isAbsolute(path) || typeof root !== 'string' || !isAbsolute(root) ||
       typeof sessionId !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(sessionId) || basename(path) !== `${sessionId}.jsonl`) throw new Error('Source hook transcript is unavailable')
@@ -61,6 +63,7 @@ export async function withHookTranscript(encoded, run) {
 }
 
 export async function withEphemeralHookTranscript(encoded, run) {
+  if (process.platform === 'win32') return withWindowsHookTranscript(encoded, run)
   if (process.platform !== 'linux') throw new Error('Source hook transcript privacy is not supported on this platform')
   if (typeof encoded !== 'string' || encoded.length > 4 * Math.ceil(MAX_HOOK_TRANSCRIPT_BYTES / 3) ||
       !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('Invalid source hook transcript')

@@ -331,6 +331,10 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       } catch (error) {
         if (input.hook_event_name === 'Stop') {
           failedStopHooks.add(sessionId)
+          if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1') {
+            const reason = (/^PAC_PRIVATE_TRANSCRIPT_-?[0-9]{1,6}$/.test(error.code || '') || ['PAC_PRIVATE_TRANSCRIPT_OWNER','PAC_PRIVATE_TRANSCRIPT_ACL','PAC_PRIVATE_TRANSCRIPT_PATH','PAC_PRIVATE_TRANSCRIPT_POLICY','PAC_PRIVATE_TRANSCRIPT_STARTUP','PAC_PRIVATE_TRANSCRIPT_HOST','PAC_PRIVATE_TRANSCRIPT_HOST_EXIT','PAC_PRIVATE_TRANSCRIPT_CLEANUP'].includes(error.code)) ? error.code : error.message === 'Source hook session identity mismatch' ? 'session_identity' : 'hook_unavailable'
+            await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'session_info_update', _meta: { pacProbe: { stopFailure: reason } } } }).catch(() => {})
+          }
           await agent.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'PAC Bridge could not execute a source Stop hook; the turn was stopped.' } } }).catch(() => {})
           return { continue: false, stopReason: 'PAC Bridge could not execute a source Stop hook.' }
         }
@@ -365,7 +369,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     sessionId = opened.sessionId || sessionId
     if (sourceMcp) testSourceMcpSessions.set(sessionId, sourceMcp)
     if (sourceSettings !== undefined) sourceSettingsSessions.add(sessionId)
-    if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && meta.pac?.stopHooks === true && process.platform === 'linux') testStopSessions.add(sessionId)
+    if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && meta.pac?.stopHooks === true && ['linux', 'win32'].includes(process.platform)) testStopSessions.add(sessionId)
     return opened
   }
   agent.newSession = (params) => prepareSession(params, 'new')

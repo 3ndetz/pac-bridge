@@ -11,7 +11,6 @@ test('copies a bounded transcript for the hook and removes it after success or f
     const original = join(directory, 'test-session.jsonl')
     const options = { root: directory, sessionId: 'test-session' }
     if (process.platform === 'win32') {
-      await assert.rejects(snapshotHookTranscript(original, options), /privacy is not supported/)
       await assert.rejects(withHookTranscript('', async () => {}), /privacy is not supported/)
       return
     }

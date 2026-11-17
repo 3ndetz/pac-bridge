@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { once } from 'node:events'
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -8,6 +9,7 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 import { Duplex } from 'node:stream'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { spawnContained, stopContainedAndWait } from '../src/spawn-contained.mjs'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 import { withEphemeralHookTranscript } from '../src/hook-transcript.mjs'
 import { createProjectHooks } from '../src/project-hooks.mjs'
@@ -36,6 +38,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
   const scopedFailure = process.env.PAC_TEST_SYNTHETIC_SCOPED_FAILURE === '1'
   const promptHookTest = process.env.PAC_TEST_SYNTHETIC_PROMPT_HOOK === '1'
   const lifecycleTest = process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1'
+  const stopFailures = []
   let stopCalls = 0, stopHasTranscript = false, sameSession = false, lifecycleError, lastDecision
   const oldSourceTest = process.env.PAC_TEST_SYNTHETIC_OLD_SOURCE === '1'
   let promptHooks, lifecycleHooks, modelSawHookContext = false
@@ -71,6 +74,11 @@ test('runs the installed controller against a local synthetic model endpoint', {
   let child, peer
   try {
     if (lifecycleTest) {
+      if (process.platform === 'win32') {
+        // A shared temporary directory is not a private SDK profile. Keep the
+        // real snapshot ACL checks enabled and provision this synthetic root.
+        await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', fileURLToPath(new URL('./fixtures/windows-private-transcript.ps1', import.meta.url)), '-Root', root, '-Mode', 'directory'], { timeout: 10000, windowsHide: true })
+      }
       await mkdir(join(root, '.claude'))
       const script = `let x='';process.stdin.on('data',c=>x+=c);process.stdin.on('end',()=>{const e=JSON.parse(x),fs=require('fs');fs.readFileSync(e.transcript_path);if(!e.stop_hook_active){process.stderr.write('SYNTHETIC_CONTINUE');process.exitCode=2}})`
       await writeFile(join(root, '.claude', 'settings.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: process.execPath, args: ['-e', script] }] }] } }))
@@ -84,7 +92,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
     }
     server.listen(0, '127.0.0.1'); await once(server, 'listening')
     const adapter = fileURLToPath(new URL('../adapters/pac-claude-agent.mjs', import.meta.url))
-    const launch = () => spawn(process.execPath, [adapter], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: {
+    const launch = () => spawnContained(process.execPath, [adapter], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: {
       ...process.env, PAC_SOURCE_PRINCIPAL: 'a'.repeat(64), PAC_SESSION_OWNERS_DIR: join(root, 'session-owners'), HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key',
       ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`, NO_PROXY: '127.0.0.1,localhost',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1',
@@ -95,7 +103,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
       child = launch()
       child.stderr.resume()
       return createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), { timeoutMs: 60000,
-      onNotification: (method, params) => { if (method === 'session/update' && params?.update?.sessionUpdate === 'agent_message_chunk') answer += params.update.content?.text || '' },
+      onNotification: (method, params) => { if (params?.update?._meta?.pacProbe?.stopFailure) stopFailures.push(params.update._meta.pacProbe.stopFailure); if (method === 'session/update' && params?.update?.sessionUpdate === 'agent_message_chunk') answer += params.update.content?.text || '' },
       onRequest: async (method, params) => {
         if (method === 'pac/hooks/dispatch' && notificationTest) {
           if (params.input.hook_event_name === 'Notification') notifications++
@@ -146,20 +154,19 @@ test('runs the installed controller against a local synthetic model endpoint', {
     if (promptHookTest) assert.equal(modelSawHookContext, true)
     if (notificationTest) { assert.ok(permissionRequests > 0); assert.equal(notifications, 0) }
     if (lifecycleTest) {
-      if (process.platform !== 'win32') {
-        assert.ok(stopCalls >= 2); assert.equal(promptError, undefined); assert.equal(stopHasTranscript, true); assert.equal(sameSession, true); assert.ok(requests >= 2)
+      {
+        assert.ok(stopCalls >= 2, JSON.stringify({ stopCalls, stopFailures, lifecycleError, promptError: promptError?.message })); assert.equal(promptError, undefined); assert.equal(stopHasTranscript, true); assert.equal(sameSession, true); assert.ok(requests >= 2)
         const before = stopCalls
-        peer.close(); child.kill()
-        await new Promise(resolve => child.once('exit', resolve))
+        peer.close(); await stopContainedAndWait(child, 20000)
         peer = connect()
         await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
         await peer.call('session/load', { sessionId: session.sessionId, cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, stopHooks: true } } }, 90000)
         await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Resume the synthetic session.' }] }, 90000)
         assert.ok(stopCalls >= before + 2, 'restored session must dispatch Stop and continue on block')
-      } else { assert.ok(promptError); assert.equal(requests, 1); assert.match(answer, /could not execute a source Stop hook/) }
+      }
     }
   } finally {
-    peer?.close(); child?.kill(); await new Promise((resolve) => server.close(resolve))
+    peer?.close(); if (child) await stopContainedAndWait(child, 20000); await new Promise((resolve) => server.close(resolve))
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
     if (local && !isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`) && local.startsWith('pac-controller-test-')) await rm(actual, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }

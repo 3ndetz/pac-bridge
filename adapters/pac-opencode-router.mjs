@@ -182,7 +182,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           watchSourceDisconnect(stream, disconnectSource)
           if (binding) state.translator = createSubagentTranslator({ localSessionId: session.id, remoteSessionId: binding.remoteSessionId, pacId: endpoint.id })
           state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
-            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions), promptHooks: !!state.hooks, ...(process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' ? { sourceMcpServers: ['fixture'] } : {}), ...(state.hooks ? { claudeSettings: state.hooks.controllerSettings() } : {}), ...(process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && process.platform === 'linux' && state.hooks?.hasEvent('Stop') ? { stopHooks: true } : {}) } },
+            skills: state.skills?.list || [], instructions: (state.instructions || []).filter((entry) => !entry.paths), scopedRules: Array.isArray(state.instructions), promptHooks: !!state.hooks, ...(process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' ? { sourceMcpServers: ['fixture'] } : {}), ...(state.hooks ? { claudeSettings: state.hooks.controllerSettings() } : {}), ...(process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && ['linux', 'win32'].includes(process.platform) && state.hooks?.hasEvent('Stop') ? { stopHooks: true } : {}) } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
             clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {}, session: { compaction: {} } },
           onRequest: async (remoteMethod, remoteParams) => {
