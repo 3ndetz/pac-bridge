@@ -11,3 +11,21 @@ Records are write-once and keyed by a hash of the session ID. A missing, incompl
 An interrupted claim is retained for operator review, not automatically repaired. If persistence fails after SDK session creation, the controller attempts to close the newly created SDK session and reports failure. Legacy transcripts without ownership are not automatically adopted, even when a caller knows their IDs. An audited migration and backup/rollback procedure are still required before replacing an existing installation; no such installation was migrated by these changes.
 
 This protects the controller's session API across different authenticated source credentials. It is not an OS sandbox, does not defend against a hostile process already running as the controller OS user, and does not establish isolation between local callers sharing one provider bearer. The experimental shared-provider permission controls remain unavailable pending that separate boundary. Unsupported source MCP/plugin provenance discovery remains disabled. Installed two-machine acceptance remains outstanding.
+
+## Reviewed legacy migration
+
+`scripts/migrate-session-owners.mjs` is an operator-only command, not an ACP endpoint. Prepare a private JSON manifest from retained trusted source binding records, the intended relay credential principal and backups. Each binding requires `sessionId`, a 64-character lowercase hex `principal`, and a nonempty `evidence` reference to the reviewed source record/backup. The enclosing object is `{ "version": 1, "bindings": [...] }`. Never collect the mapping from arbitrary remote requests or include raw credentials. Keep the manifest outside Git.
+
+Run the read-only plan:
+
+```text
+node scripts/migrate-session-owners.mjs --mapping <absolute-private-json> --owners-dir <absolute-controller-ownership-directory>
+```
+
+It prints only a fingerprint and counts. It creates no ownership directory. Review the manifest and target, then use the returned fingerprint:
+
+```text
+node scripts/migrate-session-owners.mjs --mapping <absolute-private-json> --owners-dir <absolute-controller-ownership-directory> --apply --plan-hash <reviewed-sha256>
+```
+
+The fingerprint binds the normalized entries, evidence and target directory. Existing different owners are rejected before any new claim, and claims remain exclusive if a conflict races application. Interrupted application can be rerun with the same reviewed manifest; completed matching claims are idempotent. Invalid partial records require separate operator review. This command does not scan or rewrite transcripts, infer ownership, alter relay credentials, delete records, or replace backup/rollback preparation. Synthetic Windows/Linux verification is not evidence that the deployed legacy sessions were migrated.
