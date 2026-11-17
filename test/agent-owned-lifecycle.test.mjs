@@ -5,23 +5,26 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { attachAcpRelay } from '../src/acp-relay.mjs'
 import { startAgent, connectSource } from '../src/acp-transport.mjs'
+import { startSupervisedAgent } from '../src/supervised-agent.mjs'
 
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 function child() { return Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() }) }
-async function fixture(stopChild, { onError = () => {}, maxSessions = 1 } = {}) {
+async function fixture(stopChild, { onError = () => {}, maxSessions = 1, supervised = false } = {}) {
   const server = createServer()
   const relay = attachAcpRelay(server, { authorize: () => true, openTimeoutMs: 150 })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  let registration, registrations = 0
+  server.on('upgrade', (request, socket) => { if (request.url === '/acp-relay/register') { registration = socket; registrations++ } })
   const url = `ws://127.0.0.1:${server.address().port}`
   const children = [], spawned = new EventEmitter()
-  const agent = await startAgent({ url, name: 'synthetic', token: 'synthetic', command: 'synthetic-no-executable', maxSessions,
+  const agent = await (supervised ? startSupervisedAgent : startAgent)({ retryMs: 100, url, name: 'synthetic', token: 'synthetic', command: 'synthetic-no-executable', maxSessions,
     spawnChild() { const c = child(); children.push(c); spawned.emit('child', c); return c }, stopChild, onError })
   const source = async () => {
     const stream = await connectSource({ url, name: 'synthetic', token: 'synthetic' })
     stream.on('error', () => {})
     return stream
   }
-  return { agent, children, spawned, source, close() { for (const c of children) c.emit('close', 0); agent.close(); relay.close(); server.close() } }
+  return { agent, children, spawned, source, registrations: () => registrations, disconnectRegistration: () => registration.destroy(), close() { for (const c of children) c.emit('close', 0); agent.close(); relay.close(); server.close() } }
 }
 
 test('disconnected child retains its session capacity until its close is confirmed', { timeout: 5000 }, async () => {
@@ -81,4 +84,24 @@ test('diagnostic callback errors cannot skip cleanup of other owned children', {
     assert.doesNotThrow(() => f.agent.close())
     assert.equal(attempts.size, 2)
   } finally { for (const s of streams) s.destroy(); f.close() }
+})
+
+
+test('supervisor waits for old child exit before accepting a new generation', { timeout: 5000 }, async () => {
+  const stopped = deferred()
+  const f = await fixture(() => stopped.resolve(), { supervised: true })
+  let stream
+  try {
+    const spawned = once(f.spawned, 'child')
+    stream = await f.source()
+    const [owned] = await spawned
+    f.disconnectRegistration()
+    await stopped.promise
+    await new Promise(resolve => setTimeout(resolve, 250))
+    assert.equal(f.registrations(), 1, 'an unresolved child must prevent controller re-registration')
+    owned.emit('close', 0)
+    const deadline = Date.now() + 2000
+    while (f.registrations() < 2 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(f.registrations(), 2)
+  } finally { stream?.destroy(); f.close() }
 })

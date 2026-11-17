@@ -36,7 +36,11 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
   // Diagnostics must not interrupt ownership cleanup of the other children.
   const report = (error) => { try { onError(error) } catch {} }
   const active = new Set()
-  let stopped = false
+  let stopped = false, registrationClosed = false
+  let resolveClosed
+  const closed = new Promise(resolve => { resolveClosed = resolve })
+  function checkClosed() { if (stopped && registrationClosed && active.size === 0) resolveClosed() }
+  function release(session) { active.delete(session); checkClosed() }
   const registration = connect(url, 'register', name, token)
   registration.on('error', report)
 
@@ -51,7 +55,7 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
       session.socket = socket
       socket.on('error', report)
       await once(socket, 'open')
-      if (stopped) { active.delete(session); socket.close(); return }
+      if (stopped) { release(session); socket.close(); return }
       const stream = createWebSocketStream(socket)
       stream.on('error', report)
       const child = spawnChild(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
@@ -63,7 +67,7 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
       stream.pipe(child.stdin)
       child.stdout.pipe(stream)
       stream.once('close', () => { try { stopChild(child) } catch (error) { report(error) } })
-      child.once('close', () => { active.delete(session); stream.end() })
+      child.once('close', () => { release(session); stream.end() })
       socket.once('close', () => {
         // A closed transport does not confirm the owned child's exit. Keep its
         // capacity and stop ownership until the child's own close event.
@@ -71,7 +75,7 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
       })
       socket.send('ready')
     } catch (error) {
-      if (!session.child) active.delete(session)
+      if (!session.child) release(session)
       else try { stopChild(session.child) } catch (stopError) { report(stopError) }
       session.socket?.terminate()
       report(error)
@@ -82,14 +86,16 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
     for (const session of active) {
       session.socket?.terminate()
       if (session.child) try { stopChild(session.child) } catch (error) { report(error) }
-      else active.delete(session)
+      else release(session)
     }
   }
   registration.once('close', () => {
     const unexpected = !stopped
     stopped = true
+    registrationClosed = true
     stopSessions()
-    if (unexpected) onDisconnect()
+    checkClosed()
+    if (unexpected) onDisconnect({ closed })
   })
 
   // Install the open-request handler before registration becomes visible to
@@ -97,10 +103,13 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
   await once(registration, 'open')
 
   return {
+    closed,
     close() {
       stopped = true
       registration.close()
       stopSessions()
+      checkClosed()
+      return closed
     },
   }
 }

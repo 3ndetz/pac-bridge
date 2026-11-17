@@ -361,3 +361,9 @@ The controller transport removed a session when its WebSocket closed, even if st
 Three synthetic loopback regressions passed on Windows: admission remains blocked until owned-child closure, refused stops remain available to the owner for retry, and diagnostic failures do not skip another child. The existing relay run also passed its 14 applicable scenarios, including real contained-child disconnect and descendant termination; the real OMP opt-in was skipped. These checks do not establish production parent-exit or restart cleanup.
 
 The exact `56e2e91` Linux archive passed all 384 scoped cases: 317 passed, 67 skipped, zero failures, with network disabled and development dependencies mounted read-only. The audit image's inherited OPENCODE_CONFIG override was explicitly cleared for this synthetic run. Earlier snapshot attempts with that override produced eight configuration-policy rejections and are not counted as passing evidence.
+
+## Supervisor generation drain (2026-11-17)
+
+Controller registration reconnection now waits for the previous owner's registration closure and child close events. The supervisor retains owners until their closed promise resolves, so shutdown can still retry cleanup after transport loss. A new synthetic test holds an old child open across several retry intervals: no second registration is admitted until that exact child emits close.
+
+The combined Windows relay and owner-lifecycle run passed 18 cases with one explicit real-OMP skip and no failures. This includes the existing real descendant-stop check. Process close evidence is not a replacement for platform-level job accounting or installed-runtime acceptance.
