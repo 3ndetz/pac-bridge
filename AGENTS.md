@@ -7,3 +7,8 @@
 ## Железное правило: завершение в main и порядок
 
 Доводи все порученные и ранее начатые работы до проверенного результата в `main` и пуша, не теряя задачи при переключениях и перерывах. Веди список оставшихся изменений и проверок; возвращайся к ним до завершения. Не оставляй незакоммиченные или незапушенные изменения и ненужные временные файлы: разбирай их содержимое, сохраняй нужное и удаляй только подтверждённо созданное для задачи. Ветки и черновики — временный этап, а не завершение работы. Перед слиянием проверяй результат и не публикуй секреты; если проверка или доступ объективно невозможны, продолжай независимую работу и точно фиксируй препятствие, не объявляя задачу завершённой.
+
+
+## Source harness contract
+
+Before changing source discovery or feature translation, read [the source harness clarification](REQUIREMENTS.md#source-harness-clarification-17-november-2026) and [the OpenCode feature contract](docs/skills-hooks.md). The source is OpenCode; do not reinterpret local Claude helpers or their test results as OpenCode features. Preserve the source-isolation regressions when changing this boundary.

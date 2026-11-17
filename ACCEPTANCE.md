@@ -472,3 +472,10 @@ The router and direct catalogue discovery no longer instantiate local Claude hoo
 Synthetic regressions verify that malformed local Claude settings, a local Claude proxy and private instruction/skill canaries neither block catalogue/prompt handling nor reach the PAC. OpenCode rules and skill metadata do reach the fake PAC. Unsolicited Claude hook execution is rejected. Changing local Claude settings during an OpenCode session has no effect, while unsupported native OpenCode permission/plugin configuration still stops the turn. Historical opt-in Stop/async integration files are retained with negative source-isolation assertions; no integration coverage file was deleted.
 
 Focused Windows source-boundary, precedence, skills and router checks passed before the full saved-snapshot run. Full Windows/Linux results will be recorded separately. Real source MCP/plugin provenance discovery remains disabled. This corrects the source-harness dependency; it does not establish complete native OpenCode plugin support or installed two-machine acceptance.
+
+
+## Saved OpenCode source-boundary verification (2026-11-17)
+
+Exact `95c5ff72dcb7220d570bc7c3d84f648aa1f6e95b` passed the full scoped suites on both platforms. Windows: 461 cases, 408 passed, 53 skipped, zero failures/cancellations, in 177 seconds. The outer owned Job confirmed zero active processes and its disposable profile was removed. Linux: 461 cases, 376 passed, 85 skipped, zero failures/cancellations, in an offline container with read-only dependencies, in 85 seconds.
+
+Both suites include OpenCode-only instruction/skill discovery, local Claude canary exclusion, direct catalogue discovery and rejection of unsupported native OpenCode permissions/plugins. Native source MCP/plugin provenance discovery stayed disabled. No paid model calls or installed HAPI/PAC activation were performed. The retained Linux opt-in real-SDK async/Stop isolation scenarios were skipped in these scoped runs; their presence is not recorded as a pass. The previous controller transcript experiments remain separate from native OpenCode plugin acceptance.
