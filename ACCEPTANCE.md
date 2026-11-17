@@ -1,5 +1,15 @@
 # Acceptance criteria: cross-platform transparent agent bridge
 
+## Workspace reconciliation checks (2026-11-17)
+
+Nine synthetic comparison, ACP-disconnect, stdout-EOF and router snapshot tests passed in a Linux container without external network access. The process-lifecycle scenarios are explicitly scoped to Linux. The two context-comparison tests also passed natively on Windows and do not disclose identity, path, model or credential values.
+
+Seventeen Windows owned-preparation tests passed. They exercised staging, extraction, hashing, control timeouts and loss of the owner's loopback connection. Their own retained Job Object reported zero active processes before verified-root cleanup. Two related scenarios were repeated after bounding the nested job's lifetime. These are test-harness results, not proof that production HAPI uses that ownership contract.
+
+Seven optional native SDK and synthetic-model probes were checked with their scenario flags removed: all seven were skipped and no model scenario ran. Their source and opt-ins are documented in [runtime probes](docs/runtime-probes.md); skips are not runtime acceptance.
+
+Earlier uncommitted live-runtime and cross-host draft notes were preserved privately with the corresponding task-local probe sources. They were not independently reverified during this reconciliation and are not added as release evidence. [Workspace reconciliation](docs/workspace-reconciliation.md) explains what was retained as regression coverage and what remains unsupported.
+
 ## Relay and notification checks (2026-11-13)
 
 An isolated candidate controller running on the existing PAC used its existing Claude login. A source project `UserPromptSubmit` hook blocked one prompt and supplied a marker that appeared in an authenticated Claude response to the next prompt. The source hook and controller communicated directly over a temporary connection; the installed HAPI runners and active controller were not changed. The installed HAPI path and other hook events remain open.

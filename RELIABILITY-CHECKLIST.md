@@ -1,5 +1,21 @@
 # PAC Bridge reliability and acceptance checklist
 
+## Reconciliation requirements (2026-11-17)
+
+The saved experimental integration is not a completed production rollout. Retired one-off probes and historical draft claims are preserved privately; they do not close the following acceptance requirements. See [current isolated checks](ACCEPTANCE.md#workspace-reconciliation-checks-2026-11-17).
+
+- [ ] Verify the existing HAPI browser, full model catalogue, prompt hooks, skill resources, compaction and resume on each intended installed runner.
+- [ ] Verify independent task stop while the parent turn is active, authoritative task snapshots, browser controls, disconnect invalidation and concurrent-session isolation through the complete live path. Experimental callbacks remain disabled by default.
+- [ ] Define and verify the client-to-session trust boundary. A process-wide provider bearer currently authorizes caller-selected session IDs; matching an ID alone is not independent client authentication. Do not treat the shared provider as an isolation boundary between mutually untrusted clients.
+- [ ] Verify production process ownership, serve shutdown, session-stop races and recovery without PID-only tree termination. The unintegrated parent-watcher draft supplied no verified owner identity and has been removed from the launcher; test-owned Job Object evidence is separate.
+- [ ] Diagnose bounded initialization, concurrent initialization, dependency-install failures, missing responses and slow archive acknowledgements. Safe startup timing is available; it does not establish a root cause.
+- [ ] Distinguish native OpenCode auxiliary model requests from genuine user turns without silently losing supported requests or starting duplicate remote turns.
+- [ ] Complete global settings and hook support with source permissions, asynchronous lifecycle semantics, private Windows transcripts and explicit handling of configured proxies. Unsupported source settings remain rejected; do not silently omit a policy or forward credentials.
+- [ ] Establish trusted source OpenCode MCP/plugin configuration provenance, permissions and dynamic updates before enabling real configuration forwarding. Provenance discovery remains unavailable; synthetic transports do not verify installed configurations.
+- [ ] Audit every Windows installer/disable/dispatch entrypoint and POSIX installer path for preflight, no-clobber updates, links, interruption recovery, retry and rollback while preserving user data. Verify installed Linux and macOS workflows independently.
+- [ ] Reconcile old test-owned remote staging and process trees using verified ownership; preserve unrelated sessions and workspaces.
+- [ ] Review release source and history for private data. Task-local recovery material and its detailed inventory are private and must not be pushed.
+
 This checklist tracks outstanding work for the OpenCode-first integration. A checked item requires a reproducible test against the deployed configuration and evidence linked from `ACCEPTANCE.md`. Unit tests alone do not prove an end-to-end scenario. Do not describe untested scenarios as complete.
 
 ## Required workflow
