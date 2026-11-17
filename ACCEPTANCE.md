@@ -494,3 +494,32 @@ actual PowerShell selector construction. Linux offline transport/dispatch checks
 3 passed, 1 Windows-only skip, 0 failures. No model calls or real source MCP/plugin
 provenance discovery were performed. These checks do not establish installed handoff
 acceptance, which must be recorded separately after deployment.
+
+### Installed generation handoff, 17 November 2026
+
+Both existing Windows source profiles now select provider revision
+`11f012bfce0c63a17877a0b1cb037184bb8eb788`. All 82 adapter/source files were
+compared with the published revision on each profile. Selected-code read-back
+confirmed the new TLS relay endpoint in each new process environment. Existing
+runner identities and profile ACLs were preserved; no runner restart was used.
+The eight previously active OpenCode sessions on the first hub and the one on the
+second hub remained active after selection.
+
+A separate relay/controller generation runs revision
+`33200a9a290d22e21edc71921bb41b4744a927d4`. Its TLS and authenticated ACP
+initialize passed without creating a session, invoking a model or discovering
+source MCP/plugins. The previous generation retains its five established
+connections. Its authorization now refuses new source handshakes with HTTP 401;
+the new generation has a separate authorization file and accepts the same reviewed
+source identities. Existing legacy channels were not restarted.
+
+The reviewed legacy ownership migration contains 150 sessions from two distinct
+source identities. Read-back found all 150 bound and none pending. Checks against
+the actual controller ownership store accepted all 150 intended owners and denied
+the other existing source identity for all 150 records. This is metadata-level
+authorization evidence, not a claim that 150 model conversations were replayed.
+
+This establishes selected source versions, migration, transport initialization and
+preserved active-session state. Installed model turns, tools, permissions,
+compaction/recall, migrated-session resume, crash recovery and the complete native
+OpenCode feature matrix remain separate acceptance work. macOS remains deferred.
