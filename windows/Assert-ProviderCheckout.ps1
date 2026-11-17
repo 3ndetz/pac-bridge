@@ -12,10 +12,10 @@ function Assert-ProviderCheckout {
   $head=$null
   try { $head=(& git.exe -C $source rev-parse --verify HEAD 2>$null) } catch { }
   if($LASTEXITCODE -ne 0 -or !$head -or $head.Trim() -cnotmatch '^[0-9a-f]{40}$'){throw 'The source checkout requires a valid commit.'}
-  & git.exe -C $source diff --quiet HEAD -- adapters src source-package
+  & git.exe -C $source diff --quiet HEAD -- adapters src source-package windows
   if($LASTEXITCODE -ne 0){throw 'Commit or discard source changes before configuring a profile.'}
   try { & git.exe -C $source ls-files --error-unmatch -- source-package/package.json source-package/package-lock.json 2>$null | Out-Null } catch { throw 'The source dependency manifests must be tracked.' }
   if($LASTEXITCODE -ne 0){throw 'The source dependency manifests must be tracked.'}
-  try { & git.exe -C $source ls-files --error-unmatch -- adapters/install-hapi-command.mjs adapters/pac-hapi-opencode.mjs src/opencode-provider.mjs 2>$null | Out-Null } catch { throw 'The checkout is missing tracked provider source files.' }
+  try { & git.exe -C $source ls-files --error-unmatch -- adapters/install-hapi-command.mjs adapters/pac-hapi-opencode.mjs src/opencode-provider.mjs windows/Export-ProviderRevision.ps1 2>$null | Out-Null } catch { throw 'The checkout is missing tracked provider source files.' }
   if($LASTEXITCODE -ne 0){throw 'The checkout is missing tracked provider source files.'}
 }

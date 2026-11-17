@@ -9,7 +9,7 @@ try {
   $outer=Join-Path $testRoot 'outer'
   $zip=Join-Path $outer 'zip'
   New-Item -ItemType Directory -Path $testProfile,(Join-Path $zip 'windows') -Force | Out-Null
-  foreach($name in @('Configure-ExistingProvider.ps1','Install-ProviderMode.ps1','Assert-ProviderCheckout.ps1')) { Copy-Item -LiteralPath (Join-Path $scriptsRoot $name) -Destination (Join-Path $zip 'windows') }
+  foreach($name in @('Configure-ExistingProvider.ps1','Install-ProviderMode.ps1','Assert-ProviderCheckout.ps1','Export-ProviderRevision.ps1')) { Copy-Item -LiteralPath (Join-Path $scriptsRoot $name) -Destination (Join-Path $zip 'windows') }
   $env:USERPROFILE=$testProfile
   foreach($nested in @($false,$true)) {
     if($nested) { & git.exe init --quiet $outer; if($LASTEXITCODE -ne 0){throw 'Synthetic parent Git setup failed.'} }
@@ -22,7 +22,7 @@ try {
   }
   $checkout=Join-Path $testRoot 'checkout'
   New-Item -ItemType Directory -Path (Join-Path $checkout 'windows'),(Join-Path $checkout 'adapters'),(Join-Path $checkout 'src'),(Join-Path $checkout 'source-package') -Force | Out-Null
-  foreach($name in @('Configure-ExistingProvider.ps1','Install-ProviderMode.ps1','Assert-ProviderCheckout.ps1')) { Copy-Item -LiteralPath (Join-Path $scriptsRoot $name) -Destination (Join-Path $checkout 'windows') }
+  foreach($name in @('Configure-ExistingProvider.ps1','Install-ProviderMode.ps1','Assert-ProviderCheckout.ps1','Export-ProviderRevision.ps1')) { Copy-Item -LiteralPath (Join-Path $scriptsRoot $name) -Destination (Join-Path $checkout 'windows') }
   foreach($file in @('adapters/install-hapi-command.mjs','adapters/pac-hapi-opencode.mjs','src/opencode-provider.mjs','source-package/package.json','source-package/package-lock.json')) { [IO.File]::WriteAllText((Join-Path $checkout $file),'fixture') }
   & git.exe init --quiet $checkout
   & git.exe -C $checkout add -- .
@@ -34,6 +34,13 @@ try {
   $message=''
   try { & (Join-Path $checkout 'windows\Install-ProviderMode.ps1') -KitPath 'missing' } catch { $message=$_.Exception.Message }
   if($message -notmatch 'missing'){throw 'A valid checkout did not reach provider input validation.'}
+  $exportPath=Join-Path $checkout 'windows\Export-ProviderRevision.ps1'
+  $exportOriginal=[IO.File]::ReadAllText($exportPath)
+  [IO.File]::WriteAllText($exportPath,($exportOriginal+"`n# modified fixture`n"))
+  $message=''
+  try { & (Join-Path $checkout 'windows\Install-ProviderMode.ps1') -KitPath 'missing' } catch { $message=$_.Exception.Message }
+  if($message -notmatch 'Commit or discard'){throw 'Modified installer sources were not rejected before profile changes.'}
+  [IO.File]::WriteAllText($exportPath,$exportOriginal)
   [IO.File]::WriteAllText((Join-Path $checkout 'src/opencode-provider.mjs'),'changed')
   $message=''
   try { & (Join-Path $checkout 'windows\Configure-ExistingProvider.ps1') -KitPath 'missing' -KeysPath 'missing' -OpenCodePath 'missing' } catch { $message=$_.Exception.Message }

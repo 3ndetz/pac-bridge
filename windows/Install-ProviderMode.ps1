@@ -5,6 +5,7 @@ if($LegacyMigration -and !$NamedProviders){throw 'Legacy migration requires name
 $source=Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Assert-ProviderCheckout.ps1')
 Assert-ProviderCheckout -Source $source
+. (Join-Path $PSScriptRoot 'Export-ProviderRevision.ps1')
 $kit=(Resolve-Path -LiteralPath $KitPath).Path
 $runtime=Join-Path $kit 'windows\Runtime.ps1'
 $profileHome=Join-Path $env:USERPROFILE '.hapi-servermall'
@@ -25,7 +26,7 @@ Push-Location -LiteralPath $source
 try {
   $revision=(& git.exe rev-parse HEAD).Trim()
   if($LASTEXITCODE -ne 0 -or $revision -cnotmatch '^[0-9a-f]{40}$'){throw 'A Git checkout with a valid commit is required.'}
-  & git.exe diff --quiet HEAD -- adapters src source-package
+  & git.exe diff --quiet HEAD -- adapters src source-package windows
   if($LASTEXITCODE -ne 0){throw 'Commit or discard source changes before installing; the revision must match the files.'}
   & git.exe ls-files --error-unmatch -- source-package/package.json source-package/package-lock.json | Out-Null
   if($LASTEXITCODE -ne 0){throw 'The source dependency manifest and lockfile must be tracked.'}
@@ -37,14 +38,9 @@ try {
   if(!(Test-Path -LiteralPath $target)) {
     $stage=Join-Path $versions ('.stage-'+[guid]::NewGuid().ToString())
     New-Item -ItemType Directory -Path $stage | Out-Null
-    foreach($file in $files){
-      if([IO.Path]::IsPathRooted($file) -or $file -match '(^|[\\/])\.\.([\\/]|$)'){throw 'Unsafe tracked path.'}
-      $dest=Join-Path $stage $file
-      New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force | Out-Null
-      Copy-Item -LiteralPath (Join-Path $source $file) -Destination $dest
-    }
+    Export-ProviderRevision -Source $source -Revision $revision -Destination $stage
     foreach($file in @('package.json','package-lock.json')) {
-      Copy-Item -LiteralPath (Join-Path $source ('source-package/'+$file)) -Destination (Join-Path $stage $file)
+      Copy-Item -LiteralPath (Join-Path $stage ('source-package/'+$file)) -Destination (Join-Path $stage $file)
     }
     Push-Location -LiteralPath $stage
     try {
