@@ -41,7 +41,7 @@ export class ContainedTransport {
   async stop() {
     if (!this.child) return
     const child = this.child; this.child = null
-    const exited = this.closed || new Promise(resolve => child.once('close', resolve))
+    const exited = child.pacOwnedExit || this.closed || new Promise(resolve => child.once('close', resolve))
     if (child.exitCode !== null || child.signalCode !== null) {
       await bounded(exited, this.cleanupTimeoutMs)
       return

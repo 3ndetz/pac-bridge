@@ -67,7 +67,12 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
       stream.pipe(child.stdin)
       child.stdout.pipe(stream)
       stream.once('close', () => { try { stopChild(child) } catch (error) { report(error) } })
-      child.once('close', () => { release(session); stream.end() })
+      child.once('close', () => {
+        if (child.pacOwnedExitConfirmed === false) {
+          report(new Error('Agent process-tree exit is unconfirmed; ownership retained'))
+          stream.destroy()
+        } else { release(session); stream.end() }
+      })
       socket.once('close', () => {
         // A closed transport does not confirm the owned child's exit. Keep its
         // capacity and stop ownership until the child's own close event.

@@ -4,7 +4,7 @@ macOS acceptance is deferred; the current delivery targets Windows and Linux.
 
 **Do not run this installer on a real profile yet.** Unique temporary files, non-truncating marker creation, and fail-closed cleanup passed synthetic checks in Git Bash and an isolated Linux container using fake dependency commands. Synthetic Linux tests using pidfds verified cleanup after SIGTERM and retention of the stage and lock after SIGKILL; a retry refused the retained lock. Automatic recovery of that state, real dependency installation, macOS, directory ownership, and complete file-safety checks remain unverified.
 
-Install Git, Node.js 24 or later, npm, Bash and a compatible native OpenCode. Keep the existing HAPI hub and runner. Transfer the private connection directory separately: it must contain `connection.json`, `pac-source-token.txt` and `pac-relay-ca.pem`. Do not copy the Claude login from the controller.
+Install Git, Node.js 24 or later, npm, Bash, Python 3.9 or later, and a compatible native OpenCode. Linux process ownership requires kernel pidfd support, the subreaper API and a readable `/proc` child list. The installer checks these before profile writes. The runtime uses `/usr/bin/python3` by default; if `PAC_PYTHON_BINARY` selects another absolute path, preserve that same variable in the existing runner environment. See [process ownership](process-ownership.md). Keep the existing HAPI hub and runner. Transfer the private connection directory separately: it must contain `connection.json`, `pac-source-token.txt` and `pac-relay-ca.pem`. Do not copy the Claude login from the controller.
 
 Clone this repository to a permanent location and stage a versioned launcher:
 

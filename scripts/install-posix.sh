@@ -5,7 +5,7 @@ set -eu
 if [ "$#" -ne 2 ]; then printf '%s\n' 'Usage: sh scripts/install-posix.sh /absolute/private-connection-directory /absolute/native-opencode' >&2; exit 2; fi
 case "$1" in /*) ;; *) printf '%s\n' 'The connection directory must be absolute.' >&2; exit 2;; esac
 case "$2" in /*) ;; *) printf '%s\n' 'The native OpenCode path must be absolute.' >&2; exit 2;; esac
-for command in node npm git tar mktemp; do command -v "$command" >/dev/null 2>&1 || { printf '%s\n' "Required command is missing: $command" >&2; exit 1; }; done
+for command in node npm git tar mktemp uname; do command -v "$command" >/dev/null 2>&1 || { printf '%s\n' "Required command is missing: $command" >&2; exit 1; }; done
 [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 24 ] || { printf '%s\n' 'Node.js 24 or later is required.' >&2; exit 1; }
 keys=$(CDPATH= cd -P "$1" && pwd -P)
 binary_dir=$(CDPATH= cd -P "$(dirname "$2")" && pwd -P)
@@ -21,9 +21,15 @@ revision=$(git rev-parse --verify HEAD)
 case "$revision" in *[!0-9a-f]*|'') printf '%s\n' 'Invalid checkout revision.' >&2; exit 1;; esac
 [ "${#revision}" -eq 40 ] || { printf '%s\n' 'Invalid checkout revision.' >&2; exit 1; }
 git diff --quiet "$revision" -- adapters src source-package scripts/install-posix.sh scripts/pac-posix-launcher.mjs || { printf '%s\n' 'Commit or discard source changes before installing.' >&2; exit 1; }
-for file in adapters/pac-hapi-opencode.mjs src/opencode-provider.mjs source-package/package.json source-package/package-lock.json scripts/pac-posix-launcher.mjs; do
+for file in adapters/pac-hapi-opencode.mjs src/opencode-provider.mjs src/linux-process-host.py source-package/package.json source-package/package-lock.json scripts/pac-posix-launcher.mjs; do
   git cat-file -e "$revision:$file" 2>/dev/null || { printf '%s\n' 'The selected commit is missing required tracked provider files.' >&2; exit 1; }
 done
+[ "$(uname -s)" = Linux ] || { printf '%s\n' 'This installation workflow currently requires Linux.' >&2; exit 1; }
+python_binary=${PAC_PYTHON_BINARY:-/usr/bin/python3}
+case "$python_binary" in /*) ;; *) printf '%s\n' 'PAC_PYTHON_BINARY must be an absolute path.' >&2; exit 1;; esac
+[ -x "$python_binary" ] || { printf '%s\n' 'Python 3 with Linux pidfd and subreaper support is required before installation.' >&2; exit 1; }
+support=$("$python_binary" -I -S "$repo/src/linux-process-host.py" --check) || { printf '%s\n' 'Python 3 with Linux pidfd and subreaper support is required before installation.' >&2; exit 1; }
+[ "$support" = PAC_LINUX_PROCESS_OWNER_V1 ] || { printf '%s\n' 'The Python interpreter did not confirm Linux process ownership support.' >&2; exit 1; }
 umask 077
 base="$HOME/.local/share/pac-bridge"
 if [ -e "$base" ] && [ ! -f "$base/.pac-bridge-install" ]; then printf '%s\n' 'Existing installation directory is not managed by this installer.' >&2; exit 1; fi

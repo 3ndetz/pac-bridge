@@ -1,0 +1,11 @@
+# Process ownership
+
+On Windows, contained commands use the existing Job Object host. On Linux, commands use `src/linux-process-host.py`, started with an absolute Python interpreter and isolated interpreter flags. A separate inherited control descriptor belongs only to that host; it is closed before executing the command. Ordinary stdin EOF and command stdout EOF keep their normal meaning.
+
+The Linux host becomes a [child subreaper](https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html). It inspects only its own kernel child list. Before stopping an adopted child it opens a [pidfd](https://docs.python.org/3/library/os.html#os.pidfd_open), verifies that child's parent, and signals through [the retained process handle](https://docs.python.org/3/library/signal.html#signal.pidfd_send_signal). No global process scan, command-line match or numeric process-group termination is used on this Linux path.
+
+Explicit stop is sent through the private owner pipe. Loss of that pipe also requests cleanup, including when the parent exits. Normal command completion cleans remaining owned descendants before returning the original exit status. Detached descendants are adopted when their intermediate parent exits. A stop queued during host bootstrap is checked before executing the command.
+
+Only after waitpid reports no remaining owned children does the host send a nonce-bound CLOSED acknowledgement on that pipe. The Node owner requires both that acknowledgement and the host close event. Missing or invalid proof reports unconfirmed cleanup; controller capacity and its retirement state remain held. A forcibly killed host cannot supply this proof. An acknowledged stop request alone is never evidence of complete cleanup.
+
+Python 3.9 or later, Linux pidfds, the subreaper API and readable proc child information are required. Unsupported environments fail closed. The installer runs a read-only capability check before creating a profile. This mechanism manages process lifetime; it does not sandbox a privileged command or establish isolation between mutually untrusted applications under one operating-system account. Installed HAPI shutdown and recovery acceptance remains separate. macOS acceptance is deferred.

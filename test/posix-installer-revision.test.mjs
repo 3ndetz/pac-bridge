@@ -21,6 +21,7 @@ async function fixture() {
   await writeFile(join(repo, 'scripts/pac-posix-launcher.mjs'), '// synthetic launcher')
   await writeFile(join(repo, 'src/fixture.mjs'), '// synthetic source')
   await writeFile(join(repo, 'src/opencode-provider.mjs'), '// synthetic provider')
+  await writeFile(join(repo, 'src/linux-process-host.py'), await readFile(new URL('../src/linux-process-host.py', import.meta.url)))
   for (const name of ['package.json', 'package-lock.json']) await writeFile(join(repo, 'source-package', name), '{}')
   for (const name of ['connection.json', 'pac-source-token.txt', 'pac-relay-ca.pem']) await writeFile(join(keys, name), 'synthetic-not-a-credential')
   const native = join(bin, 'opencode')
@@ -90,6 +91,17 @@ test('POSIX installer rejects an incomplete committed provider before profile wr
     const result = await f.run()
     assert.notEqual(result.code, 0)
     assert.match(result.stderr, /missing required tracked provider files/)
+    assert.equal(await exists(join(f.home, '.local')), false)
+  } finally { await f.close() }
+})
+
+
+test('POSIX preflight requires a real ownership capability response before writes', { skip: !linux, timeout: 30000 }, async () => {
+  const f = await fixture()
+  try {
+    const result = await f.run({ PAC_PYTHON_BINARY: join(f.root, 'bin/opencode') })
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /did not confirm Linux process ownership/)
     assert.equal(await exists(join(f.home, '.local')), false)
   } finally { await f.close() }
 })

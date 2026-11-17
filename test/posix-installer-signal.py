@@ -31,6 +31,7 @@ try:
         (repo / 'source-package' / name).write_text('{}', encoding='utf-8')
     (repo / 'adapters' / 'pac-hapi-opencode.mjs').write_text('', encoding='utf-8')
     (repo / 'src' / 'opencode-provider.mjs').write_text('', encoding='utf-8')
+    (repo / 'src' / 'linux-process-host.py').write_bytes((source.parents[1] / 'src' / 'linux-process-host.py').read_bytes())
     (repo / 'scripts' / 'pac-posix-launcher.mjs').write_text('', encoding='utf-8')
     for name in ('connection.json', 'pac-source-token.txt', 'pac-relay-ca.pem'):
         (keys / name).write_text('synthetic', encoding='utf-8')
