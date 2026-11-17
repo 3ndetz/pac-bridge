@@ -24,6 +24,8 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
   const seen = new Map()
   const turns = new Map()
   const compacted = new Map()
+  const compacting = new Set()
+  let closing = false
   const stopRequests = new Set()
   function cancelTurn(sessionId, turn) {
     clearTimeout(turn.timer)
@@ -35,6 +37,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
     const fail = (status, message) => { if (!response.headersSent) response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { message } })); else response.destroy() }
     const auth = Buffer.from(request.headers.authorization || '')
     if (auth.length !== expected.length || !timingSafeEqual(auth, expected)) return fail(401, 'Unauthorized')
+    if (closing) return fail(503, 'PAC provider is shutting down')
     if (request.method !== 'POST' || !['/v1/chat/completions', '/pac/approval', '/pac/compact', '/pac/tasks/stop'].includes(request.url)) return fail(404, 'Not found')
     const sessionId = request.headers['x-pac-session-id']
     const messageId = request.headers['x-pac-message-id']
@@ -50,6 +53,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         chunks.push(chunk)
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if (closing) return fail(503, 'PAC provider is shutting down')
       if (request.url === '/pac/tasks/stop') {
         if (!enableExperimentalTaskStop) return fail(404, 'Not found')
         const valid = (value) => typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\s\x00-\x1f\x7f]/.test(value)
@@ -70,12 +74,16 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
       }
       if (request.url === '/pac/compact') {
         if (typeof body.sessionId !== 'string' || !body.sessionId || body.sessionId.length > 512 || /[\x00-\x1f]/.test(body.sessionId) || typeof router.compact !== 'function') return fail(400, 'Invalid compaction request')
-        if (compacted.has(body.sessionId)) return fail(409, 'PAC compaction result is already pending')
-        const result = await router.compact(body.sessionId)
-        if (!result) return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ handled: false }))
-        const nonce = randomUUID()
-        compacted.set(body.sessionId, { nonce, summary: result.summary || 'The PAC conversation was compacted; its retained context remains on the controller.' })
-        return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ handled: true, nonce }))
+        if (compacted.has(body.sessionId) || compacting.has(body.sessionId)) return fail(409, 'PAC compaction result is already pending')
+        compacting.add(body.sessionId)
+        try {
+          const result = await router.compact(body.sessionId)
+          if (closing) return fail(503, 'PAC provider is shutting down')
+          if (!result) return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ handled: false }))
+          const nonce = randomUUID()
+          compacted.set(body.sessionId, { nonce, summary: result.summary || 'The PAC conversation was compacted; its retained context remains on the controller.' })
+          return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ handled: true, nonce }))
+        } finally { compacting.delete(body.sessionId) }
       }
       if (request.url === '/pac/approval') {
         const turn = turns.get(body.sessionId)
@@ -335,6 +343,16 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
     if (!turn) throw new Error('No active PAC turn for permission')
     return turn.channel.requestPermission(params, turn.cancellation.signal)
   }
-  server.on('close', () => { for (const [sessionId, turn] of turns) cancelTurn(sessionId, turn) })
+  // The HTTP 'close' event waits for active streams. Cancel at the start of
+  // shutdown, then disconnect only sockets owned by this provider so a stalled
+  // body, permission or remote call cannot deadlock its close callback.
+  const closeHttp = server.close.bind(server)
+  server.close = (callback) => {
+    closing = true
+    for (const [sessionId, turn] of turns) cancelTurn(sessionId, turn)
+    const result = closeHttp(callback)
+    server.closeAllConnections()
+    return result
+  }
   return server
 }

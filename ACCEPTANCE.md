@@ -323,3 +323,9 @@ After the PAC account was signed in again on 13 November, real Claude passed the
 
 
 The unmodified PAC-free HAPI web selector from source commit `2161a9f` was rendered in a component test with PAC Claude, PAC Codex and native models. Their labels appeared and both PAC IDs were returned unchanged when selected. Re-run with Docker using `node scripts/verify-stock-hapi-selector.mjs <absolute-saas-apps-center-checkout>` on the branch whose web recipe pins that source. This is not an end-to-end verification of the live HAPI, provider discovery, warnings, or existing sessions.
+
+## Provider shutdown and concurrent compaction (2026-11-17)
+
+Two regressions were reproduced before correction: HTTP shutdown did not abort an active turn until its connection closed, and concurrent compaction requests could both invoke the remote operation. Provider shutdown now aborts its turns before closing its own HTTP connections. Compaction reserves the session before awaiting the router; a concurrent request receives 409.
+
+The scoped Windows run of `test/provider-shutdown.test.mjs` and `test/opencode-provider.test.mjs` passed all 31 cases using synthetic loopback services, without installed profiles or model calls. This establishes provider-level behavior, not production HAPI process-tree cleanup or archive acknowledgement.
