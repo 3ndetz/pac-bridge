@@ -13,13 +13,14 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
     return value
   }
 
-  async function getSession({ sessionId, model, cwd }, mustResume) {
+  async function getSession({ sessionId, model, cwd }, mustResume, signal) {
     identity(sessionId, 'OpenCode session identity')
     identity(model, 'PAC model')
     identity(cwd, 'workspace')
     if (closed) throw new Error('Session router is closed')
     if (await journal?.isPending(sessionId)) throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
     if (closed) throw new Error('Session router is closed')
+    if (signal?.aborted) throw new Error('PAC turn was cancelled before it started')
     let state = sessions.get(sessionId)
     if (state) {
       if (!samePac(state.model, model) || state.cwd !== cwd) throw new Error('PAC model or workspace changed; start a new session')
@@ -39,6 +40,7 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
         if (legacy) state.model = `PAC_${legacy.pacId}/${legacy.model}`
         state.pacId = saved?.pacId || (legacy ? 'opencode-legacy-acp' : 'opencode-acp')
         if (closed) throw new Error('Session router is closed')
+        if (state.cancellation.signal.aborted) throw new Error('PAC turn was cancelled before it started')
         const session = await openSession({ sessionId, model: state.model, cwd, signal: state.cancellation.signal,
           ...(saved ? { resumeSessionId: saved.remoteSessionId } : legacy ? { resumeSessionId: legacy.sessionId, legacyBinding: legacy } : {}),
           ...(state.pacId === 'opencode-legacy-acp' ? { legacyMode: true } : {}) })
@@ -58,10 +60,14 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
       })
     }
     if (state.lost) throw new Error('PAC session state is uncertain; start a new session')
-    const session = await state.opening
-    if (closed) throw new Error('Session router is closed')
-    if (state.lost) throw new Error('PAC session state is uncertain; start a new session')
-    return { state, session }
+    const cancelOpening = () => { if (!state.session) state.cancellation.abort() }
+    signal?.addEventListener('abort', cancelOpening, { once: true })
+    try {
+      const session = await state.opening
+      if (closed) throw new Error('Session router is closed')
+      if (state.lost) throw new Error('PAC session state is uncertain; start a new session')
+      return { state, session }
+    } finally { signal?.removeEventListener('abort', cancelOpening) }
   }
 
   return {
@@ -73,7 +79,7 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
     async prompt(binding, prompt, onUpdate, { signal, mustResume = false } = {}) {
       if (!Array.isArray(prompt) || typeof onUpdate !== 'function') throw new Error('Invalid PAC prompt')
       if (signal?.aborted) throw new Error('PAC turn was cancelled before it started')
-      const { state, session } = await getSession(binding, mustResume)
+      const { state, session } = await getSession(binding, mustResume, signal)
       if (signal?.aborted) throw new Error('PAC turn was cancelled before it started')
       if (state.busy) throw new Error('A PAC turn is already running in this session')
       state.busy = true

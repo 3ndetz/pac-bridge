@@ -4,6 +4,10 @@
 
 This document consolidates the owner's requests made on 7–10 November 2026. It is the target contract, not a claim that the implementation meets it. The first delivery is OpenCode through the existing HAPI installation. The public project and all its documentation are in English.
 
+## Current delivery scope
+
+On 17 November 2026 the owner deferred macOS acceptance because no Mac is available. Windows and Linux remain in the current delivery; macOS is a future platform requirement rather than a blocker for this delivery.
+
 ## Required user experience
 
 1. On a source machine, open the existing HAPI, choose that machine and an installed harness, initially OpenCode, and create a session in the normal new-session interface.

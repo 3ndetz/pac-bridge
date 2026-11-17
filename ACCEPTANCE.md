@@ -345,3 +345,11 @@ The Linux scoped run at the shutdown integration passed 315 cases with 66 skips.
 The native model probe previously ignored a failed stop and treated its one-second cleanup timeout as success. It now requires owned-child exit evidence and reports an unconfirmed exit instead of silently continuing. Twelve focused Windows checks passed, including the real synthetic probe and a minimal-environment job-host invocation. Test-directory removal retries transient Windows file locks only within the already verified disposable root.
 
 Minimal-environment PowerShell hosting could create ModuleAnalysisCache under the working directory. The host now defaults PSModuleAnalysisCachePath to NUL when the caller did not supply it, as documented in [Microsoft's Windows PowerShell environment guidance](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_windows_powershell_5.1). A real Windows contained-child check confirmed the expected variable and an empty disposable workspace. An explicitly provided cache setting remains unchanged.
+
+## Exact Windows snapshot and cancellation during opening (2026-11-17)
+
+A git archive of `56e2e91d550eb916991c0137fd65bb7a17045433` passed the complete Windows scoped suite: 384 tests, 346 passed, 38 skipped, zero failures. The archive ran under a disposable HOME containing TEMP, with an allowlisted environment, explicit Git Bash and ripgrep, and no inherited provider credentials. The outer owned Job Object reported zero active processes before the temporary snapshot and profile were removed. Development dependencies were reused; this was not a clean dependency installation or installed-runtime acceptance.
+
+A subsequent cancellation audit reproduced remote opening after a user cancelled while journal or binding reads were pending. User-turn cancellation now reaches the lifetime signal of an in-flight ACP opening, and cancellation observed before opening prevents the spawn. All 21 focused Windows session-router, shutdown and ACP cancellation cases passed. Cancellation cannot establish whether a remote session was created before interruption, so uncertain opening remains non-retryable.
+
+The owner deferred macOS acceptance on this date; current platform acceptance targets Windows and Linux.
