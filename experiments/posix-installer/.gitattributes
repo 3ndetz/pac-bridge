@@ -1,0 +1,3 @@
+scripts/install-posix.sh text eol=lf
+scripts/install-posix-locked.sh text eol=lf
+scripts/verify-posix-install.sh text eol=lf
