@@ -375,3 +375,9 @@ The exact `54be4f0e862239f33ead07c0a69a047d934acced` archive passed the full sco
 ## POSIX installer commit identity (2026-11-17)
 
 A synthetic real-Git regression reproduced staging a second commit under the first commit's revision when HEAD moved just before archive creation. The installer now archives the already selected full SHA. Additional preflight checks require the source to be its own checkout root, reject uncommitted provider source and require committed provider/dependency entrypoints before creating installation directories. These changes do not establish pathname-race safety, crash recovery or production installation acceptance.
+
+## Awaitable controller shutdown and POSIX interruption checks (2026-11-17)
+
+The controller CLI no longer calls process.exit immediately after requesting shutdown. It waits for the agent's owned-close result. Supervised shutdown now waits for pending connection attempts, including credential reads, and then drains any owner obtained by those attempts. A diagnostic callback cannot prevent reconnect scheduling. The combined Windows relay/lifecycle run passed 20 cases, with one explicit real-OMP skip and zero failures; CLI syntax validation also passed. This does not establish Windows service-manager signal delivery.
+
+The POSIX commit-identity and preflight suite passed four cases against synthetic real Git repositories. Existing temp-file/hard-link preservation checks and owned pidfd SIGTERM and SIGKILL checks also passed in offline Linux containers. SIGTERM cleaned its stage and lock; SIGKILL retained them, and a retry refused that unresolved state. Shell checks used an LF archive produced with core.autocrlf=false, avoiding Windows export filters. Automatic SIGKILL recovery remains open.

@@ -14,7 +14,14 @@ try {
   const agent = process.env.PAC_AGENT_RECONNECT === '1'
     ? await startSupervisedAgent({ ...configuration, tokenProvider: readToken })
     : await startAgent({ ...configuration, token: await readToken() })
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { agent.close(); process.exit(0) })
+  async function shutdown() {
+    try { await agent.close(); process.exit(0) }
+    catch {
+      process.stderr.write('PAC agent shutdown is unconfirmed; owned process cleanup requires review.\n')
+      process.exitCode = 1
+    }
+  }
+  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void shutdown() })
 } catch (error) {
   process.stderr.write(`PAC agent startup failed: ${error.message}\n`)
   process.exitCode = 1

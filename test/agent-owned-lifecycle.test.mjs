@@ -9,7 +9,7 @@ import { startSupervisedAgent } from '../src/supervised-agent.mjs'
 
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 function child() { return Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() }) }
-async function fixture(stopChild, { onError = () => {}, maxSessions = 1, supervised = false } = {}) {
+async function fixture(stopChild, { onError = () => {}, maxSessions = 1, supervised = false, tokenProvider } = {}) {
   const server = createServer()
   const relay = attachAcpRelay(server, { authorize: () => true, openTimeoutMs: 150 })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -17,7 +17,7 @@ async function fixture(stopChild, { onError = () => {}, maxSessions = 1, supervi
   server.on('upgrade', (request, socket) => { if (request.url === '/acp-relay/register') { registration = socket; registrations++ } })
   const url = `ws://127.0.0.1:${server.address().port}`
   const children = [], spawned = new EventEmitter()
-  const agent = await (supervised ? startSupervisedAgent : startAgent)({ retryMs: 100, url, name: 'synthetic', token: 'synthetic', command: 'synthetic-no-executable', maxSessions,
+  const agent = await (supervised ? startSupervisedAgent : startAgent)({ retryMs: 100, ...(tokenProvider ? { tokenProvider } : {}), url, name: 'synthetic', token: 'synthetic', command: 'synthetic-no-executable', maxSessions,
     spawnChild() { const c = child(); children.push(c); spawned.emit('child', c); return c }, stopChild, onError })
   const source = async () => {
     const stream = await connectSource({ url, name: 'synthetic', token: 'synthetic' })
@@ -104,4 +104,46 @@ test('supervisor waits for old child exit before accepting a new generation', { 
     while (f.registrations() < 2 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(f.registrations(), 2)
   } finally { stream?.destroy(); f.close() }
+})
+
+
+test('supervisor shutdown confirms owned child exit before its promise resolves', { timeout: 5000 }, async () => {
+  const f = await fixture(() => {}, { supervised: true })
+  let stream
+  try {
+    const spawned = once(f.spawned, 'child')
+    stream = await f.source()
+    const [owned] = await spawned
+    const closed = f.agent.close()
+    assert.equal(typeof closed?.then, 'function', 'shutdown needs an awaitable ownership result')
+    let settled = false
+    closed.then(() => { settled = true })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(settled, false)
+    owned.emit('close', 0)
+    await closed
+    assert.equal(settled, true)
+  } finally { stream?.destroy(); f.close() }
+})
+
+
+test('supervisor shutdown includes a pending reconnect credential read', { timeout: 5000 }, async () => {
+  const entered = deferred(), release = deferred()
+  let reads = 0
+  const f = await fixture(() => {}, { supervised: true, tokenProvider: async () => {
+    if (++reads > 1) { entered.resolve(); await release.promise }
+    return 'synthetic'
+  } })
+  try {
+    f.disconnectRegistration()
+    await entered.promise
+    const closed = f.agent.close()
+    let settled = false
+    closed.then(() => { settled = true })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(settled, false)
+    release.resolve()
+    await closed
+    assert.equal(f.registrations(), 1)
+  } finally { release.resolve(); f.close() }
 })
