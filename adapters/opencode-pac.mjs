@@ -68,14 +68,14 @@ let server, acpProxy
 const legacyAcpStore = createSessionStore(join(sessionRoot, 'legacy-acp'))
 const router = createOpencodeSessionRouter({ store: createSessionStore(join(sessionRoot, 'opencode')), journal: createOpencodeTurnJournal(join(sessionRoot, 'pending')),
   legacyStore: process.env.PAC_LEGACY_MIGRATION_EXPERIMENT === '1' ? createSessionStore(sessionRoot) : undefined,
-  openSession: async ({ sessionId, model: selected, cwd: workspace, resumeSessionId, legacyBinding, legacyMode }) => {
+  openSession: async ({ sessionId, model: selected, cwd: workspace, resumeSessionId, legacyBinding, legacyMode, signal }) => {
   if (legacyBinding) {
     const existing = await legacyAcpStore.read(legacyBinding.sessionId)
     if (existing && JSON.stringify(existing) !== JSON.stringify(legacyBinding)) throw new Error('Existing migrated PAC binding does not match')
     if (!existing) await legacyAcpStore.write(legacyBinding)
   }
   const opened = await openOpencodeAcpSession({
-  command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId,
+  command: process.execPath, args: [routerPath, 'acp'], cwd: workspace, model: selected, resumeSessionId, signal,
   env: { ...routerEnv, PAC_SESSION_DIR: join(sessionRoot, legacyMode ? 'legacy-acp' : 'acp') },
   onPermission: (params) => server.requestPermission(sessionId, params),
   ...(snapshotTest ? { onBackgroundAvailability: (value) => { if (!acpProxy) throw new Error('ACP proxy unavailable'); acpProxy.publishBackgroundAvailability(sessionId, {epoch:value.epoch, availability:'unknown'}) } } : {}),
@@ -136,6 +136,6 @@ try {
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve) })
   process.exitCode = proxyFailed ? 1 : code ?? 1
 } finally {
-  router.close()
-  await new Promise((resolve) => server.close(resolve))
+  try { router.close() }
+  finally { await new Promise((resolve) => server.close(resolve)) }
 }

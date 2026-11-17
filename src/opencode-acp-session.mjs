@@ -5,8 +5,10 @@ import { normalizePacBackgroundTasks } from './pac-background-tasks.mjs'
 
 // Opens a single PAC-bound session through the same ACP router used by HAPI.
 // The caller must present permissions and updates to the originating user.
-export async function openOpencodeAcpSession({ command, args, env, cwd, model, resumeSessionId, onPermission, onDiagnostic = () => {}, onIdleBackgroundTasks, onBackgroundAvailability }) {
+export async function openOpencodeAcpSession({ command, args, env, cwd, model, resumeSessionId, onPermission, onDiagnostic = () => {}, onIdleBackgroundTasks, onBackgroundAvailability, signal }) {
   if (typeof command !== 'string' || !command || !Array.isArray(args) || typeof onPermission !== 'function' || (onIdleBackgroundTasks !== undefined && typeof onIdleBackgroundTasks !== 'function') || (onBackgroundAvailability !== undefined && typeof onBackgroundAvailability !== 'function')) throw new Error('Invalid ACP launcher')
+  if (signal !== undefined && !(signal instanceof AbortSignal)) throw new Error('Invalid ACP cancellation signal')
+  if (signal?.aborted) throw new Error('ACP opening was cancelled before it started')
   const child = spawnContained(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
   child.stderr.resume()
   child.on('error', () => {})
@@ -92,12 +94,19 @@ export async function openOpencodeAcpSession({ command, args, env, cwd, model, r
     },
   })
   function close() {
-    if (stopped) return
-    stopped = true
-    invalidateAvailability()
-    peer.close()
+    signal?.removeEventListener('abort', abortOpening)
+    if (!stopped) {
+      stopped = true
+      invalidateAvailability()
+      peer.close()
+    }
+    // Retry a failed owned-handle stop when the owner calls close again.
     stopContained(child)
   }
+  function abortOpening() {
+    try { close() } catch { try { onDiagnostic('cleanup_failed') } catch {} }
+  }
+  signal?.addEventListener('abort', abortOpening, { once: true })
   try {
     const initialized = await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
     if (initialized?.protocolVersion !== 1) throw new Error('Unsupported ACP version')

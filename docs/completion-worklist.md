@@ -2,7 +2,7 @@
 
 This list preserves the ongoing assignment. Detailed requirements and earlier evidence remain in [the reliability checklist](../RELIABILITY-CHECKLIST.md) and [acceptance](../ACCEPTANCE.md). A local regression does not close installed-runtime acceptance.
 
-1. Process lifecycle and recovery: fix provider shutdown and concurrent compaction (31 synthetic Windows checks passed); next verify stalled uploads, pending permissions, installed serve shutdown, process ownership, archive latency, reconnect and uncertain actions.
+1. Process lifecycle and recovery: fix provider shutdown and concurrent compaction (31 synthetic Windows checks passed); stalled uploads, pending permissions, router shutdown races and initialize cancellation also passed focused checks; next verify installed serve shutdown, process ownership, archive latency, reconnect and uncertain actions.
 2. Session authorization: define and enforce the client/session trust boundary before enabling experimental shared-provider controls.
 3. Source compatibility: complete global settings, proxy handling, hooks, private Windows transcripts, skill resources and precedence; keep unsupported policies explicit.
 4. OpenCode request routing: distinguish auxiliary requests from real turns with tools disabled without duplicate execution.

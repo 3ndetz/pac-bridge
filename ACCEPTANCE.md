@@ -329,3 +329,11 @@ The unmodified PAC-free HAPI web selector from source commit `2161a9f` was rende
 Two regressions were reproduced before correction: HTTP shutdown did not abort an active turn until its connection closed, and concurrent compaction requests could both invoke the remote operation. Provider shutdown now aborts its turns before closing its own HTTP connections. Compaction reserves the session before awaiting the router; a concurrent request receives 409.
 
 The scoped Windows run of `test/provider-shutdown.test.mjs` and `test/opencode-provider.test.mjs` passed all 31 cases using synthetic loopback services, without installed profiles or model calls. This establishes provider-level behavior, not production HAPI process-tree cleanup or archive acknowledgement.
+
+## Router shutdown races (2026-11-17)
+
+Four router shutdown failures were reproduced with controlled asynchronous reads and opens: shutdown during journal read or store read could still launch ACP, an existing opening received no cancellation signal, and one session-close exception skipped other sessions. The router now rechecks closure before opening, propagates a lifetime AbortSignal, and attempts every owned session cleanup while retaining failed sessions for owner retry. The launcher closes HTTP even if router cleanup reports an error.
+
+Cancellation of a stalled initialize also reproduced a redundant Windows child-handle kill: the first accepted request was followed by a second request before the exit event, which could return false. Accepted stop requests are now idempotent for the same retained child object; a refused first request still throws and can be retried. Acceptance of a stop remains distinct from exit confirmation. This reproduces one concrete failure path; it does not establish the cause of every earlier job-host failure.
+
+All 24 focused Windows checks passed, including real contained-process initialize cancellation, pre-cancellation, pending approval, unfinished HTTP body, router races and synthetic owned-handle stop responses. Full platform runs and installed HAPI shutdown acceptance remain required.

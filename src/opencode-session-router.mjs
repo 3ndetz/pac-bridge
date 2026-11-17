@@ -19,11 +19,12 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
     identity(cwd, 'workspace')
     if (closed) throw new Error('Session router is closed')
     if (await journal?.isPending(sessionId)) throw new Error('Previous PAC turn outcome is unknown; reconciliation is required')
+    if (closed) throw new Error('Session router is closed')
     let state = sessions.get(sessionId)
     if (state) {
       if (!samePac(state.model, model) || state.cwd !== cwd) throw new Error('PAC model or workspace changed; start a new session')
     } else {
-      state = { model, cwd, busy: false, lost: false, opening: null, session: null }
+      state = { model, cwd, busy: false, lost: false, opening: null, session: null, cancellation: new AbortController() }
       sessions.set(sessionId, state)
       state.opening = Promise.resolve().then(async () => {
         const saved = await store?.read(sessionId)
@@ -37,7 +38,8 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
         if (saved) state.model = saved.model
         if (legacy) state.model = `PAC_${legacy.pacId}/${legacy.model}`
         state.pacId = saved?.pacId || (legacy ? 'opencode-legacy-acp' : 'opencode-acp')
-        const session = await openSession({ sessionId, model: state.model, cwd,
+        if (closed) throw new Error('Session router is closed')
+        const session = await openSession({ sessionId, model: state.model, cwd, signal: state.cancellation.signal,
           ...(saved ? { resumeSessionId: saved.remoteSessionId } : legacy ? { resumeSessionId: legacy.sessionId, legacyBinding: legacy } : {}),
           ...(state.pacId === 'opencode-legacy-acp' ? { legacyMode: true } : {}) })
         if (!session || typeof session.prompt !== 'function' || typeof session.cancel !== 'function' || typeof session.close !== 'function') throw new Error('Invalid ACP session')
@@ -57,6 +59,7 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
     }
     if (state.lost) throw new Error('PAC session state is uncertain; start a new session')
     const session = await state.opening
+    if (closed) throw new Error('Session router is closed')
     if (state.lost) throw new Error('PAC session state is uncertain; start a new session')
     return { state, session }
   }
@@ -133,9 +136,16 @@ export function createOpencodeSessionRouter({ openSession, store, journal, legac
       return state.session.stopTask(taskId)
     },
     close() {
-      if (closed) return
       closed = true
-      for (const state of sessions.values()) state.session?.close()
+      const errors = []
+      for (const state of sessions.values()) {
+        state.cancellation.abort()
+        try {
+          state.session?.close()
+          state.session = null
+        } catch (error) { errors.push(error) }
+      }
+      if (errors.length) throw new AggregateError(errors, 'PAC session cleanup failed; ownership remains unresolved')
     },
   }
 }

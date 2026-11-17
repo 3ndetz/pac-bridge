@@ -140,11 +140,11 @@ test('never silently retries a failed open or a turn with an uncertain outcome',
 })
 
 test('closes an ACP session that finishes opening after shutdown', async () => {
-  const pending = deferred()
+  const pending = deferred(), entered = deferred()
   let closed = 0
-  const router = createOpencodeSessionRouter({ openSession: () => pending.promise })
+  const router = createOpencodeSessionRouter({ openSession: () => { entered.resolve(); return pending.promise } })
   const attempt = router.prompt(binding, [], () => {})
-  await Promise.resolve()
+  await entered.promise
   router.close()
   pending.resolve({ prompt() {}, cancel() {}, close() { closed++ } })
   await assert.rejects(attempt, /closed/)
