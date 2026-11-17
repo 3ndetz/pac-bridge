@@ -6,6 +6,9 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.IO;
+using System.IO.Pipes;
+using System.Security.Principal;
 
 public static class PacWindowsJob {
     [StructLayout(LayoutKind.Sequential)]
@@ -19,6 +22,11 @@ public static class PacWindowsJob {
         public UIntPtr Affinity;
         public uint PriorityClass;
         public uint SchedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct BasicAccounting {
+        public long TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime;
+        public uint TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses;
     }
     [StructLayout(LayoutKind.Sequential)]
     struct IoCounters {
@@ -57,6 +65,9 @@ public static class PacWindowsJob {
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
 
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job, int informationClass, IntPtr information, uint length, IntPtr returned);
+
     static void Require(bool value) { if (!value) throw new Win32Exception(Marshal.GetLastWin32Error()); }
     static string Quote(string value) {
         if (value.Length > 0 && value.IndexOfAny(new char[] {' ', '\t', '\n', '\v', '"'}) < 0) return value;
@@ -71,10 +82,28 @@ public static class PacWindowsJob {
         return result.ToString();
     }
 
-    public static int Run(string executable, string[] arguments, string directory, bool interactive) {
+    static void ControlByte(NamedPipeClientStream pipe, out IAsyncResult pending, byte[] buffer) {
+        pending = pipe.BeginRead(buffer, 0, 1, null, null);
+    }
+    static void Acknowledge(NamedPipeClientStream pipe, string nonce) {
+        byte[] bytes = Encoding.ASCII.GetBytes("CLOSED " + nonce + "\n");
+        try { pipe.Write(bytes, 0, bytes.Length); pipe.Flush(); } catch (IOException) { }
+    }
+    public static int Run(string executable, string[] arguments, string directory, bool interactive, string pipeName, string nonce) {
         IntPtr job = IntPtr.Zero, limits = IntPtr.Zero, attributes = IntPtr.Zero, jobs = IntPtr.Zero;
         bool initialized = false;
         ProcessInfo process = new ProcessInfo();
+        using (var owner = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification, HandleInheritability.None)) {
+        owner.Connect(15000);
+        byte[] hello = Encoding.ASCII.GetBytes("READY " + nonce + "\n");
+        owner.Write(hello, 0, hello.Length); owner.Flush();
+        byte[] control = new byte[1];
+        IAsyncResult pending;
+        ControlByte(owner, out pending, control);
+        if (!pending.AsyncWaitHandle.WaitOne(15000) || owner.EndRead(pending) != 1 || control[0] != (byte)'G') {
+            Acknowledge(owner, nonce); return 125;
+        }
+        ControlByte(owner, out pending, control);
         try {
             job = CreateJobObject(IntPtr.Zero, null);
             if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -106,8 +135,29 @@ public static class PacWindowsJob {
             var command = new StringBuilder(Quote(executable));
             foreach (string argument in arguments) command.Append(' ').Append(Quote(argument));
             Require(CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x00080004 | (interactive ? 0u : 0x08000000u), IntPtr.Zero, directory, ref startup, out process));
-            if (ResumeThread(process.Thread) == uint.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
-            if (WaitForSingleObject(process.Process, uint.MaxValue) != 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (pending.IsCompleted) {
+                Require(TerminateJobObject(job, 1));
+            } else if (ResumeThread(process.Thread) == uint.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
+            while (true) {
+                uint wait = WaitForSingleObject(process.Process, 25);
+                if (wait == 0) break;
+                if (wait != 258) throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (pending.IsCompleted) { Require(TerminateJobObject(job, 1)); break; }
+            }
+            if (WaitForSingleObject(process.Process, 15000) != 0) throw new InvalidOperationException("Owned process exit unconfirmed");
+            Require(TerminateJobObject(job, 1));
+            int accountingSize = Marshal.SizeOf(typeof(BasicAccounting));
+            IntPtr accounting = Marshal.AllocHGlobal(accountingSize);
+            try {
+                var deadline = DateTime.UtcNow.AddSeconds(15);
+                while (true) {
+                    Require(QueryInformationJobObject(job, 1, accounting, (uint)accountingSize, IntPtr.Zero));
+                    if (((BasicAccounting)Marshal.PtrToStructure(accounting, typeof(BasicAccounting))).ActiveProcesses == 0) break;
+                    if (DateTime.UtcNow >= deadline) throw new InvalidOperationException("Owned job exit unconfirmed");
+                    System.Threading.Thread.Sleep(25);
+                }
+            } finally { Marshal.FreeHGlobal(accounting); }
+            Acknowledge(owner, nonce);
             uint exitCode;
             Require(GetExitCodeProcess(process.Process, out exitCode));
             return unchecked((int)exitCode);
@@ -119,6 +169,7 @@ public static class PacWindowsJob {
             if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
             if (limits != IntPtr.Zero) Marshal.FreeHGlobal(limits);
             if (job != IntPtr.Zero) CloseHandle(job);
+        }
         }
     }
 }
@@ -132,5 +183,6 @@ if (Test-Path -LiteralPath $requested -PathType Leaf) {
     $executable = (Get-Command -Name $requested -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 }
 if ([IO.Path]::GetExtension($executable) -ine '.exe' -and [IO.Path]::GetExtension($executable) -ine '.com') { throw 'Unsupported Windows executable type' }
-$result = [PacWindowsJob]::Run($executable, [string[]]@($spec.args), [string]$spec.cwd, ($spec.interactive -eq $true))
+if ([string]$spec.nonce -cnotmatch '^[a-f0-9]{32}$' -or [string]$spec.pipeName -cnotmatch '^pac-owner-[a-f0-9]{32}$') { throw 'Invalid process ownership channel' }
+$result = [PacWindowsJob]::Run($executable, [string[]]@($spec.args), [string]$spec.cwd, ($spec.interactive -eq $true), [string]$spec.pipeName, [string]$spec.nonce)
 exit $result

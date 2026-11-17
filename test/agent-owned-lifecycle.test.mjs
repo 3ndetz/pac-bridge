@@ -147,3 +147,24 @@ test('supervisor shutdown includes a pending reconnect credential read', { timeo
     assert.equal(f.registrations(), 1)
   } finally { release.resolve(); f.close() }
 })
+
+
+test('controller retains capacity after host close until its separate ownership proof resolves', { timeout: 5000 }, async () => {
+  const f = await fixture(() => {})
+  const streams = [], proof = deferred()
+  try {
+    const spawned = once(f.spawned, 'child')
+    streams.push(await f.source())
+    const [owned] = await spawned
+    owned.pacOwnedExit = proof.promise
+    owned.emit('close', 0)
+    const rejected = await f.source(); streams.push(rejected)
+    rejected.resume(); await once(rejected, 'end')
+    assert.equal(f.children.length, 1)
+    proof.resolve()
+    await new Promise(resolve => setImmediate(resolve))
+    const next = once(f.spawned, 'child')
+    streams.push(await f.source()); await next
+    assert.equal(f.children.length, 2)
+  } finally { proof.resolve(); for (const s of streams) s.destroy(); f.close() }
+})

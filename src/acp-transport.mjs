@@ -74,6 +74,11 @@ export async function startAgent({ url, name, token, command, args = [], cwd, en
       child.stdout.pipe(stream)
       stream.once('close', () => { try { stopChild(child) } catch (error) { report(error) } })
       child.once('close', () => {
+        if (child.pacOwnedExit) {
+          child.pacOwnedExit.then(() => { release(session); stream.end() }, () => {
+            report(new Error('Agent process-tree exit is unconfirmed; ownership retained')); stream.destroy()
+          }); return
+        }
         if (child.pacOwnedExitConfirmed === false) {
           report(new Error('Agent process-tree exit is unconfirmed; ownership retained'))
           stream.destroy()
