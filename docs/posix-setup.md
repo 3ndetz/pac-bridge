@@ -1,4 +1,6 @@
-# Linux and macOS source-side setup
+# Linux source-side setup
+
+macOS acceptance is deferred; the current delivery targets Windows and Linux.
 
 **Do not run this installer on a real profile yet.** Unique temporary files, non-truncating marker creation, and fail-closed cleanup passed synthetic checks in Git Bash and an isolated Linux container using fake dependency commands. Synthetic Linux tests using pidfds verified cleanup after SIGTERM and retention of the stage and lock after SIGKILL; a retry refused the retained lock. Automatic recovery of that state, real dependency installation, macOS, directory ownership, and complete file-safety checks remain unverified.
 
@@ -12,7 +14,7 @@ cd pac-bridge
 sh scripts/install-posix.sh "$HOME/Downloads/PAC-Bridge-keys" "$(command -v opencode)"
 ```
 
-The installer uses the committed Git revision and the locked source-only dependencies. It stores the version, launcher and session bindings under `~/.local/share/pac-bridge`; connection files remain in their private directory. Existing installations with a different connection directory or native OpenCode path are rejected for review. The installer does not start or restart HAPI, create a hub, or modify its source or profile.
+Before creating an installation, the installer requires its own Git checkout root, committed provider sources and tracked dependency manifests. It archives the selected full commit SHA, so a concurrent HEAD change cannot silently stage another revision. It uses the locked source-only dependencies. It stores the version, launcher and session bindings under `~/.local/share/pac-bridge`; connection files remain in their private directory. Existing installations with a different connection directory or native OpenCode path are rejected for review. The installer does not start or restart HAPI, create a hub, or modify its source or profile.
 
 Start the **existing** HAPI runner with `~/.local/share/pac-bridge/bin` first in its `PATH`, preserving its existing profile, other environment and machine identity. For a service-managed runner, set this in the service's environment and apply it only at an appropriate time: a running process cannot inherit a changed `PATH`. Do not start a second hub or runner as a substitute. Then create an OpenCode chat on that existing machine and verify its PAC model, a real reply, tools, permissions, skills and hooks. If the PAC profile is unavailable or `NODE_EXTRA_CA_CERTS` points to a different file, the launcher reports the issue and starts native OpenCode without advertising PAC models; it does not override the user's CA configuration.
 

@@ -30,6 +30,7 @@ try:
     for name in ('package.json', 'package-lock.json'):
         (repo / 'source-package' / name).write_text('{}', encoding='utf-8')
     (repo / 'adapters' / 'pac-hapi-opencode.mjs').write_text('', encoding='utf-8')
+    (repo / 'src' / 'opencode-provider.mjs').write_text('', encoding='utf-8')
     (repo / 'scripts' / 'pac-posix-launcher.mjs').write_text('', encoding='utf-8')
     for name in ('connection.json', 'pac-source-token.txt', 'pac-relay-ca.pem'):
         (keys / name).write_text('synthetic', encoding='utf-8')
@@ -39,7 +40,8 @@ try:
     executable(native / 'opencode', 'exit 0')
     executable(fakebin / 'node', 'printf "24\\n"')
     executable(fakebin / 'git', '''case "$1" in
-      rev-parse) printf '%040d\\n' 0;;
+      rev-parse) if [ "$2" = --show-toplevel ]; then pwd -P; else printf '%040d\\n' 0; fi;;
+      diff|cat-file) exit 0;;
       archive) tar -cf - adapters src source-package scripts/pac-posix-launcher.mjs;;
       *) exit 1;;
     esac''')

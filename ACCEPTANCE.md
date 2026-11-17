@@ -367,3 +367,11 @@ The exact `56e2e91` Linux archive passed all 384 scoped cases: 317 passed, 67 sk
 Controller registration reconnection now waits for the previous owner's registration closure and child close events. The supervisor retains owners until their closed promise resolves, so shutdown can still retry cleanup after transport loss. A new synthetic test holds an old child open across several retry intervals: no second registration is admitted until that exact child emits close.
 
 The combined Windows relay and owner-lifecycle run passed 18 cases with one explicit real-OMP skip and no failures. This includes the existing real descendant-stop check. Process close evidence is not a replacement for platform-level job accounting or installed-runtime acceptance.
+
+## Full controller-lifecycle snapshot (2026-11-17)
+
+The exact `54be4f0e862239f33ead07c0a69a047d934acced` archive passed the full scoped suites on both platforms. Windows: 391 tests, 353 passed, 38 skipped, zero failures; the test-owned Job Object confirmed zero active processes and its disposable profile and snapshot were removed. Linux: 391 tests, 324 passed, 67 skipped, zero failures, using an offline container and read-only development dependencies. Neither run used installed profiles or paid model calls.
+
+## POSIX installer commit identity (2026-11-17)
+
+A synthetic real-Git regression reproduced staging a second commit under the first commit's revision when HEAD moved just before archive creation. The installer now archives the already selected full SHA. Additional preflight checks require the source to be its own checkout root, reject uncommitted provider source and require committed provider/dependency entrypoints before creating installation directories. These changes do not establish pathname-race safety, crash recovery or production installation acceptance.

@@ -14,9 +14,16 @@ binary="$binary_dir/$(basename "$2")"
 for name in connection.json pac-source-token.txt pac-relay-ca.pem; do [ -r "$keys/$name" ] || { printf '%s\n' "Required private connection file is missing: $name" >&2; exit 1; }; done
 repo=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd -P)
 cd "$repo"
+checkout=$(git rev-parse --show-toplevel 2>/dev/null) || { printf '%s\n' 'The source must be a Git checkout.' >&2; exit 1; }
+checkout=$(CDPATH= cd -P "$checkout" && pwd -P)
+[ "$checkout" = "$repo" ] || { printf '%s\n' 'The source must be the root of its own Git checkout.' >&2; exit 1; }
 revision=$(git rev-parse --verify HEAD)
 case "$revision" in *[!0-9a-f]*|'') printf '%s\n' 'Invalid checkout revision.' >&2; exit 1;; esac
 [ "${#revision}" -eq 40 ] || { printf '%s\n' 'Invalid checkout revision.' >&2; exit 1; }
+git diff --quiet "$revision" -- adapters src source-package scripts/install-posix.sh scripts/pac-posix-launcher.mjs || { printf '%s\n' 'Commit or discard source changes before installing.' >&2; exit 1; }
+for file in adapters/pac-hapi-opencode.mjs src/opencode-provider.mjs source-package/package.json source-package/package-lock.json scripts/pac-posix-launcher.mjs; do
+  git cat-file -e "$revision:$file" 2>/dev/null || { printf '%s\n' 'The selected commit is missing required tracked provider files.' >&2; exit 1; }
+done
 umask 077
 base="$HOME/.local/share/pac-bridge"
 if [ -e "$base" ] && [ ! -f "$base/.pac-bridge-install" ]; then printf '%s\n' 'Existing installation directory is not managed by this installer.' >&2; exit 1; fi
@@ -81,7 +88,7 @@ done
 target="$base/versions/$revision"
 if [ ! -d "$target" ]; then
   stage=$(mktemp -d "$base/versions/.stage.XXXXXXXX")
-  git archive HEAD adapters src source-package scripts/pac-posix-launcher.mjs | tar -xf - -C "$stage"
+  git archive "$revision" adapters src source-package scripts/pac-posix-launcher.mjs | tar -xf - -C "$stage"
   cp "$stage/source-package/package.json" "$stage/package.json"
   cp "$stage/source-package/package-lock.json" "$stage/package-lock.json"
   (cd "$stage" && npm ci --omit=dev --no-audit --no-fund)
