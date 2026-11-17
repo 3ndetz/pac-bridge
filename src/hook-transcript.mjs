@@ -51,7 +51,7 @@ export async function withHookTranscript(encoded, run) {
   if (typeof encoded !== 'string' || encoded.length > 4 * Math.ceil(MAX_HOOK_TRANSCRIPT_BYTES / 3) ||
       !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('Invalid source hook transcript')
   const bytes = Buffer.from(encoded, 'base64')
-  if (bytes.length > MAX_HOOK_TRANSCRIPT_BYTES) throw new Error('Invalid source hook transcript')
+  if (bytes.length > MAX_HOOK_TRANSCRIPT_BYTES || bytes.toString('base64') !== encoded) throw new Error('Invalid source hook transcript')
   const directory = await mkdtemp(join(tmpdir(), 'pac-hook-transcript-'))
   try {
     const path = join(directory, 'transcript.jsonl')
@@ -65,7 +65,7 @@ export async function withEphemeralHookTranscript(encoded, run) {
   if (typeof encoded !== 'string' || encoded.length > 4 * Math.ceil(MAX_HOOK_TRANSCRIPT_BYTES / 3) ||
       !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('Invalid source hook transcript')
   const bytes = Buffer.from(encoded, 'base64')
-  if (bytes.length > MAX_HOOK_TRANSCRIPT_BYTES) throw new Error('Invalid source hook transcript')
+  if (bytes.length > MAX_HOOK_TRANSCRIPT_BYTES || bytes.toString('base64') !== encoded) throw new Error('Invalid source hook transcript')
   const directory = await mkdtemp(join(tmpdir(), 'pac-hook-transcript-'))
   let file
   try {

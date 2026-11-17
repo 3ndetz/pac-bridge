@@ -17,6 +17,7 @@ test('exposes an unlinked snapshot only for the duration of dispatch', { skip: p
   })
   await assert.rejects(access(path))
   await assert.rejects(withEphemeralHookTranscript('?', async () => {}), /Invalid/)
+  await assert.rejects(withEphemeralHookTranscript('AB==', async () => {}), /Invalid/)
 })
 
 

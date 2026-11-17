@@ -30,6 +30,7 @@ test('copies a bounded transcript for the hook and removes it after success or f
     await assert.rejects(withHookTranscript(snapshot, async path => { temporary = path; throw new Error('test') }), /test/)
     await assert.rejects(access(temporary))
     await assert.rejects(withHookTranscript('bad!', async () => {}), /Invalid source hook transcript/)
+    await assert.rejects(withHookTranscript('AB==', async () => {}), /Invalid source hook transcript/)
     await assert.rejects(snapshotHookTranscript(join(directory, 'missing.jsonl'), { root: directory, sessionId: 'missing' }), /unavailable/)
     await writeFile(original, Buffer.alloc(MAX_HOOK_TRANSCRIPT_BYTES + 1))
     await assert.rejects(snapshotHookTranscript(original, options), /size limit/)
