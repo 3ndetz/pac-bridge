@@ -126,7 +126,13 @@ public static class PacTestOwnedJob {
                     Console.Out.Flush();
                     earlyReported = true;
                 }
-                if (System.IO.File.Exists(signal) && System.IO.File.ReadAllText(signal).Trim() == nonce) break;
+                string requested = null;
+                // Atomic replacement can remove the old signal between Exists
+                // and ReadAllText. A missing signal is not a stop or host failure.
+                try { requested = System.IO.File.ReadAllText(signal).Trim(); }
+                catch (System.IO.FileNotFoundException) { }
+                catch (System.IO.DirectoryNotFoundException) { }
+                if (requested == nonce) break;
                 if (DateTime.UtcNow >= controlDeadline) throw new InvalidOperationException("Owned job control unavailable");
                 System.Threading.Thread.Sleep(50);
             }
