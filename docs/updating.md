@@ -12,3 +12,22 @@
 For rollback, stop admitting new work to the affected revision, drain/close its owned processes, and restore the verified previous selector/wrapper through the documented profile-specific procedure. Restore a matched set of source bindings, controller transcripts and private identity configuration from backups when those were changed. Do not delete ownership records to force a resume or undo a conflict. A source checkout reset alone does not roll back a running or staged installation. Existing private credentials remain in their approved secret store.
 
 This is the coordinated update procedure and a record of current limitations. Automated installed-runtime update/rollback acceptance is still outstanding; no production migration was performed by the synthetic migration tests.
+
+## Preserve open channels during a transport generation change
+
+A separate relay listener and controller generation can receive new sessions while
+existing chats retain the previous transport. Preserve the old services until their
+owned channels have drained; changing a source checkout does not drain them.
+
+For a single-PAC HAPI installation, the selected `provider-current.json` can include
+an optional `relayUrl`, for example `wss://relay.example:8792/`. The selected provider
+reads it only for newly launched HAPI children and requires the pointer revision to
+match its own immutable directory. Existing processes keep their inherited endpoint.
+Only an uncredentialed TLS WebSocket root URL is accepted. A multi-PAC
+`PAC_ENDPOINTS_FILE` cannot be overridden by this single-endpoint setting.
+
+Prepare the matching authenticated relay, controller and legacy ownership records
+before selecting that transport. Preserve the endpoint when advancing the provider
+revision; the Windows selector constructor does so and rejects invalid endpoints.
+This field does not make the currently restricted installer crash-safe, and does not
+establish installed acceptance or permit source MCP/plugin provenance discovery.

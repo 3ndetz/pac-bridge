@@ -2,6 +2,9 @@ import { spawnContained, stopContained } from '../src/spawn-contained.mjs'
 import { accessSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { isHapiModelProbe } from '../src/acp-probe-detection.mjs'
+import { applyProviderRelayOverride } from '../src/provider-transport.mjs'
+
+await applyProviderRelayOverride({ entryUrl: import.meta.url })
 
 // Local Claude configuration is outside the source OpenCode contract.
 process.env.OPENCODE_DISABLE_CLAUDE_CODE = '1'

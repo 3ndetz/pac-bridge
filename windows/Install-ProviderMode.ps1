@@ -62,6 +62,11 @@ try {
     Write-Output 'Provider version staged. The active runtime configuration and runner were not changed.'
     return
   }
+  . (Join-Path $PSScriptRoot 'New-ProviderSelection.ps1')
+  $pointer=Join-Path $pac 'provider-current.json'
+  $previous=$null
+  if(Test-Path -LiteralPath $pointer -PathType Leaf){$previous=[IO.File]::ReadAllText($pointer)|ConvertFrom-Json}
+  $selection=New-ProviderSelection -Revision $revision -NamedProviders ([bool]$NamedProviders) -LegacyMigration ([bool]$LegacyMigration) -Previous $previous
   $loader=Join-Path $pac 'provider-runtime.ps1'
   $loaderText=@'
 $pacHome=Join-Path $env:USERPROFILE '.hapi-servermall\pac-bridge'
@@ -93,7 +98,7 @@ else {
   if($runtimeText.Contains($marker) -and !$runtimeText.Contains(". (Join-Path `$env:USERPROFILE '.hapi-servermall\pac-bridge\provider-runtime.ps1')")){throw 'Existing provider loader is not recognized.'}
   [IO.File]::WriteAllText($loader,$loaderText,[Text.UTF8Encoding]::new($false))
   $pointer=Join-Path $pac 'provider-current.json'
-  [IO.File]::WriteAllText(($pointer+'.new'),(@{revision=$revision;namedProviders=[bool]$NamedProviders;legacyMigration=[bool]$LegacyMigration}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText(($pointer+'.new'),($selection|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
   Move-Item -LiteralPath ($pointer+'.new') -Destination $pointer -Force
   if(!$runtimeText.Contains($marker)) {
     $backup=Join-Path $pac ('runtime-before-provider-'+[guid]::NewGuid().ToString()+'.ps1')

@@ -479,3 +479,18 @@ Focused Windows source-boundary, precedence, skills and router checks passed bef
 Exact `95c5ff72dcb7220d570bc7c3d84f648aa1f6e95b` passed the full scoped suites on both platforms. Windows: 461 cases, 408 passed, 53 skipped, zero failures/cancellations, in 177 seconds. The outer owned Job confirmed zero active processes and its disposable profile was removed. Linux: 461 cases, 376 passed, 85 skipped, zero failures/cancellations, in an offline container with read-only dependencies, in 85 seconds.
 
 Both suites include OpenCode-only instruction/skill discovery, local Claude canary exclusion, direct catalogue discovery and rejection of unsupported native OpenCode permissions/plugins. Native source MCP/plugin provenance discovery stayed disabled. No paid model calls or installed HAPI/PAC activation were performed. The retained Linux opt-in real-SDK async/Stop isolation scenarios were skipped in these scoped runs; their presence is not recorded as a pass. The previous controller transcript experiments remain separate from native OpenCode plugin acceptance.
+
+### Revision-bound transport handoff, 17 November 2026
+
+The optional single-PAC HAPI deployment relay is now bound to the selected immutable
+provider revision. New source processes can use a separately prepared relay/controller
+generation while existing processes retain their inherited endpoint. The Windows
+selector constructor preserves that endpoint when advancing the provider revision.
+
+Windows focused source/provider regressions: 27 cases, 26 passed, 1 platform skip,
+0 failures or cancellations. This includes OpenCode source isolation, replay and
+subagent event attribution, provider dispatch, transport TLS/revision boundaries and
+actual PowerShell selector construction. Linux offline transport/dispatch checks:
+3 passed, 1 Windows-only skip, 0 failures. No model calls or real source MCP/plugin
+provenance discovery were performed. These checks do not establish installed handoff
+acceptance, which must be recorded separately after deployment.
