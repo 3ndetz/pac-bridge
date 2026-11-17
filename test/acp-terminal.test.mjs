@@ -53,9 +53,7 @@ test('does not resolve wildcard executable names on Windows', { skip: process.pl
   const root = await mkdtemp(join(tmpdir(), 'pac-terminal-'))
   const manager = await createTerminalManager({ root, sessionId: 'session', authorize: () => true })
   try {
-    const { terminalId } = await manager.create({ sessionId: 'session', command: 'node*', args: ['--version'], cwd: root })
-    assert.notEqual((await manager.waitForExit({ sessionId: 'session', terminalId })).exitCode, 0)
-    assert.doesNotMatch(manager.output({ sessionId: 'session', terminalId }).output, /^v\d/)
+    await assert.rejects(manager.create({ sessionId: 'session', command: 'node*', args: ['--version'], cwd: root }), /Wildcard executable/)
   } finally { await manager.close(); await cleanup(root) }
 })
 

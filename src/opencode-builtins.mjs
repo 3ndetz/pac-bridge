@@ -1,5 +1,5 @@
 import { isAbsolute } from 'node:path'
-import { spawnContained, stopContained } from './spawn-contained.mjs'
+import { spawnContained, stopContained, confirmContainedExit } from './spawn-contained.mjs'
 
 // Ask the installed version for its own built-ins. Never treat file-backed
 // entries in this diagnostic output as built-ins or grant them filesystem access.
@@ -21,7 +21,8 @@ export async function loadOpenCodeBuiltins({ binary, cwd, env = process.env, tim
       if (size > maxOutputBytes) return finish(new Error('OpenCode built-in skill discovery output exceeds the limit'))
       chunks.push(chunk)
     })
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
+      try { await confirmContainedExit(child) } catch { return finish(new Error('OpenCode built-in skill discovery cleanup is unconfirmed')) }
       if (code !== 0) return finish(new Error('OpenCode built-in skill discovery failed'))
       try {
         const entries = JSON.parse(Buffer.concat(chunks).toString('utf8'))

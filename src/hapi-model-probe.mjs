@@ -25,9 +25,10 @@ export function mergeProbeModels(native, catalog) {
   return result
 }
 
-export async function nativeModels({ binary, cwd, init, params, env, timeoutMs = 27000 }) {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 27000) throw new Error('Invalid native model probe timeout')
-  const child = spawnContained(binary, ['acp'], { cwd, env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true })
+export async function nativeModels({ binary, cwd, init, params, env, timeoutMs = 27000, spawn = spawnContained }) {
+  if (typeof spawn !== 'function' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 27000) throw new Error('Invalid native model probe timeout')
+  const cleanupDeadline = Date.now() + 30000
+  const child = spawn(binary, ['acp'], { cwd, env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true })
   child.on('error', () => {})
   const native = createAcpPeer(Duplex.from({ readable: child.stdout, writable: child.stdin }), {
     onRequest: async () => { throw new Error('Model discovery cannot approve actions') }, onNotification: () => {},
@@ -42,10 +43,10 @@ export async function nativeModels({ binary, cwd, init, params, env, timeoutMs =
     return await native.call('session/new', params, Math.max(1, deadline - Date.now()))
   } finally {
     native.close()
-    // Killing the Windows job host is asynchronous. Wait briefly for its
-    // handles and working directory to be released before returning, while
-    // keeping the entire probe inside HAPI's 30-second deadline.
-    await stopContainedAndWait(child, 1000)
+    // An early cancellation may precede Windows host bootstrap. Reserve the
+    // remaining overall HAPI budget for confirmed owner cleanup, rather than
+    // assuming the host can compile and acknowledge in one second.
+    await stopContainedAndWait(child, Math.max(1, Math.min(20000, cleanupDeadline - Date.now())))
   }
 }
 

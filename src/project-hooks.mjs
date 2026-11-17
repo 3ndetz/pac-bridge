@@ -1,13 +1,13 @@
 import { open, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
-import { spawnContained, stopContained } from './spawn-contained.mjs'
+import { spawnContained, stopContained, confirmContainedExit } from './spawn-contained.mjs'
 import { permitsModelSwitchSetting } from './claude-settings-policy.mjs'
 
 const supportedEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit', 'Stop', 'Notification'])
 
-export async function createProjectHooks({ root, shell, home = homedir(), maxOutputBytes = 1024 * 1024, asyncHooks }) {
-  if (!isAbsolute(root) || typeof shell !== 'string' || !shell || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('Invalid project hook configuration')
+export async function createProjectHooks({ root, shell, home = homedir(), maxOutputBytes = 1024 * 1024, asyncHooks, spawn = spawnContained }) {
+  if (typeof spawn !== 'function' || !isAbsolute(root) || typeof shell !== 'string' || !shell || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('Invalid project hook configuration')
   const workspace = await realpath(root)
   const hooks = new Map()
   const controllerSettings = {}
@@ -109,7 +109,7 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
     const substitute = (value) => value.replaceAll('${CLAUDE_PROJECT_DIR}', workspace)
     const command = hook.args === undefined ? shell : substitute(hook.command)
     const args = hook.args === undefined ? ['-c', hook.command] : hook.args.map(substitute)
-    const child = spawnContained(command, args, { cwd: workspace, env: { ...process.env, ...hookEnvironment, CLAUDE_PROJECT_DIR: workspace },
+    const child = spawn(command, args, { cwd: workspace, env: { ...process.env, ...hookEnvironment, CLAUDE_PROJECT_DIR: workspace },
       stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     let stdout = '', stderr = '', exceeded = false, timedOut = false
     function stop() {
@@ -130,6 +130,7 @@ export async function createProjectHooks({ root, shell, home = homedir(), maxOut
       child.once('error', () => { clearTimeout(timer); reject(new Error('Project hook could not be started')) })
       child.once('close', (code, signal) => { clearTimeout(timer); resolve({ code, signal }) })
     })
+    await confirmContainedExit(child)
     if (timedOut || exceeded || result.signal) throw new Error('Project hook exceeded its execution limits')
     if (registerStop && result.code !== 0) return {}
     if (result.code === 2 && input.hook_event_name === 'PreToolUse') return { hookSpecificOutput: {

@@ -1,9 +1,16 @@
 import { randomBytes } from 'node:crypto'
+import { statSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 export function spawnWindowsOwned(command, args, options = {}) {
+  if (typeof command !== 'string' || !command || !Array.isArray(args) || args.some(value => typeof value !== 'string')) throw new Error('Invalid Windows command')
+  if (['*', '?', '[', ']'].some(value => command.includes(value))) {
+    let literal = false
+    try { literal = statSync(command).isFile() } catch {}
+    if (!literal) throw new Error('Wildcard executable names are unsupported')
+  }
   const nonce = randomBytes(16).toString('hex'), pipeName = `pac-owner-${randomBytes(16).toString('hex')}`
   const pipePath = `\\\\.\\pipe\\${pipeName}`
   let child, channel, requested = false, hostClosed = false, invalid = false, proof = false, timer

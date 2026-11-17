@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative, sep } from 'node:path'
-import { spawnContained, stopContained } from './spawn-contained.mjs'
+import { spawnContained, stopContained, confirmContainedExit } from './spawn-contained.mjs'
 
 function within(root, path) {
   const value = relative(root, path)
   return value === '' || (value !== '..' && !value.startsWith(`..${sep}`) && !isAbsolute(value))
 }
 
-export async function createTerminalManager({ root, sessionId, authorize, maxSessions = 8, maxOutputBytes = 1024 * 1024 }) {
-  if (!isAbsolute(root) || !sessionId || typeof authorize !== 'function' || !Number.isSafeInteger(maxSessions) || maxSessions < 1 ||
+export async function createTerminalManager({ root, sessionId, authorize, maxSessions = 8, maxOutputBytes = 1024 * 1024, spawn = spawnContained }) {
+  if (typeof spawn !== 'function' || !isAbsolute(root) || !sessionId || typeof authorize !== 'function' || !Number.isSafeInteger(maxSessions) || maxSessions < 1 ||
       !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('Invalid terminal manager configuration')
   const realRoot = await realpath(root)
   const terminals = new Map()
@@ -56,7 +56,7 @@ export async function createTerminalManager({ root, sessionId, authorize, maxSes
         if (closed) throw new Error('Terminal manager is closed')
         const limit = params.outputByteLimit === undefined ? maxOutputBytes : Math.min(maxOutputBytes, params.outputByteLimit)
         if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('Invalid terminal output limit')
-        const child = spawnContained(params.command, params.args, { cwd, env: { ...process.env, ...overrides }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+        const child = spawn(params.command, params.args, { cwd, env: { ...process.env, ...overrides }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
         const id = randomUUID()
         const terminal = { child, output: Buffer.alloc(0), truncated: false, status: null, done: null }
         function append(chunk) {
@@ -66,10 +66,14 @@ export async function createTerminalManager({ root, sessionId, authorize, maxSes
         }
         child.stdout.on('data', append)
         child.stderr.on('data', append)
-        terminal.done = new Promise((resolve) => {
-          child.on('error', (error) => { append(Buffer.from(error.message)); terminal.status = { exitCode: 127, signal: null }; resolve(terminal.status) })
-          child.on('close', (exitCode, signal) => { terminal.status ??= { exitCode, signal }; resolve(terminal.status) })
+        terminal.done = new Promise((resolve, reject) => {
+          child.on('error', (error) => { append(Buffer.from(error.message)) })
+          child.on('close', async (exitCode, signal) => {
+            try { await confirmContainedExit(child); terminal.status = { exitCode, signal }; resolve(terminal.status) }
+            catch (error) { reject(error) }
+          })
         })
+        terminal.done.catch(() => {})
         terminals.set(id, terminal)
         return { terminalId: id }
       } finally { starting-- }

@@ -170,7 +170,8 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
             state.connected = false
             if (state.availability) { try { state.availability.unknown() } catch {} }
             if (state.sourceMcp) void state.sourceMcp.close().catch(() => {})
-            state.asyncHooks.close()
+            state.asyncHookCleanup = state.asyncHooks.close()
+            state.asyncHookCleanup.catch(error => { state.asyncHookCleanupError = error })
             for (const pending of state.pendingWrites?.values() || []) pending.abort()
             for (const pending of state.pendingTerminalCreates?.values() || []) pending.abort()
             for (const toolCallId of state.pendingQuestions?.values() || []) {

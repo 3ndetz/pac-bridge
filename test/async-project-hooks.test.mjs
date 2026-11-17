@@ -26,7 +26,7 @@ test('asynchronous source hook does not block and returns its context on the nex
     const updated = await createProjectHooks({ root, home: root, shell: process.execPath, asyncHooks: manager })
     assert.deepEqual(await updated.dispatch({ hook_event_name: 'UserPromptSubmit', prompt: 'second' }), { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'BACKGROUND_CONTEXT' } })
   } finally {
-    manager.close()
+    await manager.close()
     if (previous === undefined) delete process.env.PAC_TEST_ASYNC_HOOKS; else process.env.PAC_TEST_ASYNC_HOOKS = previous
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -61,11 +61,11 @@ test('closing the session terminates its running source hook', { timeout: 55000 
     const deadline = Date.now() + 30000
     while (Date.now() < deadline && !await access(join(root, 'ready')).then(() => true, () => false)) await new Promise(resolve => setTimeout(resolve, 100))
     await access(join(root, 'ready'))
-    manager.close()
+    await manager.close()
     await new Promise(resolve => setTimeout(resolve, 9000))
     await assert.rejects(access(join(root, 'late')))
   } finally {
-    manager.close()
+    await manager.close()
     if (previous === undefined) delete process.env.PAC_TEST_ASYNC_HOOKS; else process.env.PAC_TEST_ASYNC_HOOKS = previous
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

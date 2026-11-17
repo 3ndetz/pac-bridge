@@ -4,15 +4,17 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { Duplex, PassThrough } from 'node:stream'
 import test from 'node:test'
+import { EventEmitter } from 'node:events'
+import { createInterface } from 'node:readline'
 import { createAcpPeer } from '../src/acp-peer.mjs'
 import { mergeProbeModels, nativeModels, startHapiModelProbe } from '../src/hapi-model-probe.mjs'
 
-test('shares the native model probe deadline between initialize and session creation', { timeout: 15000 }, async () => {
+test('cancels an early native probe and confirms cleanup after host bootstrap', { timeout: 25000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'pac-native-deadline-'))
   try {
     await writeFile(join(root, 'acp'), `const r=require('node:readline').createInterface({input:process.stdin});r.on('line',line=>{const x=JSON.parse(line);setTimeout(()=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:x.id,result:x.method==='initialize'?{protocolVersion:1}:{sessionId:'native'}})+'\\n'),100)})`)
     const options = { binary: process.execPath, cwd: root, init: { protocolVersion: 1 }, params: { cwd: root, mcpServers: [] }, env: process.env }
-    assert.equal((await nativeModels({ ...options, timeoutMs: 3000 })).sessionId, 'native')
+    assert.equal((await nativeModels({ ...options, timeoutMs: 10000 })).sessionId, 'native')
     await assert.rejects(nativeModels({ ...options, timeoutMs: 150 }), /timed out/)
   } finally {
     const actual = await realpath(root), local = relative(await realpath(tmpdir()), actual)
@@ -106,4 +108,22 @@ test('does not retry rejected source policy', async () => {
     assert.equal(calls, 1)
     assert.deepEqual(result._meta.pacDiscoveryWarnings, [{ name: 'testpac', code: 'source_setup_failed' }])
   } finally { client.close(); server.close() }
+})
+
+
+test('shares one RPC deadline between initialize and session creation independently of host startup', async () => {
+  const spawn = () => {
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), pacOwnedExit: Promise.resolve() })
+    child.stdin.on('error', () => {}); child.stdout.on('error', () => {})
+    const lines = createInterface({ input: child.stdin })
+    lines.on('error', () => {})
+    lines.on('line', line => {
+      const request = JSON.parse(line)
+      setTimeout(() => { if (!child.stdout.destroyed) child.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: request.method === 'initialize' ? { protocolVersion: 1 } : { sessionId: 'native' } }) + '\n') }, 70)
+    })
+    return child
+  }
+  const options = { binary: process.execPath, cwd: tmpdir(), init: { protocolVersion: 1 }, params: { cwd: tmpdir(), mcpServers: [] }, env: {}, spawn }
+  assert.equal((await nativeModels({ ...options, timeoutMs: 1000 })).sessionId, 'native')
+  await assert.rejects(nativeModels({ ...options, timeoutMs: 110 }), /timed out: session\/new/)
 })

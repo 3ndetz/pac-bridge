@@ -83,3 +83,17 @@ export function stopContainedAndWait(child, timeoutMs = 20000) {
     try { stopContained(child) } catch (error) { finish(error) }
   })
 }
+
+
+// Call after the host close event: a separate ownership channel may still be
+// completing. A process exit code alone is not tree-cleanup evidence.
+export async function confirmContainedExit(child) {
+  try {
+    if (child.pacOwnedExit) await child.pacOwnedExit
+    else if (child.pacOwnedExitConfirmed === false) throw new Error('missing proof')
+  } catch {
+    const error = new Error('Contained process-tree exit is unconfirmed; preserve its workspace')
+    error.code = 'PAC_PROCESS_EXIT_UNCONFIRMED'
+    throw error
+  }
+}
