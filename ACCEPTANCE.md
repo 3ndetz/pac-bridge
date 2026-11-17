@@ -2,6 +2,12 @@
 
 ## Workspace reconciliation checks (2026-11-17)
 
+The full scoped Node suite passed on Linux at `e950821`: 369 tests, 305 passed, 64 skipped, zero failures. It ran in a container without external networking. The final Windows suite at `e5468ff` also passed: 369 tests, 331 passed, 38 skipped, zero failures. It ran inside an owned Job Object with a disposable enclosing HOME, explicit Git Bash executable and no inherited provider credentials; zero active processes and host exit were confirmed before removing the test root. Native SDK/live opt-ins were disabled.
+
+The initial Windows verification environment produced six duplicate-skill errors because its HOME was a sibling of the test temp directory and a Bash error because LOCALAPPDATA pointed to an empty profile. Correcting the enclosing HOME and selecting the existing Bash executable removed those failures. A subsequent full run exposed an intermittent synthetic transcript readiness failure. The fixture now confirms its written bytes using its owning handle, publishes a separate readiness marker and closes its job even when readiness fails. The final full run above includes that fix; the earlier readiness failure is not evidence of a production transcript implementation.
+
+The retained POSIX installer candidate's separate synthetic Python suite ran in a network-isolated container: 37 cases, 36 passed, one skipped. Its installer design remains experimental and is separate from the scoped product test suite and real HAPI acceptance.
+
 Nine synthetic comparison, ACP-disconnect, stdout-EOF and router snapshot tests passed in a Linux container without external network access. The process-lifecycle scenarios are explicitly scoped to Linux. The two context-comparison tests also passed natively on Windows and do not disclose identity, path, model or credential values.
 
 Seventeen Windows owned-preparation tests passed. They exercised staging, extraction, hashing, control timeouts and loss of the owner's loopback connection. Their own retained Job Object reported zero active processes before verified-root cleanup. Two related scenarios were repeated after bounding the nested job's lifetime. These are test-harness results, not proof that production HAPI uses that ownership contract.
