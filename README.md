@@ -8,7 +8,7 @@ The source harness is OpenCode. Its skills and rules are forwarded to the PAC; l
 
 Run `npm test` for the scoped automated test suite. Live fixtures in `test/fixtures/` require their own explicit opt-in and configuration; do not run the entire fixture directory as a test suite.
 
-**Current deployment limitation:** both existing runners use the managed corporate HAPI runtime with PAC in a separate OpenCode provider; their PAC-specific runtime pins were removed. The corporate runtime itself contains earlier SMA maintenance changes. The second hub uses the corporate baseline; the first hub and shared UI still contain PAC-specific changes. Their removal and complete update verification remain outstanding; see the [acceptance checklist](RELIABILITY-CHECKLIST.md).
+**Current verification limitation:** the provider integration remains experimental. A successful protocol check does not establish installed OpenCode/HAPI UI, lifecycle, permissions or plugin acceptance. Keep deployment-specific evidence in the installation's private records. See [acceptance](ACCEPTANCE.md) and [remaining work](docs/completion-worklist.md).
 
 The integration is still under verification. See [RELIABILITY-CHECKLIST.md](RELIABILITY-CHECKLIST.md), [ACCEPTANCE.md](ACCEPTANCE.md), and [experimental MCP validation](docs/experimental-mcp-validation.md) for supported behavior, evidence and unresolved limitations. The material below describes the older shared-filesystem design and should not be used as the installation guide for the current HAPI integration.
 
