@@ -1,0 +1,2 @@
+# Shell entry points and fixtures must remain executable on POSIX.
+*.sh text eol=lf
