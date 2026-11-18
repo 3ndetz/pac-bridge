@@ -654,3 +654,26 @@ test('experimental independent task stop is disabled by default', async () => {
     assert.equal(calls, 0)
   } finally { await new Promise(resolve => server.close(resolve)) }
 })
+
+
+test('ACP tool delivery keeps machine events out of assistant text without executing another turn', async () => {
+  const token = 'local-test-token-with-at-least-32-characters', received = []; let calls = 0
+  const server = createOpencodeProvider({ token, cwd: '/source', onToolUpdate(sessionId, update) { received.push({sessionId,update}) }, router: {
+    async prompt(_binding, _prompt, update) {
+      calls++
+      update({method:'session/update',params:{update:{sessionUpdate:'tool_call',toolCallId:'read-1',title:'Read',rawInput:{path:'a.txt'},_meta:{secret:'must-not-leak'}}}})
+      update({method:'session/update',params:{update:{sessionUpdate:'tool_call_update',toolCallId:'read-1',status:'completed',rawOutput:'exact file content'}}})
+      update({method:'session/update',params:{update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Done.'}}}})
+      return {stopReason:'end_turn'}
+    }, cancel() {},
+  } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, {method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json','x-pac-session-id':'owned','x-pac-message-id':'turn'},body:JSON.stringify({model:'PAC_work/sonnet',stream:true,tools:[{}],messages:[{role:'user',content:'read'}]})})
+    assert.equal(response.status, 200); const text = await response.text()
+    assert.match(text, /Done\./); assert.doesNotMatch(text, /PAC tool event|read-1|exact file content|must-not-leak/)
+    assert.equal(calls, 1); assert.equal(received.length, 2)
+    assert.equal(received[0].sessionId, 'owned'); assert.equal(received[0].update._meta, undefined)
+    assert.equal(received[1].update.rawOutput, 'exact file content')
+  } finally { await new Promise(r => server.close(r)) }
+})

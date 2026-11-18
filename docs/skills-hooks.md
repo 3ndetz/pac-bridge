@@ -29,3 +29,7 @@ The OpenCode router identifies its source harness in session metadata. A control
 ## Source file search
 
 Glob and Grep use ripgrep on the source machine. `PAC_SOURCE_RG` explicitly selects its executable. Otherwise the adapter uses the source OpenCode search binary in `$XDG_CACHE_HOME/opencode/bin` (default `~/.cache/opencode/bin`, `rg.exe` on Windows), then falls back to `rg` on PATH. It does not search local Claude or other agent installations, change the system PATH, or download a binary. If neither source is available, the operation fails with setup guidance. Existing workspace, session, output and time limits still apply.
+
+## HAPI tool progress
+
+In ACP mode, PAC tool calls and updates are published as native `session/update` events for the active originating OpenCode prompt. File paths, inputs, results and completion status remain structured instead of being appended as JSON to assistant text. Unknown, inactive and completed prompt destinations are rejected. The plain HTTP provider retains its text fallback when no ACP event destination is attached; this does not establish complete native OpenCode tool-history parity.

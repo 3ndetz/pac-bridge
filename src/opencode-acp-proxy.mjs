@@ -3,7 +3,7 @@ import { Transform } from 'node:stream'
 import { normalizePacBackgroundTasks } from './pac-background-tasks.mjs'
 
 export function createOpencodeAcpProxy({ input, output, childInput, childOutput, providerUrl, token, maxLineBytes = 16 * 1024 * 1024, maxTracked = 4096, maxStops = 32, timeoutMs = 30000, onFatal = () => {}, onSnapshotReady }) {
-  const sessions = new Set(), openings = new Map(), stops = new Set(), seenStops = new Set(), snapshots = new Set()
+  const sessions = new Set(), openings = new Map(), prompts = new Map(), stops = new Set(), seenStops = new Set(), snapshots = new Set()
   let closed = false
   const valid = x => typeof x === 'string' && x.length > 0 && x.length <= 512 && !/[\s\x00-\x1f\x7f]/.test(x)
   const key = id => JSON.stringify([typeof id, id])
@@ -28,6 +28,17 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
     if (closed || output.destroyed || !output.writable) return
     const msg = error ? { jsonrpc: '2.0', id, error: { code: -32000, message: error } } : { jsonrpc: '2.0', id, result }
     try { send(msg) } catch (error) { fail(error) }
+  }
+  function publishToolUpdate(sessionId, update) {
+    if (!valid(sessionId) || !sessions.has(sessionId) || ![...prompts.values()].includes(sessionId) ||
+        !update || !['tool_call', 'tool_call_update'].includes(update.sessionUpdate) || !valid(update.toolCallId)) {
+      throw new Error('Invalid or inactive PAC tool update')
+    }
+    const clean = Object.fromEntries(['sessionUpdate', 'toolCallId', 'title', 'kind', 'status', 'rawInput', 'rawOutput', 'content', 'locations']
+      .filter(k => Object.hasOwn(update, k)).map(k => [k, update[k]]))
+    if (Buffer.byteLength(JSON.stringify(clean)) > 1024 * 1024) throw new Error('PAC tool update exceeds size limit')
+    try { send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: clean } }) }
+    catch (error) { fail(error); throw new Error('PAC tool update delivery failed') }
   }
   function publishBackgroundTasks(sessionId, tasks) {
     if (!valid(sessionId) || !sessions.has(sessionId) || !Array.isArray(tasks) || tasks.length > 128) throw new Error('Invalid or unowned PAC background snapshot')
@@ -63,6 +74,10 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
   const inbound = lineTransform(msg => {
     if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string' || !Object.hasOwn(msg, 'id')) return
     const id = msg.id, k = key(id)
+    if (msg.method === 'session/prompt' && valid(msg.params?.sessionId) && sessions.has(msg.params.sessionId)) {
+      if (prompts.size >= maxTracked || prompts.has(k)) throw new Error('ACP prompt tracking limit')
+      prompts.set(k, msg.params.sessionId)
+    }
     if (msg.method === 'session/new' || msg.method === 'session/load') {
       if (openings.size >= maxTracked || openings.has(k)) throw new Error('ACP session tracking limit')
       openings.set(k, { method: msg.method, sessionId: msg.params?.sessionId })
@@ -111,7 +126,9 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
   })
   const outbound = lineTransform(msg => {
     if (!msg || msg.jsonrpc !== '2.0' || Object.hasOwn(msg, 'method') || !Object.hasOwn(msg, 'id')) return
-    const k = key(msg.id), opening = openings.get(k)
+    const k = key(msg.id)
+    prompts.delete(k)
+    const opening = openings.get(k)
     if (!opening) return
     openings.delete(k)
     if (Object.hasOwn(msg, 'result') && !Object.hasOwn(msg, 'error')) {
@@ -124,5 +141,5 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
   input.on('close', () => { if (!input.readableEnded) fail(new Error('input closed')) }); output.on('close', () => fail(new Error('output closed')))
   childInput.on('close', () => { if (!childInput.writableFinished) fail(new Error('child input closed')) }); childOutput.on('close', () => { if (!childOutput.readableEnded) fail(new Error('child output closed')) })
   input.pipe(inbound).pipe(childInput); childOutput.pipe(outbound).pipe(output, { end: false })
-  return { publishBackgroundTasks, publishBackgroundAvailability, close: () => fail() }
+  return { publishToolUpdate, publishBackgroundTasks, publishBackgroundAvailability, close: () => fail() }
 }

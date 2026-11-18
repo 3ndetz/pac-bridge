@@ -285,3 +285,67 @@ test('test-only ready handshake returns only session-owned unknown availability'
     await until(() => out.includes('pac/background_availability'))
   } finally { proxy.close() }
 })
+
+
+test('tool updates reach only an active owned ACP prompt and retain exact tool data', async () => {
+  const input = new PassThrough(), output = new PassThrough(), ci = new PassThrough(), co = new PassThrough()
+  const frames = []; output.on('data', raw => frames.push(...raw.toString().trim().split('\n').map(JSON.parse))); ci.resume()
+  const proxy = createOpencodeAcpProxy({ input, output, childInput: ci, childOutput: co, providerUrl: 'http://127.0.0.1:1', token: 'secret' })
+  const tool = { sessionUpdate: 'tool_call', toolCallId: 'read-1', title: 'Read', kind: 'read', status: 'pending', rawInput: { file_path: 'C:\\source\\file.txt' }, _meta: { secret: 'private' } }
+  try {
+    assert.throws(() => proxy.publishToolUpdate('owned', tool), /inactive/)
+    input.write(send({jsonrpc:'2.0',id:101,method:'session/load',params:{sessionId:'owned'}}))
+    co.write(send({jsonrpc:'2.0',id:101,result:{}})); await wait()
+    assert.throws(() => proxy.publishToolUpdate('owned', tool), /inactive/)
+    input.write(send({jsonrpc:'2.0',id:102,method:'session/prompt',params:{sessionId:'owned'}})); await wait()
+    assert.throws(() => proxy.publishToolUpdate('other', tool), /inactive/)
+    proxy.publishToolUpdate('owned', tool)
+    const result = {sessionUpdate:'tool_call_update',toolCallId:'read-1',status:'completed',rawOutput:'line 1\n"quoted"\n'}
+    proxy.publishToolUpdate('owned', result)
+    await wait()
+    const events = frames.filter(x => x.method === 'session/update')
+    assert.equal(events.length, 2); assert.equal(events[0].params.sessionId, 'owned')
+    assert.deepEqual(events[0].params.update.rawInput, tool.rawInput)
+    assert.equal(events[0].params.update._meta, undefined)
+    assert.equal(events[1].params.update.rawOutput, result.rawOutput)
+    co.write(send({jsonrpc:'2.0',id:102,result:{stopReason:'end_turn'}})); await wait()
+    assert.throws(() => proxy.publishToolUpdate('owned', result), /inactive/)
+  } finally { proxy.close() }
+})
+
+
+test('provider publishes concurrent source tool events through their original ACP sessions', async () => {
+  const { createOpencodeProvider } = await import('../src/opencode-provider.mjs')
+  const input=new PassThrough(), output=new PassThrough(), ci=new PassThrough(), co=new PassThrough()
+  ci.resume(); const frames=[]; output.on('data',raw=>frames.push(...raw.toString().trim().split('\n').map(JSON.parse)))
+  const token='local-test-token-with-at-least-32-characters'
+  const proxy=createOpencodeAcpProxy({input,output,childInput:ci,childOutput:co,providerUrl:'http://127.0.0.1:1',token})
+  let calls=0
+  const server=createOpencodeProvider({token,cwd:'/fixture',onToolUpdate:(sid,event)=>proxy.publishToolUpdate(sid,event),router:{
+    async prompt(binding,_prompt,update) {
+      calls++; const id='read-'+binding.sessionId
+      update({method:'session/update',params:{update:{sessionUpdate:'tool_call',toolCallId:id,title:'Read',kind:'read',status:'pending'}}})
+      await wait()
+      update({method:'session/update',params:{update:{sessionUpdate:'tool_call_update',toolCallId:id,status:'completed',rawOutput:binding.sessionId+'-only'}}})
+      update({method:'session/update',params:{update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'done'}}}})
+      return {stopReason:'end_turn'}
+    },cancel() {},
+  }})
+  server.listen(0,'127.0.0.1'); await once(server,'listening')
+  try {
+    for (const [i,sid] of [[1,'source-a'],[2,'source-b']]) {
+      input.write(send({jsonrpc:'2.0',id:i,method:'session/load',params:{sessionId:sid}}));co.write(send({jsonrpc:'2.0',id:i,result:{}}))
+    }
+    await wait()
+    for(const [id,sid] of [[3,'source-a'],[4,'source-b']])input.write(send({jsonrpc:'2.0',id,method:'session/prompt',params:{sessionId:sid}}))
+    await wait()
+    const streams=await Promise.all(['source-a','source-b'].map(async sid=>{
+      const response=await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json','x-pac-session-id':sid,'x-pac-message-id':'turn-'+sid},body:JSON.stringify({model:'PAC_work/sonnet',stream:true,tools:[{}],messages:[{role:'user',content:'read'}]})})
+      assert.equal(response.status,200);return response.text()
+    }))
+    assert.equal(calls,2)
+    for(const stream of streams){assert.match(stream,/done/);assert.doesNotMatch(stream,/PAC tool event|read-source|only/)}
+    const updates=frames.filter(f=>f.method==='session/update');assert.equal(updates.length,4)
+    for(const f of updates){assert.equal(f.params.update.toolCallId,'read-'+f.params.sessionId);if(f.params.update.status==='completed')assert.equal(f.params.update.rawOutput,f.params.sessionId+'-only')}
+  } finally { proxy.close();await new Promise(r=>server.close(r)) }
+})

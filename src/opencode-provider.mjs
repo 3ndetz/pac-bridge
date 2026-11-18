@@ -18,8 +18,8 @@ function userPrompt(content) {
 
 // Experimental transport. Unsupported events and permissions terminate the
 // turn rather than being translated into a successful text answer.
-export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {}, onBackgroundTasks = () => {}, stopGuard, enableExperimentalTaskStop = false }) {
-  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1 || typeof onBackgroundTasks !== 'function' || typeof enableExperimentalTaskStop !== 'boolean' || (stopGuard !== undefined && typeof stopGuard?.claim !== 'function')) throw new Error('Invalid provider configuration')
+export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {}, onBackgroundTasks = () => {}, onToolUpdate, stopGuard, enableExperimentalTaskStop = false }) {
+  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1 || typeof onBackgroundTasks !== 'function' || (onToolUpdate !== undefined && typeof onToolUpdate !== 'function') || typeof enableExperimentalTaskStop !== 'boolean' || (stopGuard !== undefined && typeof stopGuard?.claim !== 'function')) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
   const turns = new Map()
@@ -301,7 +301,8 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
             .filter((key) => Object.hasOwn(update, key)).map((key) => [key, update[key]]))
           const description = JSON.stringify(visible)
           if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC tool update exceeds size limit')
-          write({ content: `\n[PAC tool event]\n${description}\n` })
+          if (onToolUpdate) onToolUpdate(sessionId, visible)
+          else write({ content: `\n[PAC tool event]\n${description}\n` })
           continue
         }
         if (method === 'session/update' && update?.sessionUpdate === 'agent_thought_chunk' && update.content?.type === 'text') {

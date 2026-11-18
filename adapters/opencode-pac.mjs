@@ -87,7 +87,10 @@ const router = createOpencodeSessionRouter({ store: createSessionStore(join(sess
   if (snapshotTest) snapshotSessions.set(sessionId, opened)
   return opened
 } })
-server = createOpencodeProvider({ router, token, cwd, stopGuard: process.env.PAC_TEST_STOP_JOURNAL_DIR ? createPacStopJournal(process.env.PAC_TEST_STOP_JOURNAL_DIR) : undefined, onFailure: (category) => {
+server = createOpencodeProvider({ router, token, cwd, ...(acpMode ? { onToolUpdate: (sessionId, update) => {
+  if (!acpProxy) throw new Error('ACP tool event destination is unavailable')
+  acpProxy.publishToolUpdate(sessionId, update)
+} } : {}), stopGuard: process.env.PAC_TEST_STOP_JOURNAL_DIR ? createPacStopJournal(process.env.PAC_TEST_STOP_JOURNAL_DIR) : undefined, onFailure: (category) => {
   if (process.env.PAC_DIAGNOSTICS === '1') process.stderr.write(`PAC provider failure: ${category}\n`)
 } })
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
