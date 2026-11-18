@@ -523,3 +523,26 @@ This establishes selected source versions, migration, transport initialization a
 preserved active-session state. Installed model turns, tools, permissions,
 compaction/recall, migrated-session resume, crash recovery and the complete native
 OpenCode feature matrix remain separate acceptance work. macOS remains deferred.
+
+
+### Real ACP model, resume and compaction acceptance, 17 November 2026
+
+A dedicated empty workspace and an exclusively created PAC session were used on
+selected source revision `11f012bfce0c63a17877a0b1cb037184bb8eb788` and controller
+revision `33200a9a290d22e21edc71921bb41b4744a927d4`. The model catalogue selected
+and confirmed Haiku. A model turn returned the exact unique fixture marker.
+After closing the source stream, the same authenticated source loaded the same
+session on a new connection and recalled that marker. The other existing Windows
+source was denied `session/load` with code `-32001` for this probe session.
+
+A third connection requested compaction once. The controller emitted in-progress
+and completed states; the following model turn recalled the original marker.
+Three model turns and one compaction request were made. No tools were requested
+or executed. Source MCP/plugin provenance discovery remained disabled. All probe
+source streams were closed; the probe transcript and ownership record were kept.
+No existing user conversation was used or replayed.
+
+This is real PAC protocol/model evidence, including same-source resume,
+cross-source denial and context retention after compaction. It is not installed
+OpenCode/HAPI UI acceptance, migrated legacy-session model replay, native source
+plugin acceptance, or proof of the complete tool/permission matrix.
