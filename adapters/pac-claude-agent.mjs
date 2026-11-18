@@ -43,7 +43,7 @@ const [sdkRoot] = process.argv.slice(2)
 const require = createRequire(sdkRoot ? join(sdkRoot, 'package.json') : fileURLToPath(new URL('../package.json', import.meta.url)))
 const acp = await import(pathToFileURL(require.resolve('@agentclientprotocol/claude-agent-acp/dist/acp-agent.js')).href)
 const utils = await import(pathToFileURL(require.resolve('@agentclientprotocol/claude-agent-acp/dist/utils.js')).href)
-const { ndJsonStream, methods } = await import(pathToFileURL(require.resolve('@agentclientprotocol/sdk')).href)
+const { ndJsonStream, methods, RequestError } = await import(pathToFileURL(require.resolve('@agentclientprotocol/sdk')).href)
 const { createSdkMcpServer, tool, listSubagents, getSubagentMessages } = await import(pathToFileURL(require.resolve('@anthropic-ai/claude-agent-sdk')).href)
 const { z } = require('zod')
 const questionsEnabled = process.env.PAC_ENABLE_QUESTIONS === '1' || process.env.PAC_TEST_QUESTIONS === '1'
@@ -59,6 +59,7 @@ const ownership = createSessionOwnership({ principal: process.env.PAC_SOURCE_PRI
 let activeAgent
 const testStopSessions = new Set()
 const sourceSettingsSessions = new Set()
+const sourceClaudeHookSessions = new Set()
 const testSourceMcpSessions = new Map()
 const app = acp.v1AgentApp(undefined, (agent) => {
   activeAgent = agent
@@ -257,6 +258,11 @@ const app = acp.v1AgentApp(undefined, (agent) => {
       }),
     ] })
     const meta = params._meta || {}
+    const sourceHarness = meta.pac?.sourceHarness
+    if (sourceHarness !== undefined && !['opencode', 'claude'].includes(sourceHarness)) throw new RequestError(-32602, 'Unsupported source harness')
+    // A controller-wide legacy switch cannot turn Claude source hooks into
+    // OpenCode hooks. Only an explicitly identified Claude source opts in.
+    const forwardSourceHooks = hooksEnabled && sourceHarness === 'claude'
     const skills = meta.pac?.skills || []
     const instructions = meta.pac?.instructions || []
     const loadedInstructions = createInstructionLedger()
@@ -322,7 +328,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     if (sourcePrompt && options.systemPrompt !== undefined) throw new Error('Source instructions with an SDK-level custom system prompt are not yet supported')
     const aliases = process.env.PAC_USE_ALIASES !== '0'
     const projectHook = async (input) => {
-      if (!hooksEnabled) return {}
+      if (!forwardSourceHooks) return {}
       const toolName = typeof input.tool_name === 'string' ? input.tool_name.replace(/^mcp__pac__/, '') : input.tool_name
       try {
         if (input.hook_event_name === 'Stop' && input.session_id !== sessionId) throw new Error('Source hook session identity mismatch')
@@ -369,7 +375,9 @@ const app = acp.v1AgentApp(undefined, (agent) => {
     sessionId = opened.sessionId || sessionId
     if (sourceMcp) testSourceMcpSessions.set(sessionId, sourceMcp)
     if (sourceSettings !== undefined) sourceSettingsSessions.add(sessionId)
-    if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && meta.pac?.stopHooks === true && ['linux', 'win32'].includes(process.platform)) testStopSessions.add(sessionId)
+    if (forwardSourceHooks) sourceClaudeHookSessions.add(sessionId)
+    else sourceClaudeHookSessions.delete(sessionId)
+    if (process.env.PAC_TEST_SYNTHETIC_LIFECYCLE === '1' && forwardSourceHooks && meta.pac?.stopHooks === true && ['linux', 'win32'].includes(process.platform)) testStopSessions.add(sessionId)
     return opened
   }
   agent.newSession = (params) => prepareSession(params, 'new')
@@ -380,7 +388,7 @@ const app = acp.v1AgentApp(undefined, (agent) => {
 const extendedApp = app.onRequest('pac/hooks/capabilities', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || !params.sessionId) throw new Error('Invalid hook capability request')
   return params
-} }, async ({ params }) => { await ownership.assert(params.sessionId); return ({ promptSubmit: hooksEnabled && !!activeAgent.sessions[params.sessionId], ...(testStopSessions.has(params.sessionId) ? { stop: true } : {}), ...(sourceSettingsSessions.has(params.sessionId) ? { settings: true } : {}), ...(process.env.PAC_TEST_ASYNC_HOOKS === '1' && hooksEnabled && activeAgent.sessions[params.sessionId] ? { async: true } : {}) }) })
+} }, async ({ params }) => { await ownership.assert(params.sessionId); return ({ promptSubmit: sourceClaudeHookSessions.has(params.sessionId) && !!activeAgent.sessions[params.sessionId], ...(testStopSessions.has(params.sessionId) ? { stop: true } : {}), ...(sourceSettingsSessions.has(params.sessionId) ? { settings: true } : {}), ...(process.env.PAC_TEST_ASYNC_HOOKS === '1' && sourceClaudeHookSessions.has(params.sessionId) && activeAgent.sessions[params.sessionId] ? { async: true } : {}) }) })
   .onRequest('pac/source_mcp/changed', { parse: (params) => {
   if (!params || typeof params.sessionId !== 'string' || params.server !== 'fixture') throw new Error('Invalid source MCP change')
   return params

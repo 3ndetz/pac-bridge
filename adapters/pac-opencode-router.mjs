@@ -175,7 +175,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           }
           watchSourceDisconnect(stream, disconnectSource)
           if (binding) state.translator = createSubagentTranslator({ localSessionId: session.id, remoteSessionId: binding.remoteSessionId, pacId: endpoint.id })
-          state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { workspaceCwd: params.cwd,
+          state.remote = await openPacSession(stream, { cwd: endpoint.cwd, meta: { pac: { sourceHarness: 'opencode', workspaceCwd: params.cwd,
             skills: state.skills?.list || [], instructions: state.instructions || [], scopedRules: Array.isArray(state.instructions), ...(process.env.PAC_TEST_ROUTED_SOURCE_MCP === '1' ? { sourceMcpServers: ['fixture'] } : {}) } },
             ...(binding ? { resumeSessionId: binding.remoteSessionId } : {}),
             clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true, subagents: {}, session: { compaction: {} } },

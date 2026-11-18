@@ -23,3 +23,5 @@ The [pinned OpenCode instruction implementation](https://github.com/anomalyco/op
 OpenCode plugins and their hooks are native OpenCode features. Running a similarly named Claude hook does not implement them. Unsupported configured OpenCode plugins, permissions, MCP and extra instruction/skill configuration still stop a PAC turn with an explanation; the guard has not been relaxed. Model listing can remain available without claiming those features work.
 
 Earlier local Claude hook checks are retained as [isolated experiment evidence](claude-hook-experiments.md), not current OpenCode acceptance. Completion notifications are a separate [bridge callback](telegram-notifications.md), not a substitute for native OpenCode plugins. Remaining delivery checks are in [the worklist](completion-worklist.md).
+
+The OpenCode router identifies its source harness in session metadata. A controller-wide legacy Claude project-hook flag does not opt OpenCode sessions into Claude source hook execution. Legacy hook experiments must explicitly identify a Claude source; they remain separate from native OpenCode plugins and hooks.

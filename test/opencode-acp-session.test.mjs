@@ -48,6 +48,7 @@ for (const unsolicitedHook of [false, true]) test(unsolicitedHook ? 'OpenCode ad
       const events=[]
       assert.equal((await session.prompt([{type:'text',text:'hello'}],event=>events.push(event))).stopReason,'end_turn')
       const content=events.filter(event=>event.params?.update?.sessionUpdate==='agent_message_chunk').map(event=>event.params.update.content.text).join('')
+      assert.equal(JSON.parse(content).sourceHarness,'opencode')
       assert.match(content,/OPENCODE_PROJECT_RULE/);assert.match(content,/OPENCODE_GLOBAL_RULE/);assert.match(content,/source-only/)
       assert.doesNotMatch(content,/PRIVATE_CLAUDE|INVALID_CLAUDE|claudeSettings|promptHooks|stopHooks/)
       const discovery=await discoverPacsDirect({cwd:workspace,env})

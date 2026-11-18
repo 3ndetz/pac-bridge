@@ -95,7 +95,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
     const launch = () => spawnContained(process.execPath, [adapter], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: {
       ...process.env, PAC_SOURCE_PRINCIPAL: 'a'.repeat(64), PAC_SESSION_OWNERS_DIR: join(root, 'session-owners'), HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, 'claude'), ANTHROPIC_API_KEY: 'synthetic-test-key',
       ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`, NO_PROXY: '127.0.0.1,localhost',
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', PAC_USE_ALIASES: '1', PAC_ENABLE_PROJECT_HOOKS: '1',
       ...(settingsTest ? { PAC_TEST_SYNTHETIC_SETTINGS: '1' } : {}),
       ...(promptHookTest || oldSourceTest || lifecycleTest || notificationTest ? { PAC_TEST_PROJECT_HOOKS: '1' } : {}),
     } })
@@ -133,7 +133,10 @@ test('runs the installed controller against a local synthetic model endpoint', {
     }
     peer = connect()
     await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
-    const session = await peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, ...(scopedTest ? { scopedRules: true } : {}), ...(promptHookTest ? { promptHooks: true } : {}), ...(lifecycleTest ? { stopHooks: true } : {}), ...(notificationTest ? { notificationHooks: true } : {}), ...(settingsTest ? { claudeSettings: { effortLevel: 'high', switchModelsOnFlag: false, env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } } } : {}) } } })
+    await assert.rejects(peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { sourceHarness: 'unknown', workspaceCwd: root } } }), /Unsupported source harness/)
+    assert.equal(requests, 0, 'Unsupported harness must not reach the model')
+    const session = await peer.call('session/new', { cwd: root, mcpServers: [], _meta: { pac: { ...(oldSourceTest ? {} : { sourceHarness: promptHookTest || lifecycleTest || notificationTest ? 'claude' : 'opencode' }), workspaceCwd: root, ...(scopedTest ? { scopedRules: true } : {}), ...(promptHookTest ? { promptHooks: true } : {}), ...(lifecycleTest ? { stopHooks: true } : {}), ...(notificationTest ? { notificationHooks: true } : {}), ...(settingsTest ? { claudeSettings: { effortLevel: 'high', switchModelsOnFlag: false, env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } } } : {}) } } })
+    if (!promptHookTest && !lifecycleTest && !notificationTest) assert.equal((await peer.call('pac/hooks/capabilities', { sessionId: session.sessionId })).promptSubmit, false)
     if (promptHookTest) {
       assert.deepEqual(await peer.call('pac/hooks/capabilities', { sessionId: session.sessionId }), { promptSubmit: true })
       await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'BLOCK_ME' }] }, 90000)
@@ -160,7 +163,7 @@ test('runs the installed controller against a local synthetic model endpoint', {
         peer.close(); await stopContainedAndWait(child, 20000)
         peer = connect()
         await peer.call('initialize', { protocolVersion: 1, clientCapabilities: {} })
-        await peer.call('session/load', { sessionId: session.sessionId, cwd: root, mcpServers: [], _meta: { pac: { workspaceCwd: root, stopHooks: true } } }, 90000)
+        await peer.call('session/load', { sessionId: session.sessionId, cwd: root, mcpServers: [], _meta: { pac: { sourceHarness: 'claude', workspaceCwd: root, stopHooks: true } } }, 90000)
         await peer.call('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Resume the synthetic session.' }] }, 90000)
         assert.ok(stopCalls >= before + 2, 'restored session must dispatch Stop and continue on block')
       }
