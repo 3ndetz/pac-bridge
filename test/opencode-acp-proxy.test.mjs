@@ -368,3 +368,78 @@ test('native prompt completion closes only its own interrupted visible tools', a
     assert.equal(frames.filter(f=>f.params?.update?.status==='failed').length,1)
   }finally{proxy.close()}
 })
+
+test('negotiated ACP forms return answers to the original PAC turn and cancel without replay', async () => {
+  const { createOpencodeProvider } = await import('../src/opencode-provider.mjs')
+  const input = new PassThrough(), output = new PassThrough(), childInput = new PassThrough(), childOutput = new PassThrough()
+  const frames = [], forwarded = []
+  output.on('data', raw => frames.push(...raw.toString().trim().split('\n').map(JSON.parse)))
+  childInput.on('data', raw => forwarded.push(...raw.toString().trim().split('\n').map(JSON.parse)))
+  const token = 'synthetic-provider-token-32-characters-long'
+  const proxy = createOpencodeAcpProxy({ input, output, childInput, childOutput, providerUrl: 'http://127.0.0.1:1', token })
+  const questions = [{ question: 'Choose values', header: 'Fixture', multiSelect: true,
+    options: [{ label: 'one', description: 'A' }, { label: 'two', description: 'B' }] }]
+  const approvals = []
+  const server = createOpencodeProvider({ token, cwd: '/fixture',
+    requestQuestionForm: (sessionId, id, form, options) => proxy.requestQuestionForm(sessionId, id, form, options),
+    router: {
+      async prompt(binding, _prompt, update) {
+        approvals.push(await server.requestPermission(binding.sessionId, {
+          toolCall: { toolCallId: 'question-' + binding.sessionId, rawInput: { questions } },
+          options: [{ optionId: 'yes', kind: 'allow_once' }, { optionId: 'no', kind: 'reject_once' }],
+          _meta: { pac: { question: true } },
+        }))
+        update({ method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'continued' } } } })
+        return { stopReason: 'end_turn' }
+      },
+      cancel() {},
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const post = (sid) => fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json',
+      'x-pac-session-id': sid, 'x-pac-message-id': 'prompt-' + sid },
+    body: JSON.stringify({ model: 'PAC_fixture/model', stream: true, tools: [{ function: { name: 'read' } }],
+      messages: [{ role: 'user', content: 'test' }] }),
+  })
+  const outgoingForms = () => frames.filter(frame => frame.method === 'elicitation/create')
+  try {
+    assert.equal(proxy.supportsQuestionForms(), false)
+    input.write(send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientCapabilities: { elicitation: { form: {} } } } }))
+    for (const [id, sessionId] of [[2, 'first'], [3, 'second']]) {
+      input.write(send({ jsonrpc: '2.0', id, method: 'session/load', params: { sessionId } }))
+      childOutput.write(send({ jsonrpc: '2.0', id, result: {} }))
+    }
+    await until(() => proxy.supportsQuestionForms() && frames.some(frame => frame.id === 3))
+    assert.throws(() => proxy.requestQuestionForm('other', 'tool', questions, { timeoutMs: 1000 }), /unavailable/)
+    for (const [id, sessionId] of [[4, 'first'], [5, 'second']]) {
+      input.write(send({ jsonrpc: '2.0', id, method: 'session/prompt', params: { sessionId } }))
+    }
+    const first = post('first')
+    await until(() => outgoingForms().length === 1)
+    const second = post('second')
+    await until(() => outgoingForms().length === 2)
+    const [submitted, cancelled] = outgoingForms()
+    assert.equal(submitted.params.sessionId, 'first')
+    assert.deepEqual(submitted.params.requestedSchema.properties.q0.items.anyOf.map(option => option.const), ['one', 'two'])
+    assert.equal(cancelled.params.sessionId, 'second')
+    const answers = { 0: ['one', 'free text'] }
+    const response = { action: 'accept', content: { q0: ['one'], q0_custom: 'free text' } }
+    input.write(send({ jsonrpc: '2.0', id: submitted.id, result: response }))
+    input.write(send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId: 'second' } }))
+    input.write(send({ jsonrpc: '2.0', id: cancelled.id, result: response }))
+    for (const http of await Promise.all([first, second])) {
+      assert.equal(http.status, 200)
+      assert.match(await http.text(), /continued/)
+    }
+    assert.deepEqual(approvals, [
+      { outcome: { outcome: 'selected', optionId: 'yes' }, _meta: { pac: { answers } } },
+      { outcome: { outcome: 'selected', optionId: 'no' } },
+    ])
+    assert.ok(!forwarded.some(frame => frame.id === submitted.id || frame.id === cancelled.id))
+  } finally {
+    proxy.close()
+    server.closeAllConnections()
+    await new Promise(resolve => server.close(resolve))
+  }
+})

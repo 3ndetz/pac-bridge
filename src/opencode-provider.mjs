@@ -18,8 +18,8 @@ function userPrompt(content) {
 
 // Experimental transport. Unsupported events and permissions terminate the
 // turn rather than being translated into a successful text answer.
-export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {}, onBackgroundTasks = () => {}, onToolUpdate, stopGuard, enableExperimentalTaskStop = false }) {
-  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1 || typeof onBackgroundTasks !== 'function' || (onToolUpdate !== undefined && typeof onToolUpdate !== 'function') || typeof enableExperimentalTaskStop !== 'boolean' || (stopGuard !== undefined && typeof stopGuard?.claim !== 'function')) throw new Error('Invalid provider configuration')
+export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 * 1024 * 1024, permissionTimeoutMs = 600000, onFailure = () => {}, onBackgroundTasks = () => {}, onToolUpdate, requestQuestionForm, stopGuard, enableExperimentalTaskStop = false }) {
+  if (!router || typeof router.prompt !== 'function' || typeof token !== 'string' || token.length < 32 || typeof cwd !== 'string' || !cwd || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1 || !Number.isSafeInteger(permissionTimeoutMs) || permissionTimeoutMs < 1 || typeof onBackgroundTasks !== 'function' || (requestQuestionForm !== undefined && typeof requestQuestionForm !== 'function') || (onToolUpdate !== undefined && typeof onToolUpdate !== 'function') || typeof enableExperimentalTaskStop !== 'boolean' || (stopGuard !== undefined && typeof stopGuard?.claim !== 'function')) throw new Error('Invalid provider configuration')
   const expected = Buffer.from(`Bearer ${token}`)
   const seen = new Map()
   const turns = new Map()
@@ -224,9 +224,22 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
         if (event.type === 'permission') {
           if (event.question) {
             const questions = event.toolCall?.rawInput?.questions
-            if (!body.tools.some((tool) => tool.function?.name === 'question') || !Array.isArray(questions) || !questions.length || questions.length > 4 ||
+            if (!Array.isArray(questions) || !questions.length || questions.length > 4 ||
                 questions.some((q) => typeof q?.question !== 'string' || !q.question || q.question.length > 16384 || typeof q.header !== 'string' ||
                   !Array.isArray(q.options) || !q.options.length || q.options.length > 20 || q.options.some((o) => typeof o?.label !== 'string' || !o.label || typeof o.description !== 'string'))) throw new Error('PAC interactive questions are not supported by this OpenCode adapter')
+            const form = requestQuestionForm?.(sessionId, event.toolCall?.toolCallId, questions,
+              { signal: turn.cancellation.signal, timeoutMs: permissionTimeoutMs })
+            if (form) {
+              write({})
+              const answers = await form
+              if (turn.cancellation.signal.aborted) return
+              const option = event.options.find((entry) => entry.kind === (answers === null ? 'reject_once' : 'allow_once'))
+              if (!option) throw new Error('PAC question response is unsupported')
+              if (answers !== null) mapQuestionAnswers(questions, answers)
+              turn.channel.resolvePermission(event.id, sessionId, option.optionId, answers)
+              continue
+            }
+            if (!body.tools.some((tool) => tool.function?.name === 'question')) throw new Error('PAC interactive questions are not supported by this OpenCode adapter')
             turn.pending = { ...event, questions, resolved: false }
             turn.timer = setTimeout(() => cancelTurn(sessionId, turn), permissionTimeoutMs)
             turn.timer.unref()

@@ -4,12 +4,16 @@ import { normalizePacBackgroundTasks } from './pac-background-tasks.mjs'
 
 export function createOpencodeAcpProxy({ input, output, childInput, childOutput, providerUrl, token, maxLineBytes = 16 * 1024 * 1024, maxTracked = 4096, maxStops = 32, timeoutMs = 30000, onFatal = () => {}, onSnapshotReady }) {
   const sessions = new Set(), openings = new Map(), prompts = new Map(), pendingTools = new Map(), stops = new Set(), seenStops = new Set(), snapshots = new Set()
+  const forms = new Map()
+  const formPrefix = `pac-form:${randomUUID()}:`
+  let formsSupported = false
   let closed = false
   const valid = x => typeof x === 'string' && x.length > 0 && x.length <= 512 && !/[\s\x00-\x1f\x7f]/.test(x)
   const key = id => JSON.stringify([typeof id, id])
   function fail(error) {
     if (closed) return
     closed = true
+    for (const form of forms.values()) form.finish(null)
     input.unpipe(inbound); input.pause(); childOutput.unpipe(outbound)
     inbound.destroy(); outbound.destroy(); childInput.destroy(); childOutput.destroy()
     if (error) input.destroy()
@@ -29,6 +33,50 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
     const msg = error ? { jsonrpc: '2.0', id, error: { code: -32000, message: error } } : { jsonrpc: '2.0', id, result }
     try { send(msg) } catch (error) { fail(error) }
   }
+  function requestQuestionForm(sessionId, toolCallId, questions, { signal, timeoutMs }) {
+    if (!formsSupported || closed || !valid(sessionId) || !valid(toolCallId) ||
+        ![...prompts.values()].includes(sessionId) || forms.size >= maxStops ||
+        [...forms.values()].some(form => form.sessionId === sessionId)) {
+      throw new Error('PAC interactive question client is unavailable')
+    }
+    if (signal?.aborted) return Promise.resolve(null)
+    const id = formPrefix + randomUUID()
+    return new Promise((resolve, reject) => {
+      const cancel = () => finish(null)
+      const timer = setTimeout(cancel, timeoutMs)
+      timer.unref()
+      const finish = (answers, error) => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', cancel)
+        forms.delete(id)
+        if (error) reject(error)
+        else resolve(answers)
+      }
+      forms.set(id, { sessionId, finish, questions })
+      signal?.addEventListener('abort', cancel, { once: true })
+      try {
+        const properties = {}
+        for (const [index, question] of questions.entries()) {
+          const key = 'q' + index
+          const variants = question.options.map(({ label, description }) => ({ const: label, title: label, description }))
+          properties[key] = {
+            title: question.header,
+            description: question.question,
+            ...(question.multiSelect === true
+              ? { type: 'array', items: { type: 'string', anyOf: variants } }
+              : { type: 'string', oneOf: variants }),
+          }
+          properties[key + '_custom'] = { type: 'string' }
+        }
+        send({ jsonrpc: '2.0', id, method: 'elicitation/create', params: {
+          mode: 'form', sessionId, toolCallId,
+          message: 'Answer the PAC question',
+          requestedSchema: { type: 'object', properties },
+        } })
+      } catch (error) { finish(null, error) }
+    })
+  }
+
   function publishToolUpdate(sessionId, update) {
     if (!valid(sessionId) || !sessions.has(sessionId) || ![...prompts.values()].includes(sessionId) ||
         !update || !['tool_call', 'tool_call_update'].includes(update.sessionUpdate) || !valid(update.toolCallId)) {
@@ -80,8 +128,35 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
     }, flush(done) { if (size) done(new Error('Incomplete ACP message')); else done() } })
   }
   const inbound = lineTransform(msg => {
-    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string' || !Object.hasOwn(msg, 'id')) return
+    if (!msg || msg.jsonrpc !== '2.0') return
+    if (!Object.hasOwn(msg, 'method') && typeof msg.id === 'string' && msg.id.startsWith(formPrefix)) {
+      const form = forms.get(msg.id)
+      const result = msg.error ? null : msg.result
+      const content = result?.action === 'accept' ? result.content : null
+      if (form && content && typeof content === 'object' && !Array.isArray(content)) {
+        const answers = {}
+        for (const [index, question] of form.questions.entries()) {
+          const selected = content['q' + index]
+          const typed = content['q' + index + '_custom']
+          const values = question.multiSelect === true ? selected ?? [] : selected === undefined ? [] : [selected]
+          if (!Array.isArray(values) || !values.every(label => question.options.some(option => option.label === label)) ||
+              (typed !== undefined && typeof typed !== 'string') ||
+              (question.multiSelect !== true && values.length && typed !== undefined)) {
+            form.finish(null)
+            return false
+          }
+          answers[index] = typed === undefined ? values : [...values, typed]
+        }
+        form.finish(answers)
+      } else form?.finish(null)
+      return false
+    }
+    if (msg.method === 'session/cancel') {
+      for (const form of forms.values()) if (form.sessionId === msg.params?.sessionId) form.finish(null)
+    }
+    if (typeof msg.method !== 'string' || !Object.hasOwn(msg, 'id')) return
     const id = msg.id, k = key(id)
+    if (msg.method === 'initialize') formsSupported = Boolean(msg.params?.clientCapabilities?.elicitation?.form)
     if (msg.method === 'session/prompt' && valid(msg.params?.sessionId) && sessions.has(msg.params.sessionId)) {
       if (prompts.size >= maxTracked || prompts.has(k)) throw new Error('ACP prompt tracking limit')
       prompts.set(k, msg.params.sessionId)
@@ -137,6 +212,7 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
     const k = key(msg.id)
     const promptSession = prompts.get(k)
     if (promptSession) {
+      for (const form of forms.values()) if (form.sessionId === promptSession) form.finish(null)
       // A native cancellation can end the prompt while a PAC permission
       // segment is paused. Do not leave its visible calls pending forever
       // or claim anything about side effects that have not been reconciled.
@@ -157,5 +233,5 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
   input.on('close', () => { if (!input.readableEnded) fail(new Error('input closed')) }); output.on('close', () => fail(new Error('output closed')))
   childInput.on('close', () => { if (!childInput.writableFinished) fail(new Error('child input closed')) }); childOutput.on('close', () => { if (!childOutput.readableEnded) fail(new Error('child output closed')) })
   input.pipe(inbound).pipe(childInput); childOutput.pipe(outbound).pipe(output, { end: false })
-  return { publishToolUpdate, publishBackgroundTasks, publishBackgroundAvailability, close: () => fail() }
+  return { supportsQuestionForms: () => formsSupported, requestQuestionForm, publishToolUpdate, publishBackgroundTasks, publishBackgroundAvailability, close: () => fail() }
 }

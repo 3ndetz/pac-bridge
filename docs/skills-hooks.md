@@ -36,8 +36,10 @@ In ACP mode, PAC tool calls and updates are published as native `session/update`
 
 ## Interactive questions in OpenCode ACP
 
-The provider can translate a PAC question only when the source OpenCode offers
-its native question tool and the client can deliver the answer. In the verified
+An ACP client that advertises form elicitation receives PAC questions through
+its existing form UI. Multiple selections and typed answers return to the
+originating turn. Rejection, prompt cancellation and timeout do not replay
+the request. Older clients require a native, answerable OpenCode question tool. In the verified
 OpenCode 1.19.5 ACP setup, the tool is absent by default. In an isolated test,
 setting OpenCode's `OPENCODE_ENABLE_QUESTION_TOOL=1` advertised the tool but
 produced no actionable ACP request. The prompt timed out with the PAC question
