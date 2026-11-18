@@ -88,18 +88,20 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
       if (request.url === '/pac/approval') {
         const turn = turns.get(body.sessionId)
         const permission = turn?.pending
-        if (!permission || permission.id !== body.id || permission.resolved || !['inspect', 'resolve', 'cancel'].includes(body.action)) return fail(400, 'Unknown permission')
+        if (!permission || permission.id !== body.id || (permission.resolved && body.action !== 'cancel') || !['inspect', 'resolve', 'cancel'].includes(body.action)) return fail(400, 'Unknown permission')
         if (body.action === 'inspect') {
           const toolCall = permission.toolCall || {}
           const title = typeof toolCall.title === 'string' ? toolCall.title.slice(0, 512) : 'PAC action'
           return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ title, toolCall }))
         }
         if (body.action === 'cancel') {
-          if (!permission.question) return fail(400, 'Invalid cancellation')
-          const option = permission.options.find((entry) => entry.kind === 'reject_once')
-          if (!option) return fail(400, 'Question cancellation is unsupported')
-          turn.channel.resolvePermission(permission.id, body.sessionId, option.optionId)
-          permission.resolved = true
+          if (turn.streaming) return fail(409, 'A PAC response segment is active')
+          if (!permission.resolved) {
+            const option = permission.options.find((entry) => entry.kind === 'reject_once')
+            if (!option) return fail(400, 'Permission cancellation is unsupported')
+            turn.channel.resolvePermission(permission.id, body.sessionId, option.optionId)
+            permission.resolved = true
+          }
           clearTimeout(turn.timer)
           // OpenCode ends the assistant message on rejection without sending
           // a continuation. Cancel remotely and retain the turn until ACP
@@ -243,7 +245,7 @@ export function createOpencodeProvider({ router, token, cwd, maxBodyBytes = 16 *
           const operation = Object.fromEntries(['title', 'kind', 'rawInput'].filter((key) => Object.hasOwn(event.toolCall || {}, key)).map((key) => [key, event.toolCall[key]]))
           const description = JSON.stringify(operation)
           if (Buffer.byteLength(description) > 1024 * 1024) throw new Error('PAC approval details exceed size limit')
-          write({ content: `\n[PAC approval requested]\n${description}\n` })
+          if (!onToolUpdate) write({ content: `\n[PAC approval requested]\n${description}\n` })
           write({ tool_calls: [{ index: 0, id: event.id, type: 'function', function: { name: 'pac_approval', arguments: JSON.stringify({ id: event.id }) } }] })
           write({}, 'tool_calls')
           turn.streaming = false

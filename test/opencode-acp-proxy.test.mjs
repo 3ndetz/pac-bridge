@@ -349,3 +349,22 @@ test('provider publishes concurrent source tool events through their original AC
     for(const f of updates){assert.equal(f.params.update.toolCallId,'read-'+f.params.sessionId);if(f.params.update.status==='completed')assert.equal(f.params.update.rawOutput,f.params.sessionId+'-only')}
   } finally { proxy.close();await new Promise(r=>server.close(r)) }
 })
+
+
+test('native prompt completion closes only its own interrupted visible tools', async () => {
+  const input=new PassThrough(),output=new PassThrough(),ci=new PassThrough(),co=new PassThrough();ci.resume()
+  const frames=[];output.on('data',raw=>frames.push(...raw.toString().trim().split('\n').map(JSON.parse)))
+  const proxy=createOpencodeAcpProxy({input,output,childInput:ci,childOutput:co,providerUrl:'http://127.0.0.1:1',token:'fixture'})
+  try{
+    for(const [id,sid] of [[1,'first'],[2,'second']]){input.write(send({jsonrpc:'2.0',id,method:'session/load',params:{sessionId:sid}}));co.write(send({jsonrpc:'2.0',id,result:{}}))}
+    await wait()
+    for(const [id,sid] of [[3,'first'],[4,'second']])input.write(send({jsonrpc:'2.0',id,method:'session/prompt',params:{sessionId:sid}}))
+    await wait()
+    for(const sid of ['first','second'])proxy.publishToolUpdate(sid,{sessionUpdate:'tool_call',toolCallId:'call-'+sid,status:'pending',title:'Read',kind:'read'})
+    co.write(send({jsonrpc:'2.0',id:3,result:{stopReason:'cancelled'}}));await wait()
+    const failed=frames.filter(f=>f.params?.update?.status==='failed');assert.equal(failed.length,1);assert.equal(failed[0].params.sessionId,'first');assert.match(failed[0].params.update.rawOutput,/Review its outcome/)
+    proxy.publishToolUpdate('second',{sessionUpdate:'tool_call_update',toolCallId:'call-second',status:'completed'})
+    co.write(send({jsonrpc:'2.0',id:4,result:{stopReason:'end_turn'}}));await wait()
+    assert.equal(frames.filter(f=>f.params?.update?.status==='failed').length,1)
+  }finally{proxy.close()}
+})

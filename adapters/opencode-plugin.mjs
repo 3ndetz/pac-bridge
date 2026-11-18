@@ -8,7 +8,8 @@ export default async function pacBridgePlugin() {
   if (!Array.isArray(namedIds) || namedIds.some(id => typeof id !== 'string' || !/^PAC_[A-Za-z0-9_.-]+$/.test(id))) throw new Error('Invalid PAC provider identities')
   const isPacProvider = id => id === 'pacbridge' || namedIds.includes(id)
   const questionCalls = new Map()
-  async function cancelQuestion(entry) {
+  const approvalCalls = new Map()
+  async function cancelInteraction(entry) {
     const base = process.env.PAC_PROVIDER_URL, token = process.env.PAC_PROVIDER_TOKEN
     if (!base || !token) return
     try {
@@ -35,17 +36,19 @@ export default async function pacBridgePlugin() {
         if (questionCalls.size >= 1024) questionCalls.delete(questionCalls.keys().next().value)
         questionCalls.set(props.id, { sessionId: props.sessionID, id: props.tool.callID })
       }
-      if (event?.type === 'session.idle' && typeof props?.sessionID === 'string') {
+      if ((event?.type === 'session.idle' || (event?.type === 'session.status' && props?.status?.type === 'idle')) && typeof props?.sessionID === 'string') {
         const pending = [...questionCalls].filter(([, entry]) => entry.sessionId === props.sessionID)
         for (const [requestId] of pending) questionCalls.delete(requestId)
-        await Promise.all(pending.map(([, entry]) => cancelQuestion(entry)))
+        const approvals = [...approvalCalls].filter(([, entry]) => entry.sessionId === props.sessionID)
+        for (const [id] of approvals) approvalCalls.delete(id)
+        await Promise.all([...pending, ...approvals].map(([, entry]) => cancelInteraction(entry)))
         return
       }
       if (!['question.rejected', 'question.replied'].includes(event?.type)) return
       const entry = questionCalls.get(props?.requestID)
       questionCalls.delete(props?.requestID)
       if (!entry || event.type !== 'question.rejected' || entry.sessionId !== props.sessionID) return
-      await cancelQuestion(entry)
+      await cancelInteraction(entry)
     },
     config: async (config) => {
       const current = config.permission
@@ -71,13 +74,15 @@ export default async function pacBridgePlugin() {
           const token = process.env.PAC_PROVIDER_TOKEN
           if (!base || !token) throw new Error('PAC approval service is unavailable')
           async function exchange(action, extra = {}) {
-            const response = await fetch(`${base}/pac/approval`, { method: 'POST', signal: action === 'resolve' ? AbortSignal.timeout(5000) : context.abort,
+            const response = await fetch(`${base}/pac/approval`, { method: 'POST', signal: ['resolve', 'cancel'].includes(action) ? AbortSignal.timeout(5000) : context.abort,
               headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
               body: JSON.stringify({ action, id, sessionId: context.sessionID, ...extra }) })
             if (!response.ok) throw new Error('PAC approval is no longer available')
             return response.json()
           }
           const details = await exchange('inspect')
+          if (approvalCalls.size >= 1024 && !approvalCalls.has(id)) throw new Error('PAC approval tracking capacity reached')
+          approvalCalls.set(id, { sessionId: context.sessionID, id })
           const input = details.toolCall?.rawInput
           const rendered = typeof input === 'string' ? input : input === undefined ? '' : JSON.stringify(input)
           const title = `${details.title}${rendered ? `: ${rendered}` : ''}`.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 512)
@@ -87,6 +92,11 @@ export default async function pacBridgePlugin() {
             await context.ask({ permission: 'pac_bridge', patterns: [title], always: [], metadata: { toolCall: details.toolCall } })
             decision = 'allow'
           } catch {}
+          if (context.abort.aborted) {
+            await exchange('cancel')
+            approvalCalls.delete(id)
+            return 'PAC action cancelled.'
+          }
           await exchange('resolve', { decision })
           return decision === 'allow' ? 'PAC action approved.' : 'PAC action rejected.'
         },

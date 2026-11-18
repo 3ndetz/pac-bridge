@@ -3,7 +3,7 @@ import { Transform } from 'node:stream'
 import { normalizePacBackgroundTasks } from './pac-background-tasks.mjs'
 
 export function createOpencodeAcpProxy({ input, output, childInput, childOutput, providerUrl, token, maxLineBytes = 16 * 1024 * 1024, maxTracked = 4096, maxStops = 32, timeoutMs = 30000, onFatal = () => {}, onSnapshotReady }) {
-  const sessions = new Set(), openings = new Map(), prompts = new Map(), stops = new Set(), seenStops = new Set(), snapshots = new Set()
+  const sessions = new Set(), openings = new Map(), prompts = new Map(), pendingTools = new Map(), stops = new Set(), seenStops = new Set(), snapshots = new Set()
   let closed = false
   const valid = x => typeof x === 'string' && x.length > 0 && x.length <= 512 && !/[\s\x00-\x1f\x7f]/.test(x)
   const key = id => JSON.stringify([typeof id, id])
@@ -37,6 +37,14 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
     const clean = Object.fromEntries(['sessionUpdate', 'toolCallId', 'title', 'kind', 'status', 'rawInput', 'rawOutput', 'content', 'locations']
       .filter(k => Object.hasOwn(update, k)).map(k => [k, update[k]]))
     if (Buffer.byteLength(JSON.stringify(clean)) > 1024 * 1024) throw new Error('PAC tool update exceeds size limit')
+    const promptKey = [...prompts].find(([, owner]) => owner === sessionId)[0]
+    let pending = pendingTools.get(promptKey)
+    if (!pending) { pending = new Set(); pendingTools.set(promptKey, pending) }
+    if (['completed', 'failed'].includes(clean.status)) pending.delete(clean.toolCallId)
+    else {
+      if (pending.size >= maxTracked && !pending.has(clean.toolCallId)) throw new Error('PAC tool tracking limit')
+      pending.add(clean.toolCallId)
+    }
     try { send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: clean } }) }
     catch (error) { fail(error); throw new Error('PAC tool update delivery failed') }
   }
@@ -127,6 +135,14 @@ export function createOpencodeAcpProxy({ input, output, childInput, childOutput,
   const outbound = lineTransform(msg => {
     if (!msg || msg.jsonrpc !== '2.0' || Object.hasOwn(msg, 'method') || !Object.hasOwn(msg, 'id')) return
     const k = key(msg.id)
+    const promptSession = prompts.get(k)
+    if (promptSession) {
+      // A native cancellation can end the prompt while a PAC permission
+      // segment is paused. Do not leave its visible calls pending forever
+      // or claim anything about side effects that have not been reconciled.
+      for (const toolCallId of pendingTools.get(k) || []) send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: promptSession, update: { sessionUpdate: 'tool_call_update', toolCallId, status: 'failed', rawOutput: 'PAC operation interrupted. Review its outcome before retrying.' } } })
+      pendingTools.delete(k)
+    }
     prompts.delete(k)
     const opening = openings.get(k)
     if (!opening) return
