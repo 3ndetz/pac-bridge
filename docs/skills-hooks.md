@@ -33,3 +33,15 @@ Glob and Grep use ripgrep on the source machine. `PAC_SOURCE_RG` explicitly sele
 ## HAPI tool progress
 
 In ACP mode, PAC tool calls and updates are published as native `session/update` events for the active originating OpenCode prompt. File paths, inputs, results and completion status remain structured instead of being appended as JSON to assistant text. Unknown, inactive and completed prompt destinations are rejected. The plain HTTP provider retains its text fallback when no ACP event destination is attached; this does not establish complete native OpenCode tool-history parity.
+
+## Interactive questions in OpenCode ACP
+
+The provider can translate a PAC question only when the source OpenCode offers
+its native question tool and the client can deliver the answer. In the verified
+OpenCode 1.19.5 ACP setup, the tool is absent by default. In an isolated test,
+setting OpenCode's `OPENCODE_ENABLE_QUESTION_TOOL=1` advertised the tool but
+produced no actionable ACP request. The prompt timed out with the PAC question
+still pending. Leave the flag at its runtime default for HAPI until the client
+can deliver and cancel a form end to end. The provider reports an unsupported
+question explicitly and does not replay the turn. Ordinary tool approval and
+abort use a separate path.
