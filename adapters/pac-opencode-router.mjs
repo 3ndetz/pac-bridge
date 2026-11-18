@@ -404,7 +404,7 @@ client = createAcpPeer(Duplex.from({ readable: process.stdin, writable: process.
           state.pendingTerminalCreates = new Map()
           state.pendingQuestions = new Map()
           state.pendingWrites = new Map()
-          state.search = await createSearch({ root: params.cwd, sessionId: state.remote.sessionId, executable: process.env.PAC_SOURCE_RG || 'rg' })
+          state.search = await createSearch({ root: params.cwd, sessionId: state.remote.sessionId, executable: process.env.PAC_SOURCE_RG })
           state.terminal = await createTerminalManager({ root: params.cwd, sessionId: state.remote.sessionId, authorize: async (command, { signal } = {}) => {
             const toolCallId = `pac-terminal-${randomUUID()}`
             const cancel = () => { try { client.notify('pac/permission/cancelled', { sessionId: session.id, toolCallId }) } catch {} }

@@ -25,3 +25,7 @@ OpenCode plugins and their hooks are native OpenCode features. Running a similar
 Earlier local Claude hook checks are retained as [isolated experiment evidence](claude-hook-experiments.md), not current OpenCode acceptance. Completion notifications are a separate [bridge callback](telegram-notifications.md), not a substitute for native OpenCode plugins. Remaining delivery checks are in [the worklist](completion-worklist.md).
 
 The OpenCode router identifies its source harness in session metadata. A controller-wide legacy Claude project-hook flag does not opt OpenCode sessions into Claude source hook execution. Legacy hook experiments must explicitly identify a Claude source; they remain separate from native OpenCode plugins and hooks.
+
+## Source file search
+
+Glob and Grep use ripgrep on the source machine. `PAC_SOURCE_RG` explicitly selects its executable. Otherwise the adapter uses the source OpenCode search binary in `$XDG_CACHE_HOME/opencode/bin` (default `~/.cache/opencode/bin`, `rg.exe` on Windows), then falls back to `rg` on PATH. It does not search local Claude or other agent installations, change the system PATH, or download a binary. If neither source is available, the operation fails with setup guidance. Existing workspace, session, output and time limits still apply.

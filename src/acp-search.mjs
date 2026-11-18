@@ -1,11 +1,36 @@
 import { execFile } from 'node:child_process'
-import { realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { access, realpath, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { homedir } from 'node:os'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 const execute = promisify(execFile)
 
-export async function createSearch({ root, sessionId, executable = 'rg', maxBytes = 1024 * 1024, timeoutMs = 30000 }) {
+// OpenCode prepares its own search binary outside PATH. Runner services often
+// inherit an older PATH, so use that source-harness cache without importing any
+// local Claude or other agent installation. Explicit operator selection wins.
+export async function resolveSearchExecutable({ executable, env = process.env, home = homedir(), platform = process.platform } = {}) {
+  if (executable !== undefined) {
+    if (typeof executable !== 'string' || !executable || executable.includes('\0')) throw new Error('Invalid search executable')
+    return executable
+  }
+  const cache = env.XDG_CACHE_HOME || join(home, '.cache')
+  if (!isAbsolute(cache)) throw new Error('An absolute OpenCode cache directory is required')
+  const candidate = join(cache, 'opencode', 'bin', platform === 'win32' ? 'rg.exe' : 'rg')
+  try {
+    if ((await stat(candidate)).isFile()) {
+      await access(candidate, constants.X_OK)
+      return candidate
+    }
+  } catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) throw error
+  }
+  return 'rg'
+}
+
+export async function createSearch({ root, sessionId, executable, maxBytes = 1024 * 1024, timeoutMs = 30000 }) {
+  executable = await resolveSearchExecutable({ executable })
   if (!isAbsolute(root) || typeof sessionId !== 'string' || !sessionId || typeof executable !== 'string' || !executable ||
       !Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('Invalid search configuration')
   const workspace = await realpath(root)
@@ -27,6 +52,7 @@ export async function createSearch({ root, sessionId, executable = 'rg', maxByte
     } catch (error) {
       if (error.code === 1) return error.stdout || ''
       if (error.killed || error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error('Search exceeded its time or output limit')
+      if (error.code === 'ENOENT') throw new Error('Search requires ripgrep: let OpenCode prepare its search binary, install rg on PATH, or set PAC_SOURCE_RG to a trusted executable')
       throw new Error(`Search failed: ${error.stderr?.trim() || error.message}`)
     }
   }
