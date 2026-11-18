@@ -22,7 +22,9 @@ foreach($name in @('connection.json','pac-source-token.txt','pac-relay-ca.pem'))
 if(Test-Path -LiteralPath $pac){throw 'A PAC profile already exists; use its reviewed migration procedure.'}
 if(!(Test-Path -LiteralPath (Join-Path $kit 'windows\Install-Runner.ps1') -PathType Leaf)){throw 'A permanent ServerMallAgents kit is required.'}
 $cfg=Get-Content -LiteralPath (Join-Path $keys 'connection.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if($cfg.relayUrl -notmatch '^wss://[^/]+$' -or $cfg.pacName -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$' -or !$cfg.controllerCwd){throw 'Invalid PAC connection settings.'}
+. (Join-Path $PSScriptRoot 'Resolve-ProviderRelayUrl.ps1')
+$null=Resolve-ProviderRelayUrl -Value $cfg.relayUrl
+if($cfg.pacName -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$' -or !$cfg.controllerCwd){throw 'Invalid PAC connection settings.'}
 if((& $opencode --version).Trim() -ne '1.19.5'){throw 'The verified OpenCode 1.19.5 is required.'}
 $portableNode=Join-Path $env:LOCALAPPDATA 'ServermallWorkflow\node'
 if(Test-Path -LiteralPath (Join-Path $portableNode 'node.exe') -PathType Leaf){$env:PATH=$portableNode+';'+$env:PATH}

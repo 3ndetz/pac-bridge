@@ -8,12 +8,13 @@ $keys=Join-Path $testRoot 'keys'
 $profileHome=Join-Path $profile '.hapi-servermall'
 New-Item -ItemType Directory -Force -Path $profileHome,(Join-Path $kit 'windows'),$keys | Out-Null
 foreach($name in @('settings.json','connection.json','machine-token')){[IO.File]::WriteAllText((Join-Path $profileHome $name),'synthetic')}
-[IO.File]::WriteAllText((Join-Path $keys 'connection.json'),'{"relayUrl":"wss://example.invalid","pacName":"testpac","controllerCwd":"C:/test"}')
+[IO.File]::WriteAllText((Join-Path $keys 'connection.json'),'{"relayUrl":"wss://example.invalid/","pacName":"testpac","controllerCwd":"C:/test"}')
 foreach($name in @('pac-source-token.txt','pac-relay-ca.pem')){[IO.File]::WriteAllText((Join-Path $keys $name),'synthetic')}
 [IO.File]::WriteAllText((Join-Path $kit 'windows\Install-Runner.ps1'),'# synthetic: never executed')
 $runtime=Join-Path $kit 'windows\Runtime.ps1'
 [IO.File]::WriteAllText($runtime,"`$env:EXISTING_PROFILE_MARKER='preserved'`r`n")
 $previous=$env:USERPROFILE
+$passed=$false
 try {
   $env:USERPROFILE=$profile
   & (Join-Path $root 'windows\Configure-ExistingProvider.ps1') -KitPath $kit -KeysPath $keys -OpenCodePath $OpenCodePath
@@ -24,5 +25,14 @@ try {
   $refused=$false
   try { & (Join-Path $root 'windows\Configure-ExistingProvider.ps1') -KitPath $kit -KeysPath $keys -OpenCodePath $OpenCodePath } catch { $refused=$true }
   if(!$refused){throw 'Existing PAC profile must not be overwritten.'}
+  $passed=$true
   Write-Output 'Synthetic existing-profile bootstrap passed.'
-} finally { $env:USERPROFILE=$previous }
+ } finally {
+  $env:USERPROFILE=$previous
+  if($passed){
+    $actual=[IO.Path]::GetFullPath($testRoot)
+    $parent=[IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
+    if([IO.Path]::GetDirectoryName($actual) -ine $parent -or [IO.Path]::GetFileName($actual) -notmatch '^pac-bootstrap-[0-9a-f]{32}$' -or ((Get-Item -LiteralPath $actual).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Unsafe bootstrap fixture cleanup'}
+    Remove-Item -LiteralPath $actual -Recurse -Force
+  }
+}
